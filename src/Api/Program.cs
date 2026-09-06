@@ -28,6 +28,7 @@ builder.Host.UseSerilog((context, configuration) =>
 });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddProblemDetails();
 builder.Services.AddFastEndpoints();
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("db", tags: ["ready"]);
 if (builder.Environment.IsDevelopment())
@@ -60,6 +61,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 app.UseSerilogRequestLogging();
+app.UseStatusCodePages();
 app.MapHealth();
 app.UseFastEndpoints(c =>
 {

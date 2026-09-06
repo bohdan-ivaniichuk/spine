@@ -42,7 +42,11 @@ public sealed class GetConceptEndpoint(IKnowledgeQueries queries) : Endpoint<Get
         var concept = await queries.GetConceptAsync(req.Domain, req.Topic, req.Concept, req.ParsedLanguage, req.IncludeDeprecated, ct);
         if (concept is null)
         {
-            await Send.NotFoundAsync(ct);
+            await Send.ResultAsync(TypedResults.Problem(
+                title: "Concept not found",
+                detail: $"No concept '{req.Domain}/{req.Topic}/{req.Concept}' (deprecated items need includeDeprecated=true).",
+                statusCode: StatusCodes.Status404NotFound,
+                instance: HttpContext.Request.Path));
             return;
         }
 
