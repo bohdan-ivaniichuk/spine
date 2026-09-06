@@ -1,0 +1,1284 @@
+{
+  "domain": "dotnet",
+  "topic": "clr-memory",
+  "concepts": [
+    {
+      "slug": "stack-vs-heap",
+      "title": "Stack vs Heap: Value and Reference Semantics",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Stack vs Heap: Value and Reference Semantics",
+          "note": "## What it is\n\nA variable of a **value type** (`struct`, `enum`, primitives, `Nullable<T>`, tuples) *contains* its data. A variable of a **reference type** (`class`, `interface`, `delegate`, `string`, arrays) contains a pointer to an object on the managed heap. \"Stack vs heap\" is the folklore version of that distinction, and interviewers use it as a filter. The accurate rule: **a value lives wherever its containing variable lives.** The type does not choose the location; the storage of the variable does.\n\n## Where a value type actually ends up\n\n- An uncaptured local or parameter: in the stack frame, or in a register if the JIT enregisters it. No GC allocation.\n- A field of a class: inline inside the parent object, on the heap. `class Order { Money Total; }` stores the bytes of `Money` inside the `Order` object.\n- An array element: inline in the array's heap block; a `Point[]` of 1,000 elements is one allocation.\n- A local captured by a lambda, or any local in an iterator (`yield`) or `async` method: hoisted into a compiler-generated class (display class or state machine). In Release builds the async state machine is a struct; the first time an `await` does not complete synchronously it is copied into a heap-allocated `AsyncStateMachineBox<TStateMachine>` (since .NET Core 2.1; not a plain `box` instruction). In Debug builds it is a class from the start.\n- A boxed value: a fresh heap object holding a copy.\n\n## Boxing and unboxing\n\nBoxing happens whenever a value type is converted to `object`, `System.ValueType`, or an interface it implements. The runtime allocates an object header, a method-table pointer and a copy of the value (a boxed `int` is 24 bytes on x64). Unboxing copies the value back and requires the boxed type to match: `(long)o` on a boxed `int` throws `InvalidCastException`, because unboxing is not a numeric conversion. The CLR tolerates only two mismatches: `null` unboxes to an empty `Nullable<T>`, and an enum is interchangeable with its underlying integral type.\n\nHidden boxing sites worth naming:\n\n- Non-generic collections and APIs: `ArrayList`, `IList`, `string.Format(string, object)`.\n- Passing a struct where an interface is expected (`IComparable`, `IEquatable<T>`) without a generic constraint.\n- Calling a virtual `object` member the struct does not override (`ToString`, `GetHashCode`, `Equals(object)`). The `constrained.` IL prefix lets the JIT call an override directly, but boxes `this` when the method is inherited from `ValueType`.\n- Historical, now fixed: `Enum.HasFlag` boxed both operands until .NET Core 2.1 made it a JIT intrinsic; string interpolation with value-type holes boxed until C# 10 interpolated string handlers.\n\nGenerics are the cure. `List<int>` stores raw ints, and `where T : IComparable<T>` lets the JIT emit a direct call for each value-type `T`; shared code is generated only for reference-type `T`.\n\n## Copy semantics: the bugs interviewers probe\n\nEvery assignment, argument pass, return and `foreach` iteration copies a value type. `list[0].X = 10` on a `List<Point>` is compile error CS1612 because the indexer returns a copy that would be discarded; `array[0].X = 10` compiles because an array element is a variable. A mutable struct in a `readonly` field or behind an `in` parameter is defensively copied before every member call unless the struct is `readonly struct` (C# 7.2) or the member is `readonly` (C# 8).\n\nLarge structs are also expensive to copy. The 16-byte guideline still holds; beyond that, pass by `in` or `ref readonly` (C# 12) and measure.\n\n## `ref struct` and the modern escape hatch\n\nA `ref struct` (`Span<T>`, `ReadOnlySpan<T>`) may only live on the stack: it cannot be boxed, be a field of a class, or be captured by a lambda. C# 13 allows `ref struct` values in `async` and iterator methods as long as they are not live across an `await` or `yield`, lets them implement interfaces, and adds the `allows ref struct` anti-constraint.\n\nGoing the other way, since .NET 9 the JIT performs escape analysis and can stack-allocate small objects that do not escape; .NET 10 extended this to small fixed-size arrays and non-escaping delegates. Semantics are unchanged, but \"`new` always allocates on the heap\" is no longer literally true.\n\n```csharp\nstruct Point : IEquatable<Point>\n{\n    public int X, Y;\n    public bool Equals(Point other) => X == other.X && Y == other.Y;\n    public override bool Equals(object? obj) => obj is Point p && Equals(p);\n    public override int GetHashCode() => HashCode.Combine(X, Y);\n}\n\nclass Shape { public Point Origin; }      // Point bytes live inside the Shape object (heap)\n\nstatic void Demo()\n{\n    Point local = new() { X = 1 };        // not captured below: stack slot or register, no GC allocation\n    object boxed = local;                 // heap: header + method table + copy of the value\n    IEquatable<Point> viaIface = local;   // heap: boxing again\n    local.X = 2;                          // the boxed copy still has X == 1\n\n    var list = new List<Point> { local };\n    // list[0].X = 3;                     // CS1612: the indexer returns a copy\n    var arr = new[] { local };\n    arr[0].X = 3;                         // OK: an array element is a variable\n\n    Point captured = local;\n    Func<int> f = () => captured.X;       // captured is hoisted into a heap-allocated display class; local stays in the frame\n\n    try { long l = (long)boxed; }         // InvalidCastException: unbox needs the exact type\n    catch (InvalidCastException) { }\n}\n```\n\n## Misconceptions to be ready for\n\n- \"Switching a class to a struct removes GC pressure.\" Not if it gets boxed, captured or stored in a class, and it adds copy cost.\n- \"Passing a struct by `in` avoids boxing.\" `in` avoids the copy; a conversion to an interface still boxes at the call site.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "clr",
+            "value-types",
+            "structs",
+            "memory-layout"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given the following declarations, how many managed heap objects exist after `var order = new Order();` runs, and where are the bytes of `Total` stored?\n\n```csharp\nstruct Money { public decimal Amount; public string Currency; }\nclass Order { public Money Total; }\n\nvar order = new Order();\n```",
+              "options": [
+                {
+                  "text": "One heap object (`Order`); the fields of `Money` (`Amount` and the `Currency` reference) are laid out inline inside the `Order` object.",
+                  "correct": true
+                },
+                {
+                  "text": "Two heap objects: `Order` and a separate `Money` object that the `Total` field references.",
+                  "correct": false
+                },
+                {
+                  "text": "One heap object; the `Money` value is on the stack of the thread that created the order, because structs always live on the stack.",
+                  "correct": false
+                },
+                {
+                  "text": "One heap object; the `Money` value stays on the stack until `order` survives a gen0 collection, then it is copied into the object.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A value-type field is stored inline in its containing object, so `new Order()` is a single allocation whose layout includes the 16-byte `decimal` and the 8-byte `Currency` reference (the string itself, when assigned, is a separate heap object). Option 2 describes a reference-type field: a struct field never gets its own heap object unless it is boxed. Option 3 is the classic misconception that the type decides the location; the location is decided by where the containing variable lives, and `Total` lives inside a heap object. Option 4 invents a runtime behaviour that does not exist: the GC never migrates data between stack and heap; it only moves objects between generations within the heap."
+            }
+          }
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "clr",
+            "boxing",
+            "unboxing",
+            "value-types"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens when this code runs?\n\n```csharp\nobject o = 42;\nlong a = (long)o;\nConsole.WriteLine(a);\n```",
+              "options": [
+                {
+                  "text": "It throws `InvalidCastException` at runtime, because unboxing requires the exact boxed type (`int`); write `(long)(int)o` instead.",
+                  "correct": true
+                },
+                {
+                  "text": "It prints `42`: the boxed `int` is unboxed and implicitly widened to `long`, exactly as `long a = 42;` would be.",
+                  "correct": false
+                },
+                {
+                  "text": "It fails to compile with CS0030 because there is no explicit conversion from `object` to `long`.",
+                  "correct": false
+                },
+                {
+                  "text": "It prints `0`: unboxing to a mismatched type yields `default(long)` rather than throwing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A cast from `object` to a value type compiles to the `unbox.any` instruction, which checks that the boxed object's method table matches the target type and throws `InvalidCastException` otherwise. Unboxing is a copy, not a numeric conversion, so the implicit `int`-to-`long` widening of option 2 never gets a chance to run; you must unbox to `int` first and then convert. Option 3 is wrong because an explicit conversion from `object` to any type always compiles; the check is deferred to runtime. Option 4 is wrong because the runtime never silently produces a default value on a failed unbox; the only non-throwing mismatches are unboxing `null` to a `Nullable<T>` and the enum/underlying-integer equivalence the CLR allows (`(int)(object)DayOfWeek.Monday` succeeds); a widening numeric conversion is never one of them."
+            }
+          }
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "csharp",
+            "structs",
+            "copy-semantics",
+            "collections"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`Point` is a mutable struct. Which statement about the two marked lines is true?\n\n```csharp\nstruct Point { public int X; }\n\nvar arr  = new Point[1];\nvar list = new List<Point> { new Point() };\n\narr[0].X  = 10;   // line A\nlist[0].X = 10;   // line B\n```",
+              "options": [
+                {
+                  "text": "Line A compiles and mutates the element in place; line B fails to compile with CS1612 because the indexer returns a copy.",
+                  "correct": true
+                },
+                {
+                  "text": "Both lines compile; line B silently mutates a temporary copy, so `list[0].X` is still `0` afterwards.",
+                  "correct": false
+                },
+                {
+                  "text": "Both lines compile and mutate their elements, because `List<T>` stores its items in an internal array.",
+                  "correct": false
+                },
+                {
+                  "text": "Neither line compiles: you cannot assign a field through an element access on a struct; you must assign a whole new `Point`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "An array element access is a variable (the compiler emits `ldelema`, an address into the array's heap block), so `arr[0].X = 10` writes directly into the array. `list[0]` is a call to the `this[int]` getter, which returns the struct by value; assigning a field of that temporary would modify a copy that is immediately discarded, so the compiler rejects it with CS1612 (\"Cannot modify the return value of 'List<Point>.this[int]' because it is not a variable\"). Option 2 describes what would happen if the compiler allowed it; C# was designed to make this bug a compile error for field assignment, and it is exactly what happens when you call a mutating method on a `foreach` iteration variable or on a property/indexer result (`list[0].Bump()` compiles and mutates a discarded copy); direct field assignment through a `foreach` variable is a separate compile error, CS1654. Option 3 wrongly assumes the backing store leaks through the indexer; `List<T>` deliberately does not expose a `ref` indexer (`CollectionsMarshal.AsSpan(list)[0].X = 10` is the escape hatch since .NET 5). Option 4 is wrong because mutable struct fields can be assigned through any expression that classifies as a variable: locals, fields, array elements, `ref` returns and `Span<T>` indexers."
+            }
+          }
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clr",
+            "boxing",
+            "generics",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A profiler shows one allocation per call of `Less` in a hot loop. Which change eliminates the allocation?\n\n```csharp\nstruct Price : IComparable<Price>\n{\n    public decimal Amount;\n    public int CompareTo(Price other) => Amount.CompareTo(other.Amount);\n}\n\nstatic bool Less(IComparable<Price> a, Price b) => a.CompareTo(b) < 0;\n\n// hot loop\nif (Less(p1, p2)) { /* ... */ }\n```",
+              "options": [
+                {
+                  "text": "Make it generic: `static bool Less<T>(T a, T b) where T : IComparable<T>`; the JIT calls `CompareTo` through a `constrained.` call without boxing.",
+                  "correct": true
+                },
+                {
+                  "text": "Change the parameter to `in IComparable<Price> a`; passing by readonly reference avoids the copy and therefore the box.",
+                  "correct": false
+                },
+                {
+                  "text": "Declare `Price` as a `readonly struct`; the JIT treats a readonly struct as immutable and skips the box when converting it to an interface.",
+                  "correct": false
+                },
+                {
+                  "text": "Implement `CompareTo` as an explicit interface implementation; the compiler then emits a direct `call` instead of `callvirt`, so no interface dispatch and no box.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The allocation is the boxing conversion from `Price` to `IComparable<Price>` at the call site. With a generic method constrained to `IComparable<T>`, the runtime generates a separate native body for each value-type instantiation and the `constrained. callvirt` sequence invokes `Price.CompareTo` directly on the address of `a`; no box is created. Option 2 confuses copying with boxing: `in` changes how the already-converted interface reference is passed, but the box is created before the call, so the allocation remains. Option 3 misunderstands `readonly struct`, which only eliminates defensive copies when the struct is accessed through `in` parameters or `readonly` fields; any struct, readonly or not, boxes when converted to an interface. Option 4 makes it worse: an explicitly implemented member is only reachable through the interface type, so every call site outside a constrained generic must box to reach it; there is no `call` versus `callvirt` choice that removes the box."
+            }
+          }
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clr",
+            "value-types",
+            "boxing",
+            "gc",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A teammate proposes converting a frequently allocated DTO from `class` to `struct`, arguing that \"structs are allocated on the stack, so this removes GC pressure\". Evaluate the claim. Explain in which situations a struct instance still ends up on the managed heap, and what new costs or behavioural changes the conversion can introduce.",
+              "rubric": [
+                "States that the storage location is decided by the containing variable, not by the type: struct fields of classes, array elements and locals hoisted by closures, iterators or async state machines all live on the heap.",
+                "Identifies boxing as a heap allocation and names at least two real sources (conversion to `object` or an interface, non-generic collections or APIs, calling non-overridden `object` virtuals) and the generic-constraint fix.",
+                "Mentions the copy cost of passing, returning and iterating large structs, and a mitigation (keep structs small, `in` or `ref readonly` parameters, `readonly struct` to avoid defensive copies).",
+                "Mentions the semantic change: value copy semantics can silently break code that mutates the instance (copies in `foreach`, indexers, properties) and changes equality from identity to value.",
+                "States that the claim must be measured (profiler or BenchmarkDotNet) rather than assumed."
+              ],
+              "explanation": "The claim is only true for a struct that stays in an uncaptured local or parameter. As soon as the DTO becomes a field of a class, an element of a `List<T>` or array, is captured by a lambda, lives across an `await`, or is converted to `object`/an interface (logging, `string.Format`, non-generic APIs, `Equals(object)`), its bytes are on the heap anyway, and boxing can make allocation counts worse than the original class. Even when it does stay on the stack, a large struct is copied on every pass, return and `foreach`, and mutable-struct copy semantics introduce bugs that the class never had. A senior answer weighs these against the win (dense inline layout in arrays, no per-instance header, fewer GC roots), proposes `readonly record struct` with `in` parameters where a struct is justified, and insists on measuring with a profiler or BenchmarkDotNet. A strong answer also notes that the class/struct choice is not the only lever: the JIT enregisters small locals of either kind, and since .NET 9 escape analysis can stack-allocate a non-escaping class instance, so a `class` DTO that never escapes the method may already allocate nothing."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "gc-generations",
+      "title": "GC generations, LOH and POH",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "GC generations, LOH and POH",
+          "note": "## What it is\n\nThe .NET GC is a **generational, mark-compact, tracing** collector. The managed heap is logically split into **gen0**, **gen1** and **gen2** (the \"small object heap\"), plus two heaps that are collected together with gen2: the **Large Object Heap (LOH)** for objects of 85,000 bytes or more, and, since **.NET 5**, the **Pinned Object Heap (POH)** for arrays that must never move. Gen0 and gen1 are called the *ephemeral* generations.\n\n## Why generational works\n\nThe design rests on the *generational hypothesis*: most objects die young (request DTOs, iterators, temporary strings), and objects that have survived a while tend to keep surviving (caches, singletons, connection pools). Marking and copying cost is proportional to **survivors**: the GC never traces or copies dead objects (the plan phase only walks over them to find free gaps, and that walk is bounded by the gen0 budget). A collection of a generation full of garbage is therefore almost free.\n\nA gen0 GC must not scan gen1/gen2 to find references into gen0, otherwise it would cost as much as a full GC. The JIT emits a **write barrier** on every reference store into a heap object (field, array element or static); it marks the enclosing chunk of the **card table** as dirty when an older-generation object receives a pointer to a younger one. A gen0 GC therefore visits only: the roots (stacks, statics, handles), gen0 itself, and the dirty cards. That is the whole trick.\n\nAllocation itself is a bump-pointer increment inside a thread-local *allocation context*; the price of an allocation is paid later, at collection time, and only if the object is still alive.\n\n## Promotion and triggers\n\n- A GC is **budget-driven**, not timer-driven: each generation has an allocation budget (gen0's is sized against the L3 cache) and exceeding it triggers a collection of that generation and everything younger. The other triggers are an explicit `GC.Collect` and **high memory load** on the machine or container (default threshold about 90% of physical memory, tunable via `System.GC.HighMemoryPercent` / `DOTNET_GCHighMemPercent`).\n- Survivors of a gen0 GC are **promoted** to gen1; survivors of gen1 to gen2; gen2 survivors stay in gen2. The GC can *demote* objects (keep them young) when pinning would otherwise stretch a generation.\n- Objects with a finalizer are kept alive on the f-reachable queue when first found dead, so a finalizable object always survives at least one extra GC (gen0 -> gen1) and reaches gen2 whenever the finalizer thread lags behind the next gen1 collection.\n- Since **.NET 7** the heap is organised as **regions** instead of large contiguous segments on 64-bit; a generation is a set of regions, which lets the GC resize generations and return memory more flexibly. The generational model above is unchanged.\n\n## LOH and POH\n\n- Objects **>= 85,000 bytes** (usually arrays) go to the LOH. Copying such objects is expensive, so the LOH is **swept, not compacted**: freed space goes to a free list and can fragment. It is collected **only** with gen2, which is why churning large buffers is the classic way to drive gen2 counts up. The threshold is configurable via `System.GC.LOHThreshold` (runtimeconfig, since .NET Core 3.0). One-shot compaction: `GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce` followed by a blocking full GC; the setting resets afterwards. Since **.NET 6**, `System.GC.ConserveMemory` (0-9) lets the GC decide on its own to compact gen2/LOH when fragmentation is high; it is a sizing knob, not a collection trigger.\n- The **POH** (.NET 5+) holds arrays allocated with `GC.AllocateArray<T>(length, pinned: true)` or `GC.AllocateUninitializedArray<T>(length, pinned: true)`. `T` must not contain references. Before the POH, long-lived pinned buffers (sockets, overlapped I/O) sat in gen0 and blocked compaction around them; on the POH they never move and never fragment the ephemeral generations. The POH, like the LOH, is logically gen2 and is collected with it. `fixed` and `GCHandle.Alloc(Pinned)` are still temporary pins in place; they do not move anything to the POH.\n\n## What interviewers probe\n\n- Why is gen0 cheap even with a 2 GB heap? (Card table + cost proportional to live objects.)\n- \"Mid-life crisis\": objects that live just long enough to be promoted to gen2 and then die (short-TTL caches, long-running async state machines, per-request 100 KB buffers). Symptom: high gen2 count with little live gen2 memory. Fix: pool (`ArrayPool<T>`), shorten lifetimes, avoid finalizers.\n- Why `GC.Collect(0)` does not reclaim a large array (it lives on the LOH).\n- Reading `GC.CollectionCount(0/1/2)` ratios, `GC.GetGCMemoryInfo().GenerationInfo` (5 entries: gen0, gen1, gen2, LOH, POH since .NET 5), `dotnet-counters` gen sizes and `% time in GC`.\n\n## Common misconceptions\n\n- \"GC frees objects one by one\" - it marks and copies survivors and reclaims the rest wholesale; dead objects are only stepped over, never traced.\n- \"Large objects live in a gen3\" - `GC.GetGeneration` returns 2 for LOH and POH objects.\n- \"Compacting the LOH reduces gen2 collections\" - it reduces fragmentation, not collection frequency.\n- \"Server GC collects the LOH earlier\" - LOH/POH are gen2-only in every mode.\n\n```csharp\nusing System.Runtime;\n\nvar small  = new byte[1_000];\nvar large  = new byte[85_000];                            // >= 85,000 bytes -> LOH\nvar pinned = GC.AllocateArray<byte>(4096, pinned: true);  // .NET 5+: POH, never moves\n\nConsole.WriteLine(GC.GetGeneration(small));   // 0\nConsole.WriteLine(GC.GetGeneration(large));   // 2  (LOH is logically gen2)\nConsole.WriteLine(GC.GetGeneration(pinned));  // 2  (POH is logically gen2 too)\n\nGC.Collect(0);                                // ephemeral GC, `small` survives\nConsole.WriteLine(GC.GetGeneration(small));   // 1  -> promoted\nGC.Collect(1);\nConsole.WriteLine(GC.GetGeneration(small));   // 2  -> promoted again, stays here\n\n// LOH is swept, not compacted, unless you ask for it once:\nGCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;\nGC.Collect();                                 // this blocking full GC compacts the LOH, then the mode resets\n\nvar info = GC.GetGCMemoryInfo();              // GenerationInfo: [0]=gen0 [1]=gen1 [2]=gen2 [3]=LOH [4]=POH\nConsole.WriteLine($\"gen0={GC.CollectionCount(0)} gen1={GC.CollectionCount(1)} gen2={GC.CollectionCount(2)}\");\nConsole.WriteLine($\"LOH after GC: {info.GenerationInfo[3].SizeAfterBytes} B, POH: {info.GenerationInfo[4].SizeAfterBytes} B\");\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.gc-generations.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A 64-bit ASP.NET Core service has a 3 GB managed heap, yet its gen0 collections take well under a millisecond. Which statement correctly explains why a gen0 GC stays cheap regardless of total heap size?",
+              "options": [
+                {
+                  "text": "Gen0 GC visits only the roots, gen0 itself and the card-table entries dirtied by the write barrier, so its cost scales with survivors, not with heap size.",
+                  "correct": true
+                },
+                {
+                  "text": "Gen0 GC reclaims dead objects individually, and because the allocation context keeps them contiguous each individual free is a cheap pointer adjustment.",
+                  "correct": false
+                },
+                {
+                  "text": "Gen0 GC scans gen1 and gen2 for references into gen0, but the brick table indexes those generations so densely that the scan finishes quickly.",
+                  "correct": false
+                },
+                {
+                  "text": "Gen0 GC runs whenever the allocation context is flushed on a timer, so each pass has only a handful of freshly allocated objects to process.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The correct answer describes the actual mechanism: the JIT emits a write barrier on reference stores into heap objects, which marks the card table when an older object receives a pointer to a younger one, so an ephemeral GC only has to look at roots, gen0 and dirty cards, and its marking and copying cost scales with survivors. The 'reclaims dead objects individually' option inverts the model: a tracing GC never traces or copies dead objects; the plan phase only steps over them to find free gaps (bounded by the gen0 budget) and the space is reclaimed wholesale. The 'scans gen1 and gen2 via the brick table' option would make gen0 cost as much as a full GC; the brick table is a lookup structure for finding the object that contains an address (used for interior pointers and pinning), not an index of cross-generation references, and the whole point of the card table is to avoid scanning older generations at all. The 'timer' option is wrong because collections are budget-driven (per-generation allocation budget, GC.Collect, high memory load); an allocation context is a thread-local bump-pointer chunk refilled when exhausted, and nothing about it runs on a clock."
+            }
+          },
+          "tags": [
+            "gc",
+            "generations",
+            "card-table",
+            "performance"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-generations.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "In a .NET 10 console app, what does the following print immediately after the allocation?\n\n```csharp\nvar buffer = new byte[85_000];\nConsole.WriteLine(GC.GetGeneration(buffer));\n```",
+              "options": [
+                {
+                  "text": "0, because every newly allocated object starts its life in gen0 and is promoted only if it survives a collection.",
+                  "correct": false
+                },
+                {
+                  "text": "2, because the array meets the 85,000-byte threshold and is allocated on the Large Object Heap, which the runtime reports as generation 2.",
+                  "correct": true
+                },
+                {
+                  "text": "3, because the Large Object Heap is a separate generation numbered after gen2.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws an InvalidOperationException because objects on the Large Object Heap do not belong to any generation.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The array's size (85,000 bytes of payload plus the object header) reaches the LOH threshold, so it is allocated directly on the LOH, which the GC treats as part of gen2; GC.GetGeneration therefore returns 2. '0' is the rule for small objects only: large objects skip the ephemeral generations entirely, which is exactly why churning them drives gen2 collections. '3' is a common guess, but there is no gen3; GC.MaxGeneration returns 2 and both LOH and POH are reported as 2. The exception option is wrong: GC.GetGeneration works for any live managed object and never throws for LOH objects."
+            }
+          },
+          "tags": [
+            "gc",
+            "loh",
+            "generations"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-generations.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A request handler allocates a fresh 100 KB byte[] per request. dotnet-counters shows the gen2 collection count climbing steadily and '% Time in GC' at 25%, while live gen2 memory stays small. Which change addresses the root cause?",
+              "options": [
+                {
+                  "text": "Call GC.Collect(0) at the end of each request so the buffer is reclaimed immediately by a cheap ephemeral collection.",
+                  "correct": false
+                },
+                {
+                  "text": "Set GCSettings.LargeObjectHeapCompactionMode = CompactOnce at startup so that LOH free space is reused and the gen2 allocation budget is no longer exhausted.",
+                  "correct": false
+                },
+                {
+                  "text": "Rent the buffer from ArrayPool<byte>.Shared (or otherwise reuse it) so the service stops allocating on the Large Object Heap per request.",
+                  "correct": true
+                },
+                {
+                  "text": "Switch to Server GC, because in that mode large objects are collected during gen0 collections instead of waiting for gen2.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A 100 KB array is above the 85,000-byte threshold, so each request allocates on the LOH; the LOH is collected only with gen2, so its allocation budget being exhausted forces full collections that find almost nothing alive, which is the described symptom. Pooling or reusing the buffer removes the LOH allocations and the gen2 pressure with them. GC.Collect(0) cannot help because an ephemeral collection never touches the LOH, and forcing collections adds cost anyway. The CompactOnce option is wrong on two counts: the flag is consumed by the next blocking full GC and then resets, so setting it at startup affects one collection at most, and compaction addresses fragmentation, not the allocation budget, which is consumed by every new LOH allocation whether it lands in reused free-list space or in fresh memory. Server GC changes heap count and thread model, but the LOH remains a gen2-only heap in every GC mode."
+            }
+          },
+          "tags": [
+            "gc",
+            "loh",
+            "performance",
+            "array-pool"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-generations.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about the Pinned Object Heap (POH), introduced in .NET 5, is true?",
+              "options": [
+                {
+                  "text": "An array allocated with GC.AllocateArray<T>(length, pinned: true) lives on the POH, is never moved by the GC, and is collected together with gen2.",
+                  "correct": true
+                },
+                {
+                  "text": "Objects on the POH are never collected by the GC; they are reference-counted and must be released explicitly with GCHandle.Free.",
+                  "correct": false
+                },
+                {
+                  "text": "A fixed statement temporarily moves the pinned object onto the POH for the duration of the block and moves it back afterwards.",
+                  "correct": false
+                },
+                {
+                  "text": "Any object can be allocated on the POH, including arrays whose element type contains reference fields, since the GC still traces them in place.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The POH exists precisely so that long-lived pinned buffers (socket and overlapped I/O buffers) no longer sit in gen0 and block compaction around them; objects there never move, and the heap is swept together with gen2 like the LOH, so they never fragment the ephemeral generations. The 'never collected / reference-counted' option is wrong: POH objects are ordinary tracing-GC objects that become garbage when unreachable, no manual release is involved. The 'fixed moves the object' option misunderstands pinning: fixed and GCHandle.Alloc(Pinned) pin an object in place wherever it is and the GC works around it; nothing is relocated to the POH. The 'any object' option is wrong because pinned allocation only accepts array element types without references (GC.AllocateArray throws ArgumentException otherwise), which keeps the POH free of cross-generation pointer tracking."
+            }
+          },
+          "tags": [
+            "gc",
+            "poh",
+            "pinning"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-generations.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Explain how promotion between generations works in the .NET GC and describe the 'mid-life crisis' anti-pattern. How would you detect it in a running ASP.NET Core service on .NET 10, and what kinds of code typically cause it?",
+              "explanation": "A strong answer walks through survivors of a gen0 GC moving to gen1 and gen1 survivors to gen2 (gen2 survivors staying put), notes that gen2 collections are the expensive full-heap ones that also sweep the LOH and POH, and defines the mid-life crisis as objects living just long enough to reach gen2 before dying, so full collections do a lot of work for little reclaimed memory. Detection should be concrete: gen2 count rising relative to gen0/gen1 via GC.CollectionCount or dotnet-counters, high '% Time in GC' with a small post-GC gen2 size from GC.GetGCMemoryInfo, and GC events in dotnet-trace or PerfView showing low gen2 survival. Typical causes are short-TTL caches, per-request state kept alive across long awaits, finalizable objects (which get at least one extra promotion), and per-request LOH allocations; fixes include pooling, shortening lifetimes, and removing finalizers.",
+              "rubric": [
+                "States that survivors of a gen0 collection are promoted to gen1 and survivors of gen1 to gen2, and that gen2 survivors remain in gen2.",
+                "Explains that gen2 collections are the expensive ones because they walk the whole heap and also collect the LOH and POH, so objects reaching gen2 only to die shortly after waste that work.",
+                "Defines the mid-life crisis as objects that live just long enough to be promoted to gen2 and then become garbage, giving at least one realistic cause (short-TTL cache, state held across long awaits, finalizable objects, per-request large allocations).",
+                "Names a concrete detection method: gen2 count versus gen0/gen1 (GC.CollectionCount or dotnet-counters), high % time in GC with a small post-GC gen2 size (GC.GetGCMemoryInfo), or GC events in dotnet-trace/PerfView.",
+                "Proposes at least one remediation tied to the cause: pooling/reusing buffers, shortening object lifetime, removing finalizers, or restructuring the cache."
+              ]
+            }
+          },
+          "tags": [
+            "gc",
+            "generations",
+            "promotion",
+            "diagnostics"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "gc-modes",
+      "title": "GC modes: workstation vs server, background GC, GCSettings and container limits",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "GC modes: workstation vs server, background GC, GCSettings and container limits",
+          "note": "## What it is\n\nThe .NET GC is one engine with two *flavours* and one *concurrency switch*, chosen at process start and fixed for the process lifetime:\n\n- **Workstation GC** — one managed heap; collections run on the triggering thread (plus one background thread for gen2). Optimised for responsiveness and shared hosts.\n- **Server GC** — up to one heap **and one dedicated, high-priority GC thread per logical processor**, working in parallel, with much larger per-generation allocation budgets. It trades memory for throughput. `Microsoft.NET.Sdk.Web` enables it by default, so every ASP.NET Core app runs server GC unless you opt out. On a machine (or cgroup) with a single processor the runtime silently falls back to workstation GC.\n- **Background GC** — orthogonal to the flavour and *on by default* for both. It only affects **gen2**: marking runs concurrently with user code, and a blocking *foreground* gen0/gen1 collection can still happen mid-way. Gen0/gen1 are always stop-the-world. \"Concurrent GC\" was the pre-4.0 name; background GC replaced it in .NET Framework 4.0 (workstation) and 4.5 (server).\n\nConfiguration: MSBuild (`<ServerGarbageCollection>`, `<ConcurrentGarbageCollection>`), `runtimeconfig.json` (`System.GC.Server`, `System.GC.Concurrent`), or environment variables (`DOTNET_gcServer=1`, `DOTNET_gcConcurrent=0`; `DOTNET_` replaced `COMPlus_` in .NET 6). Environment values are **hexadecimal**, runtimeconfig values decimal.\n\n## How it behaves under the hood\n\nSince .NET 7 the 64-bit GC allocates memory in **regions** (fixed-size blocks any generation can own) instead of per-generation segments, making heap sizing far more elastic; 32-bit and NativeAOT still use segments.\n\nServer GC memory cost is `heaps × per-heap budget`. On a 32-core node with no CPU limit you get 32 heaps with gen0 budgets in the hundreds of MB each — the classic \"why does my API use 3 GB idle in Kubernetes\" surprise. The levers:\n\n- `DOTNET_GCHeapCount` caps the number of heaps; `DOTNET_GCHeapAffinitizeMask` pins them to cores.\n- `DOTNET_GCConserveMemory` (0–9, .NET 6+) trades throughput for more aggressive gen2/LOH compaction.\n- **DATAS** (Dynamic Adaptation To Application Sizes) — opt-in in .NET 8 (`DOTNET_GCDynamicAdaptationMode=1`), **on by default for server GC in .NET 9 and .NET 10**. It starts with one heap and grows/shrinks the count from measured throughput and heap size, so a small pod no longer pays for the node's core count. `GCHeapCount` or an affinitize mask disables it.\n\n**Container awareness**: cgroup CPU-quota and memory-limit awareness shipped in .NET Core 2.1; .NET Core 3.0 added the default **heap hard limit of 75 %** of the cgroup memory limit. The CPU *limit* (not the request) becomes the processor count and therefore the heap ceiling. You can override the memory ceiling with `DOTNET_GCHeapHardLimit` (absolute bytes, hex) or `DOTNET_GCHeapHardLimitPercent`; per-heap variants (`GCHeapHardLimitSOH/LOH/POH`) exist since .NET 5. Near the ceiling the GC collects more aggressively and throws a managed `OutOfMemoryException` when it cannot satisfy an allocation — not a kernel OOM-kill. .NET 8 added `GC.RefreshMemoryLimit()` to re-read a limit changed at runtime; `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` shows what the GC thinks the ceiling is.\n\n`GCSettings` exposes `IsServerGC` (read-only), `LargeObjectHeapCompactionMode`, and `LatencyMode`:\n\n- `Batch` — no background GC (the default when concurrent GC is disabled).\n- `Interactive` — background GC on (the default otherwise).\n- `LowLatency` — suppresses gen2 for short bursts; **workstation only**, silently ignored under server GC.\n- `SustainedLowLatency` — avoids *blocking* gen2 (background gen2 still runs) unless memory is low; both flavours, but requires background GC.\n- `NoGCRegion` — entered via `GC.TryStartNoGCRegion(totalSize)`. Entering triggers a **blocking full GC first** and throws `ArgumentOutOfRangeException` if `totalSize` exceeds what the GC can guarantee (under server GC the budget is spread across heaps) — so enter it *before* the critical window, not inside it. Collection stays off until `GC.EndNoGCRegion()` or the budget is exhausted.\n\n```csharp\nusing System.Runtime;\n\nConsole.WriteLine($\"Server GC: {GCSettings.IsServerGC}, mode: {GCSettings.LatencyMode}\");\n\nvar info = GC.GetGCMemoryInfo();\nConsole.WriteLine($\"GC ceiling: {info.TotalAvailableMemoryBytes / 1_048_576} MB\");\n\n// Latency-critical window (trading tick, game frame). Blocking full GC happens here, before the window.\nif (GC.TryStartNoGCRegion(totalSize: 16 * 1024 * 1024))\n{\n    try   { ProcessBurst(); }          // allocations up to 16 MB will not trigger a GC\n    finally\n    {\n        if (GCSettings.LatencyMode == GCLatencyMode.NoGCRegion)\n            GC.EndNoGCRegion();        // throws if the region was already exited by the GC\n    }\n}\n\n// Long-running low-pause phase, e.g. serving traffic between batch jobs.\nGCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;\n```\n\n## What an interviewer probes\n\n- \"Why is server GC the web default, and when would you *not* want it?\" — throughput vs memory; small pods, sidecars, many processes per host, p99 over throughput.\n- \"How does the GC know it is in a container?\" — cgroups (2.1), the 75 % rule (3.0), hard limit vs kernel OOM-kill, `GCHeapCount` vs DATAS and when DATAS became default.\n- \"Does background GC eliminate pauses?\" — no: gen0/gen1 still stop the world, and foreground ephemeral GCs interrupt background gen2.\n\n## Common misconceptions\n\n- *\"Server GC is just faster.\"* Faster per collection, but with far larger budgets; on small or shared hosts it can be slower overall and use several times the memory.\n- *\"You can toggle server GC at runtime.\"* `IsServerGC` is read-only; the flavour is fixed when the runtime starts.\n- *\"`LowLatency` is the right mode for my API.\"* It is workstation-only and unsafe for sustained use; `SustainedLowLatency` is the mode meant for long-running services.\n- *\"The GC will use all the memory the pod has.\"* Only 75 % by default; the rest is headroom for native memory (JIT, sockets, libraries).\n- *\"A CPU request limits the heap count.\"* Only a cgroup CPU *limit* does; with a request alone the runtime sees every core on the node."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about workstation vs server GC in .NET 10 is true?",
+              "options": [
+                {
+                  "text": "Background GC is only available under workstation GC; server GC always runs fully blocking collections because its heaps are collected in parallel.",
+                  "correct": false
+                },
+                {
+                  "text": "On a cgroup limited to a single CPU the runtime still starts server GC with one heap and one dedicated GC thread, because DATAS already handles small heap counts.",
+                  "correct": false
+                },
+                {
+                  "text": "Server GC gives each generation a much larger allocation budget than workstation GC, so it collects less often and each collection does more work per pause.",
+                  "correct": true
+                },
+                {
+                  "text": "Assigning `GCSettings.IsServerGC = false` during startup switches the running process to workstation GC before the first collection happens.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option C is correct: the defining trade-off of server GC is throughput for memory. Its per-generation allocation budgets are far larger than workstation GC's, so gen0/gen1 collections are rarer, but each one touches more memory; workstation GC with background collection is the flavour tuned for responsiveness. A is wrong because background server GC has existed since .NET Framework 4.5 and is enabled by default in .NET Core/.NET; `ConcurrentGarbageCollection` applies to both flavours. B is wrong because server GC requires more than one visible processor: on a single-processor machine or cgroup the runtime silently falls back to workstation GC, regardless of DATAS (which only adapts the heap count once server GC is actually running). D is wrong because `GCSettings.IsServerGC` is a read-only property; the flavour is fixed at runtime start via MSBuild, runtimeconfig.json or `DOTNET_gcServer` and cannot be changed by managed code."
+            }
+          },
+          "tags": [
+            "gc",
+            "server-gc",
+            "workstation-gc"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about background (concurrent) GC in .NET is true?",
+              "options": [
+                {
+                  "text": "Background GC makes every generation collect concurrently, so a process with background GC enabled never suspends managed threads.",
+                  "correct": false
+                },
+                {
+                  "text": "Background GC applies only to gen2: gen0 and gen1 collections remain blocking, and a foreground ephemeral collection can run while a background gen2 collection is in progress.",
+                  "correct": true
+                },
+                {
+                  "text": "Background GC is disabled by default; you enable it with `<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>`.",
+                  "correct": false
+                },
+                {
+                  "text": "Setting `GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency` turns background GC on even if concurrent GC was disabled in runtimeconfig.json.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option B is correct: only gen2 collections have a concurrent (background) marking phase; ephemeral gen0/gen1 collections always stop the world, and the GC can run a blocking foreground ephemeral collection in the middle of a background gen2 collection. A is wrong because gen0/gen1 pauses remain, and even background gen2 has short stop-the-world phases at its start and end. C is wrong because background GC is on by default for both workstation and server GC; `ConcurrentGarbageCollection` is a boolean whose default is already `true`, and setting `<ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>` is how you turn it off. D is wrong because `SustainedLowLatency` requires background GC to already be enabled; when concurrent GC is disabled the runtime stays in `Batch` mode and the assignment has no effect."
+            }
+          },
+          "tags": [
+            "gc",
+            "background-gc",
+            "latency"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core API built with the default `Microsoft.NET.Sdk.Web` settings runs in Kubernetes with `resources.limits.memory: 1Gi`, no CPU limit, on a 16-core node. Which statement is true?",
+              "options": [
+                {
+                  "text": "On .NET 9 and later DATAS still creates 16 server GC heaps up front and only shrinks the count later, once measured throughput shows the extra heaps are idle.",
+                  "correct": false
+                },
+                {
+                  "text": "The GC ignores cgroup memory limits, so the heap grows until the kernel OOM-kills the pod unless you set `DOTNET_GCHeapHardLimit` explicitly.",
+                  "correct": false
+                },
+                {
+                  "text": "Because no CPU limit is set, the runtime cannot determine a processor count and falls back to workstation GC with a single heap.",
+                  "correct": false
+                },
+                {
+                  "text": "On .NET 8 (DATAS off by default) the runtime creates 16 server GC heaps and caps the managed heap at roughly 768 MB, 75% of the cgroup memory limit.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Option D is correct: cgroup awareness has been built in since .NET Core 2.1, and the default heap hard limit of 75% of the cgroup memory limit since .NET Core 3.0. Without a CPU limit the processor count is the node's 16 cores, so .NET 8 server GC (where DATAS is opt-in) allocates 16 heaps, and the 1 GiB memory limit yields a hard limit of about 768 MB. A is wrong because DATAS (default for server GC from .NET 9) works the other way round: it starts with one heap and grows the count from measured throughput and heap size, never allocating all 16 up front. B is wrong because the GC reads the cgroup memory limit itself; `DOTNET_GCHeapHardLimit` only overrides the default 75%, and the GC throws a managed `OutOfMemoryException` at its own ceiling before the kernel is involved. C is wrong because the fallback to workstation GC happens only when the process sees a single processor; with no CPU limit the runtime sees all 16 node cores."
+            }
+          },
+          "tags": [
+            "gc",
+            "containers",
+            "datas",
+            "server-gc"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "This code runs at startup of an ASP.NET Core app with the default server GC and background GC enabled:\n\n```csharp\nGCSettings.LatencyMode = GCLatencyMode.LowLatency;\nConsole.WriteLine(GCSettings.LatencyMode);\n```\n\nWhat happens?",
+              "options": [
+                {
+                  "text": "It prints `Interactive`: `LowLatency` is a workstation-only mode, so under server GC the assignment is ignored and the mode stays as it was.",
+                  "correct": true
+                },
+                {
+                  "text": "It throws `InvalidOperationException` because `LowLatency` cannot be set while server GC is active.",
+                  "correct": false
+                },
+                {
+                  "text": "It prints `LowLatency` and gen2 collections are suppressed for the rest of the process lifetime, which is why this is the recommended setting for web APIs.",
+                  "correct": false
+                },
+                {
+                  "text": "It prints `LowLatency` and the runtime switches the process to workstation GC so the mode can be honoured.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option A is correct: `GCLatencyMode.LowLatency` is documented as available only for workstation GC; under server GC the runtime does not apply it, and the getter reports the existing mode, which is `Interactive` because background GC is enabled. B is wrong because the setter throws `InvalidOperationException` only when you try to change the mode while inside a no-GC region (`GCLatencyMode.NoGCRegion`); an unsupported mode is silently not applied. C is wrong twice: the mode is not applied under server GC, and even under workstation GC `LowLatency` is intended for short bursts, not sustained use; `SustainedLowLatency` is the long-running-service mode. D is wrong because the GC flavour is fixed at process start and `GCSettings.IsServerGC` is read-only; no latency mode can switch flavours at runtime."
+            }
+          },
+          "tags": [
+            "gc",
+            "gcsettings",
+            "latency"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You are moving a latency-sensitive .NET gRPC service from VMs to Kubernetes. The pod spec sets `resources.requests.cpu: 2` with no CPU limit and `resources.limits.memory: 2Gi`; the cluster runs 32-core nodes. After the first deploy, memory usage is roughly 3x what developers see on their 8-core laptops and p99 latency shows periodic spikes. What would you verify first inside the pod, how are GC mode and container settings likely involved, and how would you choose and tune the GC configuration for this workload? Name the .NET versions where relevant behaviour changed.",
+              "explanation": "A strong answer starts by verifying what the runtime actually sees (`Environment.ProcessorCount`, `GCSettings.IsServerGC`, `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`) and recognises that a CPU request without a CPU limit leaves the processor count at 32, so the Web SDK's server GC default creates far more heaps than on a laptop. It then explains the 75% default hard limit and managed OOM semantics, proposes version-aware levers (DATAS default from .NET 9, `GCHeapCount`, `GCConserveMemory`, a real CPU limit, or workstation GC), separates background gen2 from blocking ephemeral pauses when reasoning about p99 spikes, and describes how to measure the effect of each change.",
+              "rubric": [
+                "Verifies what the runtime sees before tuning: `Environment.ProcessorCount`, `GCSettings.IsServerGC` and `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` inside the pod, and recognises that only a cgroup CPU *limit* (not a request) constrains the processor count, so with no limit the Web SDK's server GC default sees 32 processors and creates up to 32 heaps (pre-DATAS), which explains memory being higher than on an 8-core laptop.",
+                "Explains container memory awareness: cgroup awareness since .NET Core 2.1, the default hard limit of 75% of the cgroup memory limit since .NET Core 3.0, overridable with `DOTNET_GCHeapHardLimit` / `GCHeapHardLimitPercent`, and that exceeding the hard limit yields a managed `OutOfMemoryException` rather than a kernel OOM-kill.",
+                "Proposes concrete levers with version awareness: DATAS (opt-in in .NET 8, default for server GC from .NET 9), setting a CPU limit or `DOTNET_GCHeapCount`, `GCConserveMemory`, or switching to workstation GC with background collection, and explains the throughput-vs-memory trade-off of each.",
+                "Distinguishes background gen2 collection from blocking gen0/gen1 pauses when diagnosing the p99 spikes, and evaluates latency modes (`SustainedLowLatency`, `TryStartNoGCRegion` with its upfront blocking GC) including their caveats rather than recommending `LowLatency`.",
+                "Describes how to measure before and after: `dotnet-counters` / GC event tracing (pause durations, gen0/1/2 counts, heap count), memory footprint per pod, and comparing p99 with each configuration change in isolation."
+              ]
+            }
+          },
+          "tags": [
+            "gc",
+            "containers",
+            "server-gc",
+            "latency"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "finalization-dispose",
+      "title": "Finalization and the Dispose pattern",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Finalization and the Dispose pattern",
+          "note": "## What it is\n\nThe GC reclaims *memory*; it knows nothing about file descriptors, sockets, GPU buffers or database sessions. .NET therefore offers two release mechanisms: **deterministic** release through `IDisposable`/`IAsyncDisposable` (the caller decides *when*), and a **non-deterministic safety net** through finalizers (`~TypeName()`), which the runtime runs at some point after the object becomes unreachable. `SafeHandle` is the type that lets you almost never write a finalizer yourself.\n\n## How it works underneath\n\n**Finalization.** When a type declares a finalizer, every allocation of that type is recorded in the *finalization list*. During a collection, an unreachable object on that list is not freed; its entry moves to the *f-reachable queue* and the object (plus everything it references) is treated as live, so it survives and is promoted. A dedicated **finalizer thread** dequeues objects and runs their finalizers one at a time; the memory is reclaimed only by a *later* collection of the generation the object now lives in. Consequences: a finalizable object costs at least one extra GC cycle, the finalizer runs on a different thread with no defined order relative to other finalizers (fields that are themselves finalizable may already have been finalized), a blocking finalizer stalls every other finalizer in the process, and an unhandled exception in a finalizer terminates the process. `GC.SuppressFinalize(this)` marks the object (a bit in the object header) so the GC never queues it for finalization; conceptually it is removed from the finalization list, which is why `Dispose()` calls it. `GC.ReRegisterForFinalize` clears that mark. `GC.WaitForPendingFinalizers()` blocks until the queue is drained (useful in tests, rarely elsewhere).\n\n**Process exit.** .NET Framework ran pending finalizers at shutdown (with a time budget). .NET Core and every .NET 5+ runtime, including .NET 10, **do not run finalizers on process exit**. Anything you must flush on shutdown needs `Dispose`, `using`, or a host lifetime hook (`IHostApplicationLifetime.ApplicationStopping`).\n\n**Dispose pattern.** The classic shape exists so that an unsealed class can be disposed both deterministically and from a finalizer without duplicating logic: `Dispose()` calls `Dispose(true)` and `GC.SuppressFinalize(this)`; the finalizer calls `Dispose(false)`. The `disposing` flag gates *managed* cleanup: when `false` you are on the finalizer thread and must touch only unmanaged state. Make `Dispose` idempotent, guard public members with `ObjectDisposedException.ThrowIf(_disposed, this)` (.NET 7+), and do not throw from `Dispose`. A `sealed` class that owns only managed disposables (a `Stream`, an `HttpClient`, a `SafeHandle`) needs no finalizer and no `Dispose(bool)`: a plain `Dispose()` that forwards to its fields is correct and cheaper.\n\n**`IAsyncDisposable`** (.NET Core 3.0 / C# 8) adds `ValueTask DisposeAsync()` consumed via `await using`. Implement it *alongside* `IDisposable`: `DisposeAsync` awaits a virtual `DisposeAsyncCore()` for managed async resources, then calls `Dispose(false)` for the unmanaged part, then `GC.SuppressFinalize`. Sync `Dispose` stays for callers that cannot await. Microsoft.Extensions.DependencyInjection throws `InvalidOperationException` when a synchronous scope disposal meets a service that implements only `IAsyncDisposable`, so `CreateAsyncScope()` / `await using` matters in hosting code.\n\n**`SafeHandle`** wraps an OS handle in a `CriticalFinalizerObject` with its own finalizer, a reference count maintained by the P/Invoke marshaller (`DangerousAddRef`/`DangerousRelease`) so the handle cannot be closed or recycled while a native call is in flight, and an `IsInvalid`/`ReleaseHandle` contract. Own a `SafeHandle` instead of an `IntPtr` and your class drops its finalizer entirely. Constrained execution regions (CERs) that backed `SafeHandle` on .NET Framework are not supported on .NET Core; the critical-finalizer ordering and the ref-counting are what remain.\n\n## What an interviewer probes\n\n- Walk through the life of a finalizable object across two GCs and explain why finalizers are expensive.\n- Why `disposing == false` must not touch managed fields.\n- Why `GC.SuppressFinalize` is in `Dispose()` and what happens if you forget it.\n- `SafeHandle` vs `IntPtr` + finalizer; what the marshaller does with a `SafeHandle` parameter.\n- The `IAsyncDisposable` shape and the `Dispose(false)` call inside `DisposeAsync`.\n- Finalizers at shutdown (.NET Framework vs .NET Core+).\n\n## Common misconceptions\n\n- \"A finalizer is a destructor\": it runs on another thread, later, in no defined order, and may never run at all.\n- \"Every class with a `FileStream` field needs a finalizer\": the `FileStream` already owns a `SafeFileHandle` with a finalizer; you would only add cost and ordering hazards.\n- \"`Dispose` frees memory\": it releases resources; memory still waits for the GC.\n- \"`DisposeAsync` can just call `Dispose()`\": acceptable only when nothing benefits from async release; otherwise it blocks on sync I/O for flushes.\n\n```csharp\npublic class ResourceHolder : IDisposable, IAsyncDisposable\n{\n    private IntPtr _raw = Native.Open();      // legacy unmanaged handle; prefer a SafeHandle\n    private Stream? _stream = File.OpenWrite(\"out.bin\");\n    private bool _disposed;\n\n    public void Dispose()\n    {\n        Dispose(disposing: true);\n        GC.SuppressFinalize(this);\n    }\n\n    public async ValueTask DisposeAsync()\n    {\n        await DisposeAsyncCore().ConfigureAwait(false);\n        Dispose(disposing: false);              // managed part already released above\n        GC.SuppressFinalize(this);\n    }\n\n    protected virtual void Dispose(bool disposing)\n    {\n        if (_disposed) return;\n        if (disposing)\n        {\n            _stream?.Dispose();                 // managed: only from Dispose(), never from ~ResourceHolder\n            _stream = null;\n        }\n        if (_raw != IntPtr.Zero) { Native.Close(_raw); _raw = IntPtr.Zero; }\n        _disposed = true;\n    }\n\n    protected virtual async ValueTask DisposeAsyncCore()\n    {\n        if (_stream is not null) await _stream.DisposeAsync().ConfigureAwait(false);\n        _stream = null;\n    }\n\n    ~ResourceHolder() => Dispose(disposing: false);\n}\n\n// Preferred: no finalizer at all, the SafeHandle carries it.\npublic sealed class NativeSession(SafeNativeHandle handle) : IDisposable\n{\n    public void Dispose() => handle.Dispose();\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.finalization-dispose.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "An instance of a class that declares a finalizer (`~Widget()`) becomes unreachable and a gen0 collection runs. Which statement describes what happens?",
+              "options": [
+                {
+                  "text": "The object survives this collection and is promoted; the finalizer thread runs `~Widget()` at some later point, and a later GC of its new generation frees the memory.",
+                  "correct": true
+                },
+                {
+                  "text": "The GC runs `~Widget()` inline on the GC thread while all managed threads are suspended, so no other thread can observe the half-freed object, and frees the memory in the same pass; a finalizer costs only the time of its own body.",
+                  "correct": false
+                },
+                {
+                  "text": "`~Widget()` runs synchronously on the thread that dropped the last reference, exactly as a C++ destructor would, because the runtime tracks reference counts for finalizable types; the gen0 collection then frees the memory in the same pass.",
+                  "correct": false
+                },
+                {
+                  "text": "Finalizable objects are allocated directly into gen2 next to the LOH so they never need promotion; the gen0 collection ignores the object and `~Widget()` runs on the finalizer thread only after the next full (gen2) collection finds it unreachable.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The correct option is the actual lifecycle: allocation registers the object on the finalization list; when it is found unreachable, the entry moves to the f-reachable queue, which is a GC root, so the object survives this collection and is promoted. A dedicated finalizer thread later runs the finalizer, and only a later GC of the (now higher) generation frees the memory, which is why a finalizable object costs at least one extra collection. Option 2 is wrong because finalizers never run on the GC thread inside a collection; the f-reachable queue keeps the object referenced, so the memory cannot be freed in the same pass, and the suspended-threads detail is invented. Option 3 is the RAII/C++ mental model: .NET has no reference counting for managed objects, nothing happens at the moment the last reference is dropped, and the finalizer runs on a separate thread with no defined timing. Option 4 is wrong because finalizable objects are allocated in gen0 like any other small object (only large objects go straight to the LOH, and the LOH is logically part of gen2 but that is unrelated to finalizability); it is the survival through finalization that promotes them, not their allocation site."
+            }
+          },
+          "tags": [
+            "gc",
+            "finalizers",
+            "finalization-queue"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.finalization-dispose.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Review this .NET 10 class:\n\n```csharp\npublic class Connection : IDisposable\n{\n    private readonly FileStream _log = File.OpenWrite(\"conn.log\");\n    private IntPtr _native = Native.Open();\n\n    public void Dispose() => Dispose(true);\n\n    protected virtual void Dispose(bool disposing)\n    {\n        _log.Dispose();\n        if (_native != IntPtr.Zero) { Native.Close(_native); _native = IntPtr.Zero; }\n    }\n\n    ~Connection() => Dispose(false);\n}\n```\n\nWhich statement is true?",
+              "options": [
+                {
+                  "text": "The only pattern defect is the missing `GC.SuppressFinalize(this)` in `Dispose()`; calling `_log.Dispose()` regardless of `disposing` is fine because `FileStream.Dispose` is idempotent and a second call on the finalizer thread is a harmless no-op.",
+                  "correct": false
+                },
+                {
+                  "text": "The two pattern defects are that `Dispose()` omits `GC.SuppressFinalize(this)`, and that `Dispose(false)` touches the managed `_log` field from the finalizer thread; the `disposing` flag must gate that call.",
+                  "correct": true
+                },
+                {
+                  "text": "The finalizer is required and correct as written: `FileStream` holds an OS file handle that would leak if `Connection` were never disposed, so `Connection` must close it from `~Connection()` to be safe.",
+                  "correct": false
+                },
+                {
+                  "text": "Calling `_log.Dispose()` from the finalizer is safe because the CLR finalizes an object graph top-down: an object's finalizer always runs before the finalizers of the objects it references, so `_log` is still fully usable there.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The correct option names both pattern problems. Without `GC.SuppressFinalize` the object stays registered for finalization, so even a correctly disposed `Connection` survives an extra GC and occupies the finalizer thread; the finalizer then re-enters `Dispose(false)`, where the `IntPtr` branch is skipped because `_native` was zeroed, but `_log.Dispose()` runs on the finalizer thread. That is the second defect: `_log` is a managed `FileStream`, the CLR does not order finalizers, so `_log` may already have been finalized and its `SafeFileHandle` closed, which is exactly the situation the `disposing` flag exists to avoid. Option 1 is wrong because idempotency of `FileStream.Dispose` does not make it legal to call managed code from a finalizer; the hazard is ordering and object state on the finalizer thread, not double-dispose. Option 3 is wrong because `FileStream` already owns a `SafeFileHandle` with its own critical finalizer; a finalizer on `Connection` adds cost and ordering hazards but no safety for the file. The only thing that justifies a finalizer here is the raw `IntPtr`, and the better fix is to wrap it in a `SafeHandle` and delete the finalizer. Option 4 states a guarantee that does not exist: finalization order between objects is undefined (only `CriticalFinalizerObject` instances are finalized after ordinary finalizers), which is the reason finalizers must only release unmanaged resources."
+            }
+          },
+          "tags": [
+            "idisposable",
+            "finalizers",
+            "dispose-pattern"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.finalization-dispose.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A non-sealed class implements both `IDisposable` (with the `Dispose(bool)` pattern and a finalizer for a raw native handle) and `IAsyncDisposable`. It owns a `Stream _stream` whose `DisposeAsync` flushes buffered data asynchronously. Each option below is the body of `public async ValueTask DisposeAsync()`. Which one follows the recommended pattern?",
+              "options": [
+                {
+                  "text": "`Dispose(); await Task.CompletedTask;` — reuse the synchronous path so the two implementations cannot diverge.",
+                  "correct": false
+                },
+                {
+                  "text": "`await DisposeAsyncCore().ConfigureAwait(false); Dispose(disposing: false); GC.SuppressFinalize(this);` where `DisposeAsyncCore` awaits `_stream.DisposeAsync()` and nulls the field.",
+                  "correct": true
+                },
+                {
+                  "text": "`await DisposeAsyncCore().ConfigureAwait(false); Dispose(disposing: true); GC.SuppressFinalize(this);` — pass `true` because `DisposeAsync` is an explicit caller-initiated dispose, not a finalizer.",
+                  "correct": false
+                },
+                {
+                  "text": "`await DisposeAsyncCore().ConfigureAwait(false);` only — the native handle is released by the finalizer when the GC gets to it, so the sync path is unnecessary.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The correct option is the documented async dispose pattern (.NET Core 3.0+): the managed async-capable resources are released via the virtual `DisposeAsyncCore()`, then `Dispose(false)` releases only the unmanaged part because the managed part has already been handled, then `GC.SuppressFinalize` takes the object off the finalization list. Option 1 blocks the calling thread on the stream's synchronous flush and throws away the benefit of `await using`; it is acceptable only for types that own nothing async-capable. Option 3 misreads the meaning of `disposing`: it does not mean 'caller initiated', it means 'managed resources still need releasing here'; passing `true` would call `_stream.Dispose()` a second time (or, if the field was nulled, do nothing useful) and, in overridden `Dispose(bool)` implementations in subclasses, would re-dispose managed state that the async path already released. Option 4 leaves the native handle to the finalizer, which is non-deterministic, forces the object through an extra GC generation, and never suppresses finalization, defeating the purpose of implementing disposal at all."
+            }
+          },
+          "tags": [
+            "iasyncdisposable",
+            "dispose-pattern",
+            "async"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.finalization-dispose.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A .NET 10 console application creates a `BufferedLogWriter` that has a finalizer which flushes its in-memory buffer to disk. The instance is never disposed and `Main` returns normally. What happens to the buffered data?",
+              "options": [
+                {
+                  "text": "It is lost: .NET Core and every .NET 5+ runtime, including .NET 10, do not run finalizers on process exit, unlike .NET Framework, which ran pending finalizers at shutdown with a time budget.",
+                  "correct": true
+                },
+                {
+                  "text": "It is written: before the process terminates the runtime performs a final full GC followed by `GC.WaitForPendingFinalizers()`, so every unreachable finalizable object is finalized.",
+                  "correct": false
+                },
+                {
+                  "text": "It is written only if the application exits via `Environment.Exit(0)` instead of returning from `Main`, because `Environment.Exit` triggers the shutdown finalization pass.",
+                  "correct": false
+                },
+                {
+                  "text": "It is written because the CLR must run finalizers for all remaining finalizable objects before it can return the process heap to the operating system.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The correct option reflects a documented breaking change from .NET Framework to .NET Core: finalizers are not run on process shutdown, so any 'flush on finalize' design silently loses data. Deterministic disposal (`using`, `IDisposable`) or a host lifetime hook (`IHostApplicationLifetime.ApplicationStopping`, `AppDomain.ProcessExit`) is the only reliable way to flush at exit. Option 2 is a myth on every runtime; the closest real behaviour was .NET Framework, which at shutdown finalized every remaining finalizable object (even reachable ones) with roughly a two-second per-finalizer and forty-second total budget, without a final full GC. Modern runtimes do neither. Option 3 is wrong because `Environment.Exit` does not trigger finalization either; it runs `ProcessExit` handlers and terminates. Option 4 is wrong because the OS reclaims the process's memory wholesale on exit; the runtime has no need to, and does not, finalize objects before that happens."
+            }
+          },
+          "tags": [
+            "finalizers",
+            "process-exit",
+            "gc"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.finalization-dispose.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You are wrapping a native library that returns an opaque handle from `lib_open()` and expects `lib_close(handle)`. A colleague proposes storing the handle as `IntPtr` and adding a finalizer that calls `lib_close`. Argue for a `SafeHandle`-based design instead: what does `SafeHandle` give you during P/Invoke calls and during finalization, what does the derived class have to implement, and how does it change the shape of your public wrapper type?",
+              "explanation": "A strong answer derives from `SafeHandle` (overriding `ReleaseHandle` to call `lib_close` and `IsInvalid`) or, more idiomatically, from `SafeHandleZeroOrMinusOneIsInvalid` (overriding only `ReleaseHandle`), and passes the `SafeHandle` directly to P/Invoke signatures so the marshaller handles it. It explains that the marshaller increments a reference count (`DangerousAddRef`/`DangerousRelease`) around each native call, so the handle cannot be closed or recycled by another thread while a call is in flight, which an `IntPtr` cannot prevent. It points out that `SafeHandle` is a `CriticalFinalizerObject` with its own finalizer, so the wrapper class needs no finalizer of its own: it becomes a `sealed` class with a plain `Dispose()` that calls `_handle.Dispose()`, avoiding the extra GC generation and the undefined finalization order that a custom finalizer would introduce. It should stress that the finalizer is only a safety net and consumers must still `using`/`Dispose` for deterministic release, and note that `DangerousGetHandle` bypasses the protections and `ownsHandle: false` exists for borrowed handles.",
+              "rubric": [
+                "Derives from `SafeHandle` (overriding `ReleaseHandle` to call `lib_close` and `IsInvalid`) or from `SafeHandleZeroOrMinusOneIsInvalid` (overriding only `ReleaseHandle`), and uses the `SafeHandle` type directly in P/Invoke signatures.",
+                "Explains the marshaller-managed reference count (`DangerousAddRef`/`DangerousRelease`) that prevents the handle from being closed or recycled while a native call is in progress, something an `IntPtr` cannot guarantee.",
+                "States that `SafeHandle` carries its own (critical) finalizer, so the wrapper type drops its finalizer, can be `sealed`, and needs only a simple `Dispose()` forwarding to the handle, avoiding the extra GC cycle and undefined finalization order of a custom finalizer.",
+                "Makes clear that finalization remains a non-deterministic safety net and consumers must `using`/`Dispose` (or `await using`) for deterministic release.",
+                "Mentions at least one of: `DangerousGetHandle` bypasses the protections, `ownsHandle: false` for handles the wrapper does not own, or that CERs backing `SafeHandle` on .NET Framework are not supported on .NET Core."
+              ]
+            }
+          },
+          "tags": [
+            "safehandle",
+            "pinvoke",
+            "finalizers",
+            "idisposable"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "memory-leaks-managed",
+      "title": "Managed memory leaks",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Managed memory leaks",
+          "note": "# Managed memory leaks\n\n**What it is.** A managed leak is memory the GC *cannot* reclaim because your code still holds a path to it from a root: a static field, a thread stack, a GC handle, or a runtime-owned structure such as the timer queue. Dead in your mental model, alive in the object graph. Symptoms: the Gen2 heap (or LOH) grows monotonically under steady load, `GC.Collect()` does not bring it down, and the process eventually hits the container limit.\n\n## The five usual suspects\n\n**1. Event subscriptions.** `publisher.Event += subscriber.Handler` stores a delegate inside the publisher; the delegate's `Target` is the subscriber. So the *publisher keeps the subscriber alive*, never the other way round. Harmless when both die together; a leak when the publisher is long-lived (a DI singleton, a `static event`) and subscribers are per-request or per-view. Whoever subscribes must unsubscribe, usually in `Dispose`. Two traps: `-=` needs a delegate equal to the one you added (same method *and* same target), so `bus.Changed -= (s, e) => ...` silently removes nothing; keep the delegate in a field. And a lambda that touches any instance member captures `this`, so the whole object leaks, not just a handler.\n\n**2. Statics and singleton caches.** Static fields are roots for the lifetime of their `AssemblyLoadContext`, which for the default context means the process; only collectible ALCs ever release them. A `static Dictionary<,>`, a `ConcurrentDictionary` inside a singleton, or `IMemoryCache` entries added without expiration or a `SizeLimit` become unbounded structures fed by per-request data: a \"cache\" that is really a list of everything the service has ever seen. Same family: a scoped `DbContext` captured by a singleton (captive dependency), and `[ThreadStatic]` values on long-lived pool threads.\n\n**3. Closures.** The compiler hoists captured locals into a display-class object; a lambda is a delegate whose `Target` is that object. Two consequences: a captured variable lives as long as the delegate, and *all lambdas in one scope share one display class*, so a tiny callback capturing an `int id` also pins the 40 MB buffer declared in the same scope if another lambda there captured it. Long-lived delegate sinks turn this into a leak per call: `CancellationToken.Register` on the host's `ApplicationStopping` token, `IOptionsMonitor.OnChange`, `IChangeToken.RegisterChangeCallback`. Each returns an `IDisposable` registration precisely so you can drop the callback.\n\n**4. Timers.** An active `System.Threading.Timer` (and `System.Timers.Timer`, which wraps it) is rooted by the runtime's timer queue, and its callback delegate references your object. So an undisposed object with a running timer lives forever even when nothing else references it, and its callback keeps executing against a \"dead\" object. The opposite trap also exists: if nothing references the `Timer` wrapper itself (you never stored it), its finalizer can close it and the callbacks stop unexpectedly. `PeriodicTimer` (.NET 6+) sidesteps the delegate problem: there is no user callback delegate in the queue, the queue entry references only the timer's internal state, so your object is reachable only while a `WaitForNextTickAsync` is pending in your loop (and since .NET 8 an unreferenced `PeriodicTimer` with no pending wait is finalizable and collectible).\n\n**5. Misused `WeakReference`.** `WeakReference<T>` holds a GC handle that does not count as a root; `TryGetTarget` returns `false` once the target was collected. It is right for observer patterns where the observer's lifetime is somebody else's concern (WPF's `WeakEventManager`), and for `ConditionalWeakTable<TKey, TValue>`, which attaches data to a key with ephemeron semantics: the value lives at least as long as the key, and the table itself never keeps either alive. It is wrong as a cache-eviction policy: a weakly held object is reclaimed at the next GC of its generation whether it was used a millisecond ago or not, so hit rate collapses, and the wrappers and keys still leak unless swept. Use `MemoryCache` with `SizeLimit` and expiration instead.\n\n## How an interviewer probes\n\nDiagnosis, not folklore. \"Prove it's managed\": `dotnet-counters monitor --counters System.Runtime` (gc-heap-size, gen-2-gc-count) or `GC.GetGCMemoryInfo()`. If the Gen2 heap keeps growing *across* Gen2 collections while `GC.GetGCMemoryInfo().FragmentedBytes` (or the live-object total from `dumpheap -stat`) stays flat, the objects are reachable, not merely uncollected; if fragmentation grows instead, suspect pinning or a non-compacting LOH rather than a leak. \"Find the root\": `dotnet-gcdump collect` twice and diff by type, or `dotnet-dump analyze` with `dumpheap -stat` then `gcroot <address>` to walk from a surviving instance back to the static, timer queue or delegate holding it. Nulling a local does nothing in Release (JIT liveness already ends it); nulling a field of a long-lived object helps, but disposing subscriptions and registrations is the real fix.\n\n## Common misconceptions\n\n- \"The GC collects cycles, so subscriber and publisher referencing each other is fine.\" It does, but a cycle hanging off a rooted singleton is not garbage.\n- \"Only unmanaged resources leak.\" Reachable managed objects are the most common production leak in .NET services.\n- \"`WeakReference` makes a cache self-cleaning.\" It makes it nearly useless.\n\n```csharp\npublic sealed class OrderProjector : IDisposable\n{\n    private readonly IOrderBus _bus;                    // DI singleton\n    private readonly EventHandler<OrderEvent> _onOrder; // exact delegate for -=\n    private readonly CancellationTokenRegistration _stopping;\n    private readonly Timer _flush;\n\n    public OrderProjector(IOrderBus bus, IHostApplicationLifetime lifetime)\n    {\n        _bus = bus;\n        _onOrder = HandleOrder;\n        _bus.OrderRaised += _onOrder;                    // bus -> this\n\n        // Long-lived token: the registration roots `this` until disposed.\n        _stopping = lifetime.ApplicationStopping.Register(static s => ((OrderProjector)s!).Flush(), this);\n\n        // Timer queue -> callback -> this.\n        _flush = new Timer(_ => Flush(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));\n    }\n\n    private void HandleOrder(object? sender, OrderEvent e) { /* ... */ }\n    private void Flush() { /* ... */ }\n\n    public void Dispose()\n    {\n        _bus.OrderRaised -= _onOrder;   // (1) publisher -> subscriber edge\n        _stopping.Dispose();            // (2) token callback\n        _flush.Dispose();               // (3) timer queue entry\n    }\n}\n```\n\nWithout the three lines in `Dispose`, every `OrderProjector` stays reachable through three independent roots; fixing any two still leaks."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.memory-leaks-managed.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A DI singleton `IOrderBus` exposes `event EventHandler<OrderEvent> OrderRaised`. A transient `OrderView` subscribes in its constructor with `bus.OrderRaised += OnOrder;` and is never disposed or unsubscribed. Which statement is true?",
+              "options": [
+                {
+                  "text": "Every `OrderView` ever created stays reachable for the life of the process, because the bus's delegate list holds each handler and each delegate's `Target` is the view.",
+                  "correct": true
+                },
+                {
+                  "text": "Each `OrderView` is collected normally once its caller drops it; the subscription only keeps the bus alive from the view's side.",
+                  "correct": false
+                },
+                {
+                  "text": "The bus and the view form a reference cycle, which the tracing GC detects and collects as soon as neither is in use.",
+                  "correct": false
+                },
+                {
+                  "text": "Subscribing with a lambda (`bus.OrderRaised += (s, e) => OnOrder(s, e);`) instead of a method group avoids the leak, because lambdas are not stored in the delegate list.",
+                  "correct": false
+                }
+              ],
+              "explanation": "An event is a field holding a multicast delegate inside the publisher; every subscribed delegate carries a `Target` reference to its subscriber. The bus is a singleton rooted by the DI container, so every `OrderView` hangs off a root and is never collected. Option 2 has the direction backwards: a subscription lets the publisher reach the subscriber, not the reverse; any reference the view holds back to the bus is irrelevant to the leak. Option 3 is wrong because .NET's tracing GC does collect cycles, but there is no garbage cycle here: the chain starts at a live root (container -> bus -> delegate -> view). Option 4 is wrong and makes things worse: the lambda's delegate is stored exactly like a method group, it still captures `this` because it calls the instance method `OnOrder`, and because a new lambda expression yields a delegate that is not equal to the stored one, `-=` with another lambda can never remove it. The fix is to unsubscribe in `Dispose` with the same delegate instance, or to use a weak-event pattern when the subscriber's lifetime is not under its own control."
+            }
+          },
+          "tags": [
+            "gc",
+            "memory-leaks",
+            "events"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.memory-leaks-managed.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Assume `Log.Info` and `Checksum` are static methods and `registry` is a process-long singleton that stores the delegate passed to `OnShutdown`. After `Register` returns, what does the registry keep alive?\n\n```csharp\nvoid Register(IRegistry registry, Order order, string path)\n{\n    int id = order.Id;\n    byte[] payload = File.ReadAllBytes(path);            // 40 MB\n    registry.OnShutdown(() => Log.Info($\"bye {id}\"));   // stored for the life of the process\n    Process(() => Checksum(payload));                     // invoked synchronously, delegate not stored\n}\n```",
+              "options": [
+                {
+                  "text": "Both `id` and the 40 MB `payload`: lambdas declared in the same scope share one compiler-generated closure object, whatever subset of variables each of them uses.",
+                  "correct": true
+                },
+                {
+                  "text": "Only `id`: the compiler generates a separate closure object for each lambda, holding exactly the variables that particular lambda references and nothing else.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing beyond the delegate itself: captured locals are copied by value into the delegate instance at the point where the lambda is created.",
+                  "correct": false
+                },
+                {
+                  "text": "`id`, `payload` and the enclosing instance (`this`): every lambda written inside an instance method captures `this` implicitly, along with the locals it uses.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Roslyn hoists all variables captured in a given scope into a single display class for that scope, and every lambda in the scope that captures anything from it receives a reference to that same instance as its `Target`. Here `id` and `payload` live in the same scope, so the shutdown delegate keeps the display class alive and with it the 40 MB array, even though the shutdown lambda never mentions `payload`. Option 2 describes a per-lambda closure, which is how many developers imagine it but not how the compiler works; the sharing is what makes this a real leak. Option 3 is wrong because C# captures variables, not values: the local is rewritten into a field of the closure object, which is why lambdas can observe later mutations of a captured variable. Option 4 is wrong because `this` is captured only when the lambda body uses an instance member; both bodies call static methods, so no `this` capture happens. Fixes: move the checksum call into a separate method so `payload` is never captured, or declare `payload` inside its own block so it is hoisted into a nested display class that the shutdown lambda's closure does not reference (a variable declared in the outer scope and merely used inside an inner block still lands in the outer display class), or pass state explicitly through a `static` lambda overload."
+            }
+          },
+          "tags": [
+            "gc",
+            "memory-leaks",
+            "closures"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.memory-leaks-managed.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Consider `class Poller { private readonly Timer _timer; public Poller() { _timer = new Timer(_ => Tick(), null, 0, 1000); } private void Tick() { /* ... */ } }` using `System.Threading.Timer`. Code runs `var p = new Poller();`, then the variable goes out of scope; `Poller` does not implement `IDisposable`. What happens?",
+              "options": [
+                {
+                  "text": "`Tick` keeps running every second and the `Poller` is never collected: the active timer is rooted by the runtime's timer queue and its callback delegate references the `Poller`.",
+                  "correct": true
+                },
+                {
+                  "text": "The `Poller` becomes unreachable and is collected at the next Gen0 GC; the timer stops when its owner is collected.",
+                  "correct": false
+                },
+                {
+                  "text": "`Timer` has a finalizer that stops the callbacks as soon as user code no longer references the `Timer` object, so the `Poller` is collected shortly after.",
+                  "correct": false
+                },
+                {
+                  "text": "The `Poller` is kept alive only while `Tick` is executing; between invocations it is eligible for collection.",
+                  "correct": false
+                }
+              ],
+              "explanation": "An armed `System.Threading.Timer` is registered in the runtime's timer queue, which is a static, process-wide root. The queue entry holds the callback delegate; the lambda `_ => Tick()` calls an instance method, so its `Target` is the `Poller`. Root -> timer queue -> callback -> `Poller` -> `_timer` is a fully reachable chain, so the object lives and ticks until `Dispose` is called or the process exits. Option 2 is wrong because the callback reference makes the `Poller` reachable; nothing about it being 'owned' matters to the GC. Option 3 mixes up a different, also real, pitfall: the `Timer` wrapper does have finalization logic that closes the timer, but it only runs when the `Timer` object itself is unreachable, which is the case for `new Timer(cb, ...)` whose result is discarded. Here the `Timer` is referenced by `_timer` on a `Poller` that is itself referenced by the queue's callback, so nothing is unreachable. Option 4 is wrong because reachability is decided by the object graph, not by whether a method on the object is currently on a stack. Correct design: make `Poller` implement `IDisposable` and dispose the timer, or use `PeriodicTimer` (.NET 6+) driven by a loop that ends on cancellation."
+            }
+          },
+          "tags": [
+            "gc",
+            "memory-leaks",
+            "timers"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.memory-leaks-managed.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "To stop a singleton's `Dictionary<string, byte[]>` cache from growing without bound, a developer changes it to `Dictionary<string, WeakReference<byte[]>>` so that 'the GC can evict entries when it needs memory'. Which statement is true?",
+              "options": [
+                {
+                  "text": "Entries become nearly useless: a weakly referenced array is reclaimed at the next GC of its generation regardless of how recently it was used, and the keys and `WeakReference` wrappers still accumulate unless swept.",
+                  "correct": true
+                },
+                {
+                  "text": "The GC clears weak references only under memory pressure, so the cache now behaves like an LRU bounded by available memory: hot entries survive, cold ones go first, and nothing accumulates.",
+                  "correct": false
+                },
+                {
+                  "text": "Because the `WeakReference` no longer roots the array, the GC also removes the dictionary entry when it reclaims the array, so the dictionary shrinks on its own and no sweep is needed.",
+                  "correct": false
+                },
+                {
+                  "text": "Constructing the references with `trackResurrection: true` makes them behave like strong references until memory runs low, giving the intended memory-pressure eviction without any extra bookkeeping.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A short weak reference is a GC handle that is not a root; when a collection scans the target's generation and finds no strong path, the target is reclaimed and the handle is cleared. That decision has nothing to do with memory pressure or recency: a freshly used entry in Gen0 dies at the next Gen0 GC, which under load happens many times per second, so the hit rate collapses. Option 2 is the core misconception: .NET has no 'soft' reference that survives until memory is tight (unlike Java's `SoftReference`), and there is no LRU ordering of any kind. Option 3 is wrong because the dictionary still strongly holds the key and the `WeakReference<T>` object itself; only the array goes away, so the structure keeps growing with dead wrappers unless you periodically sweep entries whose `TryGetTarget` returns false. Option 4 is wrong because a long weak reference (`trackResurrection: true`) merely stays valid while the object sits on the finalization queue and until it is finally reclaimed; it is about finalization ordering, not memory pressure, and `byte[]` has no finalizer anyway. The right tool for bounding a cache is `MemoryCache` (or `IMemoryCache`) with a `SizeLimit` and sliding or absolute expiration; weak references belong to observer and 'attach data without extending lifetime' scenarios (`ConditionalWeakTable`), not to cache eviction."
+            }
+          },
+          "tags": [
+            "gc",
+            "memory-leaks",
+            "weak-reference",
+            "caching"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.memory-leaks-managed.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A long-running ASP.NET Core service under steady traffic gains roughly 50 MB of heap per hour and never gives it back, even after Gen2 collections. Walk through how you would confirm that this is a managed leak rather than normal GC behaviour, how you would find the root that keeps the objects alive, which patterns in typical service code you would suspect first, and how you would fix and verify the fix.",
+              "explanation": "A strong answer separates 'heap is large' from 'heap is reachable' using GC counters, then walks the root path from a heap snapshot to a concrete holder (static, singleton, delegate, timer queue), names the typical culprits (event subscriptions to singletons, unbounded singleton caches, undisposed registrations and timers), and proposes lifetime-correct fixes rather than `GC.Collect()` or nulling fields.",
+              "rubric": [
+                "Confirms a managed leak with evidence rather than assumption: uses `dotnet-counters` (gc-heap-size / gen-2 size and gen-2 GC count) or `GC.GetGCMemoryInfo()` and reasons that a Gen2/LOH heap that keeps growing across Gen2 collections while fragmentation stays flat means the objects are reachable; distinguishes this from native memory, fragmentation, or a GC that simply has not run yet.",
+                "Describes finding the root path: captures two heap snapshots (`dotnet-gcdump`, `dotnet-dump` + `dumpheap -stat` + `gcroot`, PerfView or Visual Studio) and diffs by type, then walks from a surviving instance back to the holder (static field, DI singleton, delegate `Target`, timer queue, CancellationTokenSource registration list).",
+                "Names at least three realistic culprits from this concept: per-request objects subscribed to a singleton or static event without unsubscribing; an unbounded static/singleton dictionary or `IMemoryCache` without `SizeLimit`/expiration keyed by per-request data; `CancellationToken.Register` / `IOptionsMonitor.OnChange` / `IChangeToken` registrations never disposed; running `System.Threading.Timer` instances never disposed; captive scoped dependencies inside singletons.",
+                "Proposes lifetime-correct fixes: unsubscribe in `Dispose` using the same delegate instance, dispose registrations and timers, bound the cache (size limit, expiration, eviction), use `WeakReference`/`ConditionalWeakTable` only for observer or attach-data scenarios; does not propose `GC.Collect()` or nulling locals as the fix (credit if they explain why those do not help).",
+                "Verifies the fix empirically: re-runs the same load and compares heap snapshots or counters over time, showing the Gen2 heap plateaus rather than trends upward."
+              ]
+            }
+          },
+          "tags": [
+            "gc",
+            "memory-leaks",
+            "diagnostics"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "span-memory",
+      "title": "Span<T>, Memory<T> and zero-allocation code",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Span<T>, Memory<T> and zero-allocation code",
+          "note": "**What it is.** `Span<T>` is a stack-only view over contiguous memory: a managed array, a slice of one, a `string`, `stackalloc` memory or native memory, all exposed through one indexer, `Slice`, and the `MemoryExtensions` toolbox (`IndexOf`, `Trim`, `SequenceEqual`, `Split`) with no copying and no allocation. `ReadOnlySpan<T>` is the read-only counterpart; `string` converts implicitly to `ReadOnlySpan<char>`. `Memory<T>` / `ReadOnlyMemory<T>` are the heap-friendly siblings for views that must outlive a stack frame.\n\n**How it works underneath.** Since .NET Core 2.1 `Span<T>` is a `ref struct` with two fields: a managed interior reference (`ref T`, a real `ref` field since C# 11) and an `int` length. The GC can track interior references only while they live on the stack or in registers, so the compiler forbids everything that would move a span to the heap: class fields, boxing, generic type arguments (unless the parameter says `allows ref struct`, C# 13 / .NET 9), lambda captures and, until C# 13, any use in `async` or iterator methods. C# 13 allows `ref struct` locals in async methods as long as they are not live across an `await` or `yield`. Ref-safety (escape) analysis, present since C# 7.2 and extended with `scoped` in C# 11, stops you returning a span over `stackalloc` memory from the method that allocated it (CS8352). .NET Framework only has the \"slow\" three-field span (object, offset, length) from the `System.Memory` NuGet package.\n\n`Memory<T>` is an ordinary struct: object reference + start + length. It can be a field, sit in an async state machine or wait in a queue; call `.Span` when you actually touch the bytes. `IMemoryOwner<T>` from `MemoryPool<T>` ties buffer lifetime to `Dispose`. `Stream.ReadAsync(Memory<byte>)`, `PipeReader`, `System.Text.Json` and Kestrel are all built on this pair.\n\n`stackalloc` reserves memory in the current frame; since C# 7.2 `Span<T> buf = stackalloc T[n]` needs no `unsafe`. That memory is reclaimed only when the method returns. The default thread stack is 1 MB on Windows; on Linux and macOS the main thread follows `ulimit -s` (usually 8 MB) while .NET-created threads, including the thread pool where most async code runs, default to 1.5 MB (`DOTNET_DefaultStackSize`). A stack overflow cannot be caught, so keep sizes small (a few hundred bytes to about 1 KB), never `stackalloc` inside a loop and never with unbounded `n` (analyzer CA2014 flags the loop case). Zeroing is not guaranteed by the language: the compiler's `.locals init` flag makes the JIT zero it in practice, and `[SkipLocalsInit]` removes even that.\n\n`ArrayPool<T>.Shared` covers buffers too large for the stack. `Rent(minimumLength)` returns an array *at least* that long (bucketed by powers of two) that may still hold a previous renter's data; you slice to the length you need and `Return(array, clearArray)` when done. Not returning is a missed optimisation, not a leak: the GC still collects the array. Returning twice, or using after return, is a real bug because another renter now shares the buffer.\n\n**Zero-allocation parsing.** Take `ReadOnlySpan<char>` (or `ReadOnlySpan<byte>` for UTF-8), slice with `IndexOf` / `Split` / `Trim`, and hand slices straight to span-aware parsers: `int.TryParse(ReadOnlySpan<char>, ...)` (.NET Core 2.1), `ISpanParsable<T>` (.NET 7), `IUtf8SpanParsable<T>` (.NET 8) and the older `System.Buffers.Text.Utf8Parser` (.NET Core 2.1), plus `SearchValues<T>` (.NET 8; `SearchValues<string>` in .NET 9) for vectorised multi-needle search. .NET 8 added `MemoryExtensions.Split(span, Span<Range>)`; .NET 9 added the allocation-free `foreach (Range r in span.Split(','))` enumerator. Build output with `string.Create` or a rented buffer. C# 12 collection expressions target spans, C# 13 `params ReadOnlySpan<T>` removes the array per call, and C# 14 makes array-to-span conversions first-class so span-based overloads and extension methods resolve naturally.\n\n**What an interviewer probes.** Why a span cannot be a field while `Memory<T>` can; what `==` on spans compares (reference and length, not contents; use `SequenceEqual`); the cost of `stackalloc` in a loop; whether `ArrayPool` clears; how to turn a `Split` / `Substring` hot path into spans and prove it with BenchmarkDotNet's `[MemoryDiagnoser]`.\n\n**Common misconceptions.** \"Span is a pointer the GC cannot move\" (it is a managed ref the GC updates). \"Not returning a rented array leaks\" (it does not). \"Span works in async since C# 13\" (only when not live across `await`). \"`stackalloc` is always faster\" (beyond about 1 KB an `ArrayPool` rental usually wins, and zeroing a large stack buffer is not free).\n\n```csharp\nusing System.Buffers;\nusing System.Globalization;\n\npublic static int SumValues(ReadOnlySpan<char> input) // \"a=1;b=22;c=333\"\n{\n    int sum = 0;\n    foreach (Range r in input.Split(';'))        // .NET 9+: no allocation\n    {\n        ReadOnlySpan<char> pair = input[r].Trim();\n        if (pair.IsEmpty) continue;\n        int eq = pair.IndexOf('=');\n        if (eq < 0 || !int.TryParse(pair[(eq + 1)..], NumberStyles.Integer,\n                                    CultureInfo.InvariantCulture, out int v))\n            throw new FormatException(pair.ToString()); // allocate only on the error path\n        sum += v;\n    }\n    return sum;\n}\n\npublic static string ToUpperCopy(ReadOnlySpan<char> s)\n{\n    char[]? rented = null;\n    Span<char> buf = s.Length <= 256\n        ? stackalloc char[256]                   // small: stack\n        : (rented = ArrayPool<char>.Shared.Rent(s.Length)); // large: pooled\n    try\n    {\n        int n = s.ToUpperInvariant(buf);\n        return new string(buf[..n]);\n    }\n    finally\n    {\n        if (rented is not null) ArrayPool<char>.Shared.Return(rented);\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Why does the C# compiler reject `class Parser { Span<byte> _buf; }` and `List<Span<int>>`, while `Memory<byte>` is fine in both positions?",
+              "options": [
+                {
+                  "text": "`Span<T>` wraps a raw `T*` pointer that the GC cannot update when it compacts the heap, so a span stored inside a heap object would dangle after the first collection.",
+                  "correct": false
+                },
+                {
+                  "text": "`Span<T>` is a `ref struct` whose managed interior reference (`ref T`) the GC can track only on the stack or in registers; `Memory<T>` stores an object reference plus offset and length.",
+                  "correct": true
+                },
+                {
+                  "text": "The restriction applies only to spans over `stackalloc` memory: the compiler's escape analysis (`scoped`, CS8352) rejects the field because it cannot prove the span is array-backed.",
+                  "correct": false
+                },
+                {
+                  "text": "`Span<T>` is a mutable struct with copy semantics, so storing it in a heap object would silently decouple the stored copy from the buffer that its indexer writes to.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Correct: since .NET Core 2.1 `Span<T>` is a `ref struct` whose first field is a managed byref (`ref T`, an actual ref field since C# 11). The GC only knows how to report and update interior references that live on the stack or in registers, so the language forbids any placement that would put a span on the heap: class fields, boxing, generic arguments (unless `allows ref struct`, C# 13), lambda captures. `Memory<T>` is an ordinary struct (object, start, length), which the GC handles anywhere, so it can be a field or a generic argument. Option 1 is wrong because the span holds a managed reference, not a raw pointer; the GC does update it when compacting, and the reason it cannot live on the heap is tracking, not dangling. Option 3 is wrong because the rule is a property of the type, not of what backs a particular instance; an array-backed span is rejected as a field just the same. Escape analysis (`scoped`, CS8352) is a separate feature that governs returning spans over stack memory. Option 4 is wrong because copying a span copies the reference and length, so the copy views the same buffer; mutable-struct copy semantics are not the reason."
+            }
+          },
+          "tags": [
+            "span",
+            "ref-struct",
+            "memory",
+            "gc"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A method processes a file of about 200,000 lines:\n\n```csharp\nReadOnlySpan<char> text = File.ReadAllText(path);\nforeach (ReadOnlySpan<char> line in text.EnumerateLines())\n{\n    Span<char> upper = stackalloc char[line.Length];\n    line.ToUpperInvariant(upper);\n    Consume(upper);\n}\n```\n\nWhat happens at runtime?",
+              "options": [
+                {
+                  "text": "Each iteration's buffer is released when `upper` goes out of scope at the end of the loop body, exactly as a local array would be, so the stack stays flat.",
+                  "correct": false
+                },
+                {
+                  "text": "Because `line.Length` is not a compile-time constant, the compiler emits a hidden heap array for the `stackalloc` and the loop behaves like `new char[line.Length]`.",
+                  "correct": false
+                },
+                {
+                  "text": "The frame grows on every iteration because `stackalloc` memory is reclaimed only when the method returns; enough lines cause a `StackOverflowException` that cannot be caught.",
+                  "correct": true
+                },
+                {
+                  "text": "Once the stack is nearly exhausted the runtime throws `InsufficientExecutionStackException`, which the caller can catch, so the loop degrades gracefully instead of crashing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Correct: `stackalloc` bumps the stack pointer within the current frame, and nothing shrinks it until the method returns. A loop therefore accumulates one allocation per iteration; 200,000 lines of even 50 chars is about 20 MB, far beyond the 1 MB (Windows) or 1.5 MB (.NET-created threads on Linux/macOS) default stack. Stack overflow is fatal in .NET: it cannot be caught and the process dies. This is why analyzer CA2014 flags `stackalloc` inside loops and why the idiom is to allocate one fixed-size buffer before the loop. Option 1 describes scope rules for the `Span<char>` variable, not for the memory it points to: the span goes out of scope, the bytes stay reserved. Option 2 is a myth; non-constant sizes are allowed since C# 7.2 and still allocate on the stack (the compiler never silently substitutes a heap array). Option 4 confuses `RuntimeHelpers.EnsureSufficientExecutionStack()`, which throws that exception only when you call it explicitly, with what the runtime does on an actual overflow (nothing catchable)."
+            }
+          },
+          "tags": [
+            "stackalloc",
+            "span",
+            "performance"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `ArrayPool<T>.Shared` is true?",
+              "options": [
+                {
+                  "text": "`Rent(n)` returns an array of exactly `n` elements, zero-initialised like `new T[n]`, so callers can rely on `array.Length` and read it without clearing it first.",
+                  "correct": false
+                },
+                {
+                  "text": "`Rent(n)` may return an array longer than `n` that still holds a previous renter's data, so you must track the length you actually use and `Return` the array afterwards.",
+                  "correct": true
+                },
+                {
+                  "text": "Forgetting to call `Return` leaks the array for the lifetime of the process, because pooled arrays live on the pinned object heap (POH) and are excluded from collection.",
+                  "correct": false
+                },
+                {
+                  "text": "Returning the same array twice is harmless: the pool keeps a table of outstanding rentals, detects the duplicate and silently ignores the second `Return` call.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Correct: the shared pool buckets arrays by power-of-two sizes, so `Rent(100)` typically returns a 128-element array, and by default `Return` does not clear it, so stale content is visible to the next renter. Callers slice to the length they need and pass `clearArray: true` on return when the data is sensitive. Option 1 is wrong on both counts (length and zeroing), a very common source of bugs when code assumes `array.Length`. Option 3 is wrong: a rented array is an ordinary managed array; if you drop it the GC collects it. You lose the reuse benefit, nothing more. Pooled arrays are not pinned and do not live on the POH (that is what `GC.AllocateArray<T>(length, pinned: true)` is for). Option 4 is wrong: the pool does no such bookkeeping. A double `Return` puts the same array into the pool twice, so two future `Rent` calls hand out the same buffer to two owners, producing data corruption that is very hard to diagnose."
+            }
+          },
+          "tags": [
+            "arraypool",
+            "buffers",
+            "performance"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "This method does not compile on any C# version (C# 13 and later report CS4007, `Span<byte>` cannot be preserved across an `await`, plus CS1503 on the `ReadAsync` call; C# 12 rejects the `ref struct` local in an async method outright):\n\n```csharp\nasync Task<string> ReadHeaderAsync(Stream s)\n{\n    Span<byte> buf = stackalloc byte[64];\n    int n = await s.ReadAsync(buf);\n    return Encoding.ASCII.GetString(buf[..n]);\n}\n```\n\nWhich change makes it compile and behave correctly?",
+              "options": [
+                {
+                  "text": "Add `.ConfigureAwait(false)` so the continuation stays on the same thread and the `stackalloc` buffer is therefore still valid after the `await`.",
+                  "correct": false
+                },
+                {
+                  "text": "Target C# 13 or later: `ref struct` locals are now allowed in async methods, so the code compiles as written on .NET 9 and later.",
+                  "correct": false
+                },
+                {
+                  "text": "Rent a `byte[]` from `ArrayPool<byte>.Shared`, pass `array.AsMemory(0, 64)` to `ReadAsync(Memory<byte>)`, and `Return` the array in a `finally` block.",
+                  "correct": true
+                },
+                {
+                  "text": "Change `Span<byte>` to `ReadOnlySpan<byte>`, because a read-only span carries no writable interior reference and is safe to keep across an `await`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Correct: the async method's locals are hoisted into a state machine that may live on the heap and resume on another thread's stack, so both a `Span<T>` (a `ref struct`) and the `stackalloc` memory behind it are illegal there. `Stream.ReadAsync` therefore takes `Memory<byte>`, a normal struct that can be hoisted safely; a rented or allocated array wrapped with `AsMemory` is the idiomatic fix, with `Return` in `finally`. Option 1 is wrong because `ConfigureAwait` only controls whether the captured `SynchronizationContext` is used for the continuation; it never guarantees the same thread, and the original stack frame is gone once the method yields regardless. Option 2 is half true and therefore dangerous: C# 13 allows `ref struct` locals inside async methods, but only when they are not live across an `await` or `yield` (CS4007 otherwise); here `buf` is used after the `await`, and `ReadAsync` has no `Span<byte>` overload anyway (CS1503). Option 4 is wrong because `ReadOnlySpan<T>` is also a `ref struct` with exactly the same restrictions; read-only refers to the elements, not the lifetime."
+            }
+          },
+          "tags": [
+            "span",
+            "memory",
+            "async",
+            "stackalloc"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A hot path in your service parses request metadata of the form `key=value;key=value;...` (values are integers) using `string.Split(';')`, `Split('=')` and `int.Parse`, and profiling shows it dominates gen0 allocations. Explain how you would rewrite it to be allocation-free with `Span<T>` and friends, where `Memory<T>`, `stackalloc` and `ArrayPool<T>` would each come into play, what constraints the rewrite imposes on the surrounding code, and how you would prove the improvement.",
+              "rubric": [
+                "Describes slicing the input as `ReadOnlySpan<char>` with `IndexOf` / `Split` (the .NET 8 `Span<Range>` overload or the .NET 9 `foreach (Range r in span.Split(...))` enumerator) and `Trim`, instead of `string.Split` / `Substring`.",
+                "Uses the span overloads of `int.TryParse` / `int.Parse` (or `ISpanParsable<T>` / `Utf8Parser` for UTF-8) so no substring is materialised for the numeric token.",
+                "Explains the `ref struct` constraints: the parsed slices cannot be stored in class fields, captured in lambdas, used as generic arguments or kept across `await`; if the result must outlive the call or cross an async boundary, switch to `ReadOnlyMemory<char>` / `Memory<T>` or copy into an owned buffer.",
+                "Knows when scratch space is needed: `stackalloc` for a small fixed cap (roughly 1 KB or less, allocated once outside any loop), `ArrayPool<T>.Shared.Rent` with `Return` in `finally` for larger or variable sizes, and that rented arrays may be oversized and not cleared.",
+                "Proposes measurement rather than assumption: BenchmarkDotNet with `[MemoryDiagnoser]` (or `GC.GetAllocatedBytesForCurrentThread` / allocation profiler) comparing before and after, and mentions that allocation is acceptable on the error path (e.g. building a `FormatException` message)."
+              ],
+              "explanation": "Model answer: accept the input as `ReadOnlySpan<char>` and walk it with `IndexOf('=')` and `Split(';')` (the .NET 9 `SpanSplitEnumerator`, or the .NET 8 `Split(Span<Range>)` overload, or a manual `IndexOf` loop), trimming each slice and feeding it straight to `int.TryParse(ReadOnlySpan<char>, NumberStyles, IFormatProvider, out int)`; no `string` is created on the success path. Because every slice is a `ref struct`, the rewritten parser cannot store slices in fields, capture them in lambdas, use them as generic arguments or hold them across an `await`; anything that must outlive the call becomes `ReadOnlyMemory<char>` (for example a `string`-backed `AsMemory()` slice) or is copied into an owned buffer, and async callers pass `Memory<T>` and call `.Span` inside the synchronous part. If scratch space is needed (for example to collect parsed values before validation), a single `stackalloc` of a small fixed size allocated before any loop covers the common case, and `ArrayPool<T>.Shared.Rent` with `Return` in `finally` covers larger lines, remembering that rented arrays are oversized and not cleared. The gain is proven with BenchmarkDotNet `[MemoryDiagnoser]` (or `GC.GetAllocatedBytesForCurrentThread`) comparing the old and new implementations; the target is 0 B allocated per call on the success path, with allocation tolerated only when building an exception."
+            }
+          },
+          "tags": [
+            "span",
+            "zero-allocation",
+            "parsing",
+            "performance"
+          ]
+        }
+      ],
+      "katas": [
+        {
+          "id": "dotnet.clr-memory.span-memory.kata.1",
+          "title": "Zero-allocation integer parser",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 40,
+          "translations": {
+            "en": {
+              "task": "Implement a static class `ZeroAllocParser` with two methods:\n\n```csharp\npublic static int ParseInts(ReadOnlySpan<char> line, Span<int> destination);\npublic static long SumAll(ReadOnlySpan<char> text);\n```\n\n**`ParseInts`** parses one line of comma-separated integers into `destination` and returns the number of values written.\n- Tokens are separated by `,`; leading/trailing whitespace around a token is ignored (`\"  12, -7 ,300,,4 \"` yields `12, -7, 300, 4`).\n- Empty tokens (`,,` or a trailing comma) are skipped, not errors.\n- Integers are 32-bit, optional leading sign, invariant culture.\n- A token that is not a valid integer throws `FormatException`.\n- If `destination` is too small for the values present, throw `ArgumentException`.\n\n**`SumAll`** takes a multi-line text (lines separated by `\\n`, `\\r\\n` or `\\r`; each line follows the `ParseInts` format; blank lines are ignored) and returns the sum of every integer as a `long`. Input may be arbitrarily large and a single line may contain thousands of values.\n\n**Constraints**\n- Neither method may allocate on the success path: no `string.Split`, `Substring`, `ToString()`, `new string`, LINQ, iterators or per-call `new T[]`. Allocating while building an exception message is fine.\n- Any `stackalloc` must have a fixed, small upper bound and must not be inside a loop; larger scratch space must come from `ArrayPool<T>.Shared` and be returned in a `finally` block.\n- Target .NET 8 or later. On .NET 8 tokenise with an `IndexOf(',')` loop or `MemoryExtensions.Split(line, Span<Range>, ',')`; the one-argument `span.Split(',')` enumerator exists only on .NET 9+. `MemoryExtensions.EnumerateLines` (.NET 6+) is allowed for line splitting.\n\n**Examples**\n- `ParseInts(\"  12, -7 ,300,,4 \", buf)` -> returns `4`, `buf[..4]` = `[12, -7, 300, 4]`\n- `ParseInts(\"\", buf)` -> `0`\n- `ParseInts(\"1,x\", buf)` -> throws `FormatException`\n- `SumAll(\"1,2,3\\r\\n\\n 4 , 5 \\n,6,\\n\")` -> `21`\n- `SumAll(\"\")` -> `0`\n\nWrite a `Main` that exercises the examples and prints `GC.GetAllocatedBytesForCurrentThread()` before and after 1,000 calls to `SumAll` (after one warm-up call) to demonstrate zero allocation.",
+              "rubric": [
+                "Tokenises with span operations only (an `IndexOf(',')` loop plus slicing, `Split(Span<Range>)`, or the .NET 9 `Split` enumerator) and `Trim`; no `string.Split`, `Substring` or `ToString` on the success path, and the solution compiles on the .NET version the candidate targets.",
+                "Parses each token with the span overload of `int.TryParse` / `int.Parse` using `NumberStyles.Integer` and `CultureInfo.InvariantCulture`; invalid tokens raise `FormatException`, an undersized destination raises `ArgumentException`, empty tokens are skipped.",
+                "`SumAll` streams the input line by line (`EnumerateLines` or manual newline scanning, handling `\\r\\n`), ignores blank lines and accumulates into a `long` without materialising lines or tokens.",
+                "Scratch buffer strategy is correct: at most one bounded `stackalloc` allocated before any loop, `ArrayPool<int>.Shared.Rent` for lines that exceed the cap, `Return` in `finally`, and only the written prefix of a rented (possibly oversized) array is read.",
+                "Edge cases pass: empty input, only separators (`,,,`), trailing comma, negative numbers, a line with more values than the stack cap; `Main` runs the examples and the measured allocation over 1,000 repeated `SumAll` calls is 0 bytes."
+              ],
+              "referenceSolution": "using System.Buffers;\nusing System.Globalization;\n\npublic static class ZeroAllocParser\n{\n    /// <summary>\n    /// Parses one line of comma-separated integers into <paramref name=\"destination\"/>.\n    /// Tokens are trimmed; empty tokens are skipped. Returns the number of ints written.\n    /// Uses an IndexOf loop so it compiles on .NET 8 (the span Split enumerator is .NET 9+).\n    /// </summary>\n    public static int ParseInts(ReadOnlySpan<char> line, Span<int> destination)\n    {\n        int written = 0;\n        ReadOnlySpan<char> rest = line;\n        while (true)\n        {\n            int comma = rest.IndexOf(',');\n            ReadOnlySpan<char> token = (comma < 0 ? rest : rest[..comma]).Trim();\n\n            if (!token.IsEmpty)\n            {\n                if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))\n                    throw new FormatException($\"'{token}' is not a valid integer.\"); // allocates only on the error path\n\n                if (written == destination.Length)\n                    throw new ArgumentException(\"Destination buffer is too small.\", nameof(destination));\n\n                destination[written++] = value;\n            }\n\n            if (comma < 0) return written;\n            rest = rest[(comma + 1)..];\n        }\n    }\n\n    /// <summary>\n    /// Sums every integer in a multi-line text. Streams line by line and never materialises\n    /// lines or tokens. A single small stack buffer covers typical lines; longer lines rent\n    /// from ArrayPool and return the array in a finally block.\n    /// </summary>\n    public static long SumAll(ReadOnlySpan<char> text)\n    {\n        const int StackLimit = 128;\n        long sum = 0;\n        Span<int> stackBuffer = stackalloc int[StackLimit];          // once, before the loop (CA2014)\n\n        foreach (ReadOnlySpan<char> line in text.EnumerateLines())     // handles \\n, \\r\\n and \\r (.NET 6+)\n        {\n            if (line.IsWhiteSpace()) continue;\n\n            int maxValues = line.Count(',') + 1;                        // upper bound on tokens in this line\n            int[]? rented = maxValues <= StackLimit ? null : ArrayPool<int>.Shared.Rent(maxValues);\n            Span<int> buffer = rented ?? stackBuffer;                   // rented may be longer than maxValues\n            try\n            {\n                int n = ParseInts(line, buffer);\n                foreach (int v in buffer[..n]) sum += v;                // read only the written prefix\n            }\n            finally\n            {\n                if (rented is not null) ArrayPool<int>.Shared.Return(rented);\n            }\n        }\n        return sum;\n    }\n}\n\npublic static class Program\n{\n    public static void Main()\n    {\n        Span<int> buf = stackalloc int[16];\n\n        int n = ZeroAllocParser.ParseInts(\"  12, -7 ,300,,4 \", buf);\n        Console.WriteLine($\"ParseInts -> {n}: {string.Join(\", \", buf[..n].ToArray())}\");   // 4: 12, -7, 300, 4\n        Console.WriteLine($\"ParseInts(\\\"\\\") -> {ZeroAllocParser.ParseInts(\"\", buf)}\");       // 0\n\n        try { ZeroAllocParser.ParseInts(\"1,x\", buf); }\n        catch (FormatException e) { Console.WriteLine($\"FormatException: {e.Message}\"); }\n\n        try { ZeroAllocParser.ParseInts(\"1,2,3\", buf[..2]); }\n        catch (ArgumentException e) { Console.WriteLine($\"ArgumentException: {e.Message}\"); }\n\n        Console.WriteLine($\"SumAll -> {ZeroAllocParser.SumAll(\"1,2,3\\r\\n\\n 4 , 5 \\n,6,\\n\")}\"); // 21\n        Console.WriteLine($\"SumAll(\\\"\\\") -> {ZeroAllocParser.SumAll(\"\")}\");                     // 0\n\n        // A line with more values than the stack cap forces the ArrayPool path.\n        string longLine = string.Join(\",\", Enumerable.Range(1, 1000));\n        string text = string.Concat(Enumerable.Repeat(\"1,2,3\\n\" + longLine + \"\\n\", 50));\n        Console.WriteLine($\"SumAll(long) -> {ZeroAllocParser.SumAll(text)}\");                  // 50 * (6 + 500500)\n\n        // Warm up (JIT, pool bucket) and then measure allocations over 1,000 calls.\n        ZeroAllocParser.SumAll(text);\n        long before = GC.GetAllocatedBytesForCurrentThread();\n        for (int i = 0; i < 1_000; i++) ZeroAllocParser.SumAll(text);\n        long after = GC.GetAllocatedBytesForCurrentThread();\n        Console.WriteLine($\"Allocated over 1,000 SumAll calls: {after - before} bytes\");        // 0\n    }\n}\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "string-internals",
+      "title": "String internals",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "String internals",
+          "note": "# String internals\n\n**What it is.** `System.String` is a sealed reference type whose instances are immutable: once constructed, the character data never changes. Every API that looks like a mutation (`Replace`, `ToUpperInvariant`, `Substring`, `Trim`, `+`) returns a new instance. The object layout is: object header, method-table pointer, an `int` length, then the UTF-16 code units stored inline, followed by a hidden null terminator kept for interop. On x64 that is about `22 + 2 * Length` bytes rounded up to a multiple of 8 (an empty string is 24 bytes). Because the characters live inside the object, a string is a variable-length object: there is no safe-code way to mutate the characters after construction, and the only safe way to fill a string in place is `string.Create`, which hands you the buffer before the instance is published. Strings longer than roughly 42,500 chars exceed 85,000 bytes and land on the Large Object Heap.\n\n**UTF-16.** `string` is always UTF-16; there is no UTF-8 string type in the BCL (`Utf8String` was prototyped and shelved). `Length` and the indexer work in `char` units (UTF-16 code units), not Unicode scalar values and not user-perceived characters. Anything outside the Basic Multilingual Plane, including most emoji, is a surrogate pair of two `char`s. Use `Rune` and `EnumerateRunes()` (.NET Core 3.0) for scalar values, `StringInfo.GetTextElementEnumerator` / `StringInfo.GetNextTextElementLength` for grapheme clusters (UAX#29-compliant since .NET 5), and `Encoding.UTF8.GetByteCount` for wire size. A naive `Reverse()` or slicing by `char` index can split a pair and produce invalid text. Since C# 11, `\"...\"u8` literals give you a `ReadOnlySpan<byte>` of UTF-8 without any `string` at all.\n\n**Equality and hashing.** `==` and `Equals` on `string` are ordinal value comparisons (with a reference-equality fast path); only `ReferenceEquals` or comparing as `object` tests identity. `GetHashCode()` is randomized per process on .NET Core and later (Marvin), so never persist it or share it across processes. `Compare`, `StartsWith(string)`, `EndsWith(string)` and `IndexOf(string)` are culture-sensitive by default, while `Equals` and `IndexOf(char)` are ordinal; pass `StringComparison.Ordinal` in non-UI code.\n\n**Interning.** The C# compiler folds constant expressions (`\"hel\" + \"lo\"`, `const` interpolation since C# 10) into one literal, and the runtime interns every literal (`ldstr`) into a process-wide table, so identical literals across assemblies share a single object. Since .NET 8 literals are allocated on the Frozen Object Heap: they are never moved or collected and the GC does not have to trace them. Runtime-created strings (concatenation, parsing, I/O) are *not* interned. `string.Intern(s)` returns the canonical instance (adding `s` if absent); `string.IsInterned(s)` only looks up. Interned strings live until the process exits, so interning unbounded input such as header values or user ids is a memory leak, and each call costs a hash plus synchronization. Interning is an optimization for identity-keyed caches or heavily duplicated tokens, never a correctness requirement, because `==` already compares by value.\n\n**Building strings.** `s += x` in a loop is O(n^2): each iteration copies everything written so far. A single expression `a + b + c + d` compiles to one `string.Concat(a, b, c, d)` call and is fine. Since .NET Framework 4.0 `StringBuilder` is a backward-linked list of chunks that grow to at most 8,000 chars by default (a single large `Append` or an explicit capacity can create a bigger chunk): `Append` copies nothing until the current chunk is full, `ToString()` copies exactly once, but the indexer and `Insert` may walk the chunk list. Since C# 10 / .NET 6, interpolated strings compile to `DefaultInterpolatedStringHandler`, a `ref struct` that formats directly into an `ArrayPool<char>` buffer, and `sb.Append($\"...\")` binds to `AppendInterpolatedStringHandler`, so no intermediate string exists. Prefer `AsSpan()` slicing and the `ReadOnlySpan<char>` overloads of `int.Parse`, `string.Concat` and `string.Join` (.NET 9 added `params ReadOnlySpan<T>` overloads) over `Substring`.\n\n**`string.Create`.** When the final length is known up front, `string.Create(length, state, SpanAction<char, TState>)` (.NET Core 2.1) allocates the string once and hands you a `Span<char>` over its still-private buffer to fill: no temporary array and no copy. `new string(ReadOnlySpan<char>)` also allocates once but copies from your buffer. .NET 6 added `string.Create(IFormatProvider, ref DefaultInterpolatedStringHandler)` for culture-specific interpolation.\n\n**What interviewers probe.** Why immutability exists (safe sharing across threads, interning, stable dictionary keys, tamper-proof paths and URIs), reference versus value equality, `Length` on emoji, the cost of `+` in loops versus `StringBuilder`, whether interpolation allocates, and when `string.Create` beats `StringBuilder`.\n\n**Misconceptions.** \"Equal strings are always the same object\": only literals are. \"Interned strings are collected when unused\": they are not. \"`Length` is the number of characters\": it is the number of UTF-16 code units. \"`StringBuilder` always beats concatenation\": one `Concat` of a handful of operands is cheaper. \"Strings cannot be mutated\": `fixed (char* p = s)` can overwrite one, which silently corrupts a shared literal; the runtime does not protect you.\n\n```csharp\nusing System.Text;\n\nstring a = \"hello\";\nstring b = \"hel\" + \"lo\";                                 // folded by the compiler: same interned literal\nstring c = new string(\"hello\".ToCharArray());            // runtime instance\nConsole.WriteLine(ReferenceEquals(a, b));                // True\nConsole.WriteLine(ReferenceEquals(a, c));                // False\nConsole.WriteLine(a == c);                               // True  (ordinal value equality)\nConsole.WriteLine(ReferenceEquals(a, string.Intern(c))); // True\n\nstring s = \"a👍\";\nConsole.WriteLine(s.Length);                             // 3 (UTF-16 code units)\nConsole.WriteLine(s.EnumerateRunes().Count());           // 2 (scalar values)\nConsole.WriteLine(Encoding.UTF8.GetByteCount(s));        // 5 (bytes on the wire)\n\n// Exactly one heap allocation: the result string itself.\nstatic string GuidToHex(Guid id) =>\n    string.Create(32, id, static (dst, g) =>\n    {\n        Span<byte> bytes = stackalloc byte[16];\n        g.TryWriteBytes(bytes);\n        const string digits = \"0123456789abcdef\";\n        for (int i = 0; i < bytes.Length; i++)\n        {\n            dst[2 * i]     = digits[bytes[i] >> 4];\n            dst[2 * i + 1] = digits[bytes[i] & 0xF];\n        }\n    });\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.string-internals.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "What does this program print (.NET 8 or later)?\n\n```csharp\nstring a = \"hello\";\nstring b = \"hel\" + \"lo\";\nstring c = new string(\"hello\".ToCharArray());\nstring d = string.Intern(c);\nConsole.WriteLine(ReferenceEquals(a, b));\nConsole.WriteLine(ReferenceEquals(a, c));\nConsole.WriteLine(ReferenceEquals(a, d));\nConsole.WriteLine(a == c);\n```",
+              "options": [
+                {
+                  "text": "True, False, True, True",
+                  "correct": true
+                },
+                {
+                  "text": "True, True, True, True",
+                  "correct": false
+                },
+                {
+                  "text": "False, False, True, True",
+                  "correct": false
+                },
+                {
+                  "text": "True, False, False, True",
+                  "correct": false
+                }
+              ],
+              "explanation": "`\"hel\" + \"lo\"` is a constant expression, so the C# compiler folds it into the literal `\"hello\"`; every literal is interned by the runtime, so `a` and `b` are the same object (True). `c` is created at run time from a char array and is not interned, so it is a distinct object (False) even though its value is equal. `string.Intern(c)` looks up the intern table and returns the canonical instance, which is the literal already referenced by `a` (True). `==` on strings is ordinal value equality, so `a == c` is True. \"True, True, True, True\" assumes that every string with the same value shares one instance; only literals and explicitly interned strings do. \"False, False, True, True\" assumes that the compiler does not fold constant concatenation and that only `string.Intern` produces shared instances; folding of constant expressions has been C# behaviour since 1.0. \"True, False, False, True\" assumes `string.Intern` returns a new copy or interns `c` itself; it returns the instance already in the table, and only adds `c` when no equal string is interned yet."
+            }
+          },
+          "tags": [
+            "strings",
+            "interning",
+            "equality"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.string-internals.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `StringBuilder` in .NET 6 and later is true?",
+              "options": [
+                {
+                  "text": "It is a linked list of chunks: `Append` fills the current chunk and links a new one when it is full instead of copying, and `ToString()` copies the characters exactly once.",
+                  "correct": true
+                },
+                {
+                  "text": "It keeps a single `char[]` that is reallocated at twice its size whenever it fills up, and `ToString()` wraps that array as the result without copying.",
+                  "correct": false
+                },
+                {
+                  "text": "`sb.Append($\"{x}\")` calls `string.Format` to build the interpolated string first and then copies it into the builder, so it always allocates one extra string.",
+                  "correct": false
+                },
+                {
+                  "text": "Below roughly 1,000 iterations the C# compiler rewrites `s += x` in a loop into an equivalent `StringBuilder` sequence, so the two only differ in larger loops.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Since .NET Framework 4.0 `StringBuilder` is a backward-linked list of chunks (`m_ChunkChars` / `m_ChunkPrevious`); chunks grow to at most 8,000 chars (`MaxChunkSize`) by default, although a single large `Append` or an explicit capacity can create a bigger one. Appending fills the current chunk and links a new one when it is full instead of copying everything written so far, and `ToString()` walks the chunks and copies exactly once into the final string; the price is that the indexer and `Insert` may have to walk the chunk list. The single doubling `char[]` describes the pre-4.0 implementation, and `ToString()` has never handed out the internal buffer because strings are immutable and the builder can keep mutating. Since C# 10 / .NET 6, `sb.Append($\"...\")` binds to `AppendInterpolatedStringHandler`, which formats each hole directly into the builder's chunk; there is no `string.Format` call and no intermediate string, so the interpolated overload is not a hidden allocation. The C# compiler never rewrites `s += x` into a `StringBuilder`: every iteration compiles to a `string.Concat` call that copies all previous characters into a new string, so `+=` in a loop is O(n^2) at any iteration count; the count only determines whether you notice."
+            }
+          },
+          "tags": [
+            "strings",
+            "stringbuilder",
+            "performance"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.string-internals.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Given `string s = \"a👍\";` (the letter `a` followed by the thumbs-up emoji U+1F44D), what does `s.Length` return?",
+              "options": [
+                {
+                  "text": "2, because `Length` counts Unicode code points",
+                  "correct": false
+                },
+                {
+                  "text": "3, because `Length` counts UTF-16 code units and U+1F44D is a surrogate pair",
+                  "correct": true
+                },
+                {
+                  "text": "5, because `Length` counts the UTF-8 bytes the string occupies",
+                  "correct": false
+                },
+                {
+                  "text": "6, because `Length` counts the UTF-16 bytes the string occupies",
+                  "correct": false
+                }
+              ],
+              "explanation": "`string` is UTF-16 and `Length` is the number of `char` values (16-bit code units). U+1F44D lies outside the Basic Multilingual Plane, so it is encoded as a high/low surrogate pair (`\\uD83D\\uDC4D`), giving 1 + 2 = 3. `Length` does not count code points; to get 2 use `s.EnumerateRunes().Count()` (`Rune`, .NET Core 3.0) or `StringInfo.GetTextElementEnumerator` for grapheme clusters. It does not count bytes either: `Encoding.UTF8.GetByteCount(s)` is 5 (1 + 4) and the in-memory UTF-16 payload is 6 bytes, but neither is what `Length` reports. The practical consequence is that indexing, `Substring` and `Reverse` by `char` can split a surrogate pair and produce invalid text."
+            }
+          },
+          "tags": [
+            "strings",
+            "utf-16",
+            "unicode"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.string-internals.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You must produce a 32-character lower-case hex string from a `Guid` on a hot path. Which approach performs exactly one heap allocation (the result string) and writes each character exactly once, with no intermediate copy of the character data?",
+              "options": [
+                {
+                  "text": "`string.Create(32, guid, static (span, g) => { /* write hex chars into span */ })`",
+                  "correct": true
+                },
+                {
+                  "text": "`Span<char> buf = stackalloc char[32]; /* fill buf */ return new string(buf);`",
+                  "correct": false
+                },
+                {
+                  "text": "`var sb = new StringBuilder(32); /* Append each hex char */ return sb.ToString();`",
+                  "correct": false
+                },
+                {
+                  "text": "`return string.Concat(parts);` where `parts` is a `string[]` of two-character hex chunks computed with `b.ToString(\"x2\")`",
+                  "correct": false
+                }
+              ],
+              "explanation": "`string.Create` (.NET Core 2.1) allocates the string with the requested length and invokes the callback with a `Span<char>` over the string's own buffer while the object is still private to the caller, so the characters are written directly in place and nothing is copied; the `static` lambda plus the `state` argument avoid a closure allocation. The `stackalloc` + `new string(ReadOnlySpan<char>)` variant also allocates only the result, but the constructor copies the 32 chars from the stack buffer into the new string, so the data is written twice; it is a good option when the length is not known up front, but it is not the one asked for. `StringBuilder` allocates the builder object and its chunk array, and `ToString()` copies the chunk into a new string, so that is three allocations and two writes per character. `string.Concat(parts)` allocates a two-character string per byte (16 strings plus the array) before concatenating them into the result."
+            }
+          },
+          "tags": [
+            "strings",
+            "allocation",
+            "span",
+            "performance"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.string-internals.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Explain why `System.String` is immutable in .NET and what the runtime and the BCL gain from it. Then describe how string interning works (compile-time literals versus `string.Intern` at run time), what the lifetime of an interned string is, and when calling `string.Intern` in application code is a mistake. Finally, state what immutability costs and how hot paths mitigate that cost.",
+              "rubric": [
+                "States concrete benefits of immutability: instances can be shared freely across threads and by interning without defensive copies, and their hash code and value are stable while used as dictionary keys or in security-sensitive values such as paths, URIs and connection strings.",
+                "Distinguishes compile-time interning of literals (the compiler folds constant expressions and the runtime interns every `ldstr` literal in a process-wide table, on the Frozen Object Heap since .NET 8) from run-time strings, which are never interned unless `string.Intern` is called; mentions `string.IsInterned` as the non-adding lookup.",
+                "States that interned strings live for the lifetime of the process and are never garbage collected, so interning unbounded or user-controlled input (headers, ids, log messages) is a memory leak, and that each `Intern` call costs a hash lookup plus synchronization.",
+                "Explains that interning is not needed for correctness because `==` and `Equals` compare by ordinal value (with a reference fast path); it only pays off for identity-keyed caches or a bounded set of heavily duplicated tokens, and only reference comparison (`ReferenceEquals` / `(object)a == (object)b`) or `string.IsInterned` can observe it.",
+                "Names the cost of immutability and its mitigations: every apparent modification (`Substring`, `Replace`, `ToUpper`, `+=` in a loop) allocates, so hot paths use `StringBuilder`, `AsSpan()` slicing with span-based overloads, `string.Create`, or interpolated string handlers instead."
+              ],
+              "explanation": "A strong answer connects immutability to sharing (interning, thread safety, stable keys and security invariants) and then treats interning as a consequence of it: literals are interned automatically (Frozen Object Heap since .NET 8), run-time strings only via `string.Intern`, and the table is never collected, which makes indiscriminate interning a leak rather than an optimization. The answer should also acknowledge the trade-off, namely that every modification allocates, and name the modern tools (`StringBuilder`, `Span<char>`, `string.Create`, interpolated string handlers) that keep hot paths allocation-free."
+            }
+          },
+          "tags": [
+            "strings",
+            "interning",
+            "immutability"
+          ]
+        }
+      ]
+    }
+  ]
+}
