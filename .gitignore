@@ -1,0 +1,42 @@
+# ── Local secrets (never commit; never written by tooling) ──
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+**/appsettings.Local.json
+!**/appsettings.Local.json.example
+
+# ── Per-user / local-only Claude state ──
+.claude/settings.local.json
+
+# ── Personal scratch space (only its README is tracked) ──
+/working/*
+!/working/README.md
+
+# ── .NET ──
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+*.trx
+
+# ── Node / Angular ──
+node_modules/
+dist/
+.angular/
+*.tsbuildinfo
+npm-debug.log*
+
+# ── Playwright ──
+test-results/
+playwright-report/
+
+# ── OS / editor noise ──
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
