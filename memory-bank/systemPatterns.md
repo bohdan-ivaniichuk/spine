@@ -41,6 +41,15 @@ say so rather than deleting.
 - **Compose:** healthchecks on `127.0.0.1`; api waits for postgres, web waits for api; content mounted
   read-only at `/content`.
 
+## 2026-09-06 — Visual direction (ADR 0004)
+
+- Light theme "Calm workspace", dark theme "Developer dark"; one typography (Manrope + JetBrains
+  Mono). Tokens are CSS variables in `web/src/styles.scss` exposed via Tailwind `@theme inline`;
+  `Theme` service sets `data-theme` on `<html>` (`system` = no attribute); header toggle.
+- Components use token utilities only (`bg-surface`, `text-muted`, `border-line`, `bg-accent`, …).
+- Design canvas artifact "InterviewPrep Design Directions" holds the chosen screens (page 1) and the
+  unchosen sketches C/D (page 2).
+
 ## Tooling patterns
 
 - Spec Kit feature folders under `specs/NNN-*`; `specs/000-taxonomy.md` is content scope, not a feature.

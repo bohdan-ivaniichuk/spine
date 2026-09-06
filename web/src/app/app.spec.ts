@@ -23,7 +23,8 @@ describe('App', () => {
     await fixture.whenStable();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('InterviewPrep');
+    expect(compiled.querySelector('header')?.textContent).toContain('InterviewPrep');
     expect(compiled.querySelector('app-api-status')?.textContent).toContain('API: OK');
+    expect(compiled.querySelector('app-theme-toggle button')).not.toBeNull();
   });
 });

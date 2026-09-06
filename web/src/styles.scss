@@ -1,2 +1,133 @@
-/* Global styles. Tailwind v4 is configured via .postcssrc.json (@tailwindcss/postcss). */
+/* Global styles. Tailwind v4 is configured via .postcssrc.json (@tailwindcss/postcss).
+   Design direction (2026-09-06): "Calm workspace" as the light theme, "Developer dark" as the dark
+   theme. Typography is shared; only the color tokens switch. Tokens are CSS variables so a theme
+   change is one attribute flip on <html data-theme="light|dark">; no attribute = follow the system. */
 @use 'tailwindcss';
+
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ---- Light (default) ---- */
+:root {
+  color-scheme: light;
+  --color-bg: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f1ee;
+  --color-sidebar: #fbfbfa;
+  --color-text: #1f2328;
+  --color-muted: #6b7280;
+  --color-line: #e5e5e1;
+  --color-accent: #3b6cf0;
+  --color-accent-soft: #e8eefc;
+  --color-on-accent: #ffffff;
+  --color-ok: #1f9d61;
+  --color-ok-soft: #e6f6ee;
+  --color-bad: #d6453d;
+  --color-bad-soft: #fbeae8;
+  --color-code-bg: #f3f4f6;
+  --color-code-text: #1f2328;
+  --color-syntax-keyword: #8250df;
+  --color-syntax-type: #0550ae;
+  --color-syntax-string: #0a3069;
+  --color-syntax-comment: #6e7781;
+  --shadow-card: 0 1px 2px rgb(20 20 20 / 0.05), 0 8px 24px rgb(20 20 20 / 0.05);
+  --radius-card: 10px;
+}
+
+/* ---- Dark ---- */
+@mixin dark-tokens {
+  color-scheme: dark;
+  --color-bg: #0f141a;
+  --color-surface: #161c24;
+  --color-surface-2: #1c242e;
+  --color-sidebar: #0b0f14;
+  --color-text: #e6edf3;
+  --color-muted: #8b98a8;
+  --color-line: #2a3441;
+  --color-accent: #7dd3fc;
+  --color-accent-soft: #12303f;
+  --color-on-accent: #0f141a;
+  --color-ok: #7ee787;
+  --color-ok-soft: #12301c;
+  --color-bad: #ff7b72;
+  --color-bad-soft: #3a1b1b;
+  --color-code-bg: #0b0f14;
+  --color-code-text: #e6edf3;
+  --color-syntax-keyword: #ff7b72;
+  --color-syntax-type: #79c0ff;
+  --color-syntax-string: #a5d6ff;
+  --color-syntax-comment: #8b949e;
+  --shadow-card: none;
+  --radius-card: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark-tokens;
+  }
+}
+:root[data-theme='dark'] {
+  @include dark-tokens;
+}
+
+/* Expose the tokens to Tailwind utilities: bg-bg, text-muted, border-line, bg-accent-soft, font-mono … */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-sidebar: var(--color-sidebar);
+  --color-text: var(--color-text);
+  --color-muted: var(--color-muted);
+  --color-line: var(--color-line);
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-on-accent: var(--color-on-accent);
+  --color-ok: var(--color-ok);
+  --color-ok-soft: var(--color-ok-soft);
+  --color-bad: var(--color-bad);
+  --color-bad-soft: var(--color-bad-soft);
+  --color-code-bg: var(--color-code-bg);
+  --color-code-text: var(--color-code-text);
+  --font-sans: 'Manrope', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', Menlo, Consolas, monospace;
+  --shadow-card: var(--shadow-card);
+  --radius-card: var(--radius-card);
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reading rhythm for Markdown notes (feature 003 renders into .prose-note). */
+.prose-note {
+  max-width: 68ch;
+  line-height: 1.65;
+  h2 {
+    margin-top: 1.5em;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0.75em 0;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    background: var(--color-surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    overflow-x: auto;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+  }
+}

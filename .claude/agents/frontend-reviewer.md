@@ -46,9 +46,15 @@ Treat `.specify/memory/constitution.md` Principle VIII as binding. Grep to confi
    control.
 8. **Bundle impact.** New dependency? Check size and whether it is tree-shakeable; Monaco loaded lazily
    only on the kata route; no moment.js-class libraries. Flag 💡 with the estimated size.
-9. **TypeScript strictness.** No `any`, no non-null `!` on API results, DTOs typed from the API contract.
+9. **Design tokens (ADR 0004).** Components use the token utilities from `web/src/styles.scss`
+   (`bg-bg`, `bg-surface`, `bg-surface-2`, `text-text`, `text-muted`, `border-line`, `bg-accent`,
+   `text-on-accent`, `bg-ok`/`bg-ok-soft`, `bg-bad`/`bg-bad-soft`, `font-mono`, `rounded-card`,
+   `shadow-card`) — never raw Tailwind palette classes (`slate-*`, `sky-*`, `emerald-*`, `gray-*`) or
+   hard-coded hex. Both themes must read correctly: check the dark palette by reasoning about
+   contrast, not only the light one. Flag ⚠️ on a raw palette class in a shipped component.
+10. **TypeScript strictness.** No `any`, no non-null `!` on API results, DTOs typed from the API contract.
    Flag 💡.
-10. **i18n readiness.** Content language switch (`en`/`uk`) comes from the content payload, not from
+11. **i18n readiness.** Content language switch (`en`/`uk`) comes from the content payload, not from
     Angular i18n; UI chrome strings are fine hard-coded in EN for MVP. Flag 📝 if a component mixes the two.
 
 ## Output

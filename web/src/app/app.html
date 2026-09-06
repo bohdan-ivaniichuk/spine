@@ -1,9 +1,19 @@
-<div class="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10 text-slate-900">
-  <header class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
-    <h1 class="text-3xl font-semibold tracking-tight">InterviewPrep</h1>
-    <app-api-status />
+<div class="flex min-h-screen flex-col bg-bg text-text">
+  <header class="flex h-14 items-center justify-between border-b border-line bg-surface px-8">
+    <div class="flex items-center gap-6">
+      <a href="/" class="text-base font-bold tracking-tight text-text">InterviewPrep</a>
+      <nav class="flex gap-4 text-sm text-muted" aria-label="Main">
+        <a href="/review" class="hover:text-text">Review</a>
+        <a href="/knowledge" class="hover:text-text">Knowledge</a>
+        <a href="/katas" class="hover:text-text">Katas</a>
+      </nav>
+    </div>
+    <div class="flex items-center gap-4">
+      <app-api-status />
+      <app-theme-toggle />
+    </div>
   </header>
-  <main class="flex-1">
+  <main class="mx-auto w-full max-w-5xl flex-1 px-8 py-10">
     <router-outlet />
   </main>
 </div>

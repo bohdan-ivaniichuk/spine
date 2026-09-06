@@ -20,7 +20,7 @@ Single git repository, single solution, one Angular app. Default branch for work
 |---|---|
 | `src/Domain`, `src/Application`, `src/Infrastructure`, `src/Api` | Modular monolith, .NET 10, FastEndpoints 8. Layering Domain → Application → Infrastructure → Api, no upward references. `Api` also hosts the `import-content` CLI verb (`Program.cs` branches on `args[0]`). |
 | `tests/` | xUnit + Shouldly, mirroring `src/`; `Infrastructure.Tests` and `Api.Tests` use Testcontainers (`Category=Integration`). Fixtures under `tests/Fixtures/`. |
-| `web/` | Angular 22 (zoneless, standalone, signals, `httpResource`), Tailwind 4, Vitest; nginx image proxies `/api`. Feature folders `knowledge/`, `review/`, `grading/`. |
+| `web/` | Angular 22 (zoneless, standalone, signals, `httpResource`), Tailwind 4, Vitest; nginx image proxies `/api`. Feature folders `knowledge/`, `review/`, `grading/`. Design tokens (light/dark, ADR 0004) in `src/styles.scss`; use token utilities, never raw palette classes. |
 | `docker-compose.yml`, `.env.example` | `postgres` + `api` + `web` with health checks; `docker compose run --rm api import-content` imports `./content` (mounted read-only). |
 | `scripts/validate-content.sh` | Validates content against schema + import rules without a database. |
 | `content/schema/content.schema.json`, `content/schema/manifest.schema.json` | JSON Schemas for topic seed files and for the manifest. |
