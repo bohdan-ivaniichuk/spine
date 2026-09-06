@@ -21,7 +21,7 @@ run are the remaining 001 steps.
 
 **In flight**
 - Unit tests (Application), integration tests (Infrastructure, Api) — written by test-author agents.
-- Decision on adopting .NET Aspire (research brief pending; see `systemPatterns.md` once decided).
+- Aspire: decided — defer to feature 004 (ADR 0003); `working/aspire-research-2026-09-06.md` has the brief.
 
 **Next**
 1. Finish 001: reviewers (code-reviewer, frontend-reviewer), clean-clone quickstart, final commit.

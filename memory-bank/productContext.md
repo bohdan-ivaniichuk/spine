@@ -29,5 +29,5 @@ content still imports but is badged.
 1. **001 Foundation** — schema, migrations, import command, read endpoints, Docker Compose.
 2. **002 Review session** — MCQ + SM-2.
 3. **003 Knowledge tree & notes** — browse, markdown, language switch, readiness.
-4. **004 LLM grading** — open + kata, Monaco, structured output, SSE feedback.
+4. **004 LLM grading** — open + kata, Monaco, structured output, SSE feedback; **plus Aspire adoption** (AppHost, ServiceDefaults, dashboard) per ADR 0003.
 5. **005 Weak-spots review** — personalised review of failed questions, "drill this topic".
