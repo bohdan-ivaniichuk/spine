@@ -1,5 +1,6 @@
 import { httpResource } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
+import { HealthResponse } from '../api/health';
 
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -11,7 +12,7 @@ const REFRESH_INTERVAL_MS = 30_000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ApiStatus {
-  readonly health = httpResource<{ status: string }>(() => '/api/health');
+  readonly health = httpResource<HealthResponse>(() => '/api/health');
 
   protected readonly unreachable = computed(
     () => !this.health.isLoading() && !this.health.hasValue(),

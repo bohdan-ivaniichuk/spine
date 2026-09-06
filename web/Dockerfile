@@ -1,5 +1,5 @@
 # Stage 1: build the Angular app
-FROM node:22-alpine AS build
+FROM node:22.23-alpine AS build
 WORKDIR /app
 ENV CI=true NG_CLI_ANALYTICS=false
 COPY package.json package-lock.json ./

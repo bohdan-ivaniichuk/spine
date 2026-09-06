@@ -89,7 +89,7 @@ depends on this.
 - [X] T026 [P] [US1] Create placeholder folders `web/src/app/knowledge/README.md`, `web/src/app/review/README.md`, `web/src/app/grading/README.md` (one line each: which feature fills it)
 - [X] T027 [US1] Create `web/Dockerfile` (`node:22-alpine` `npm ci && npm run build` → `nginx:alpine`, copy `dist/web/browser` to `/usr/share/nginx/html`) and `web/nginx.conf` (`try_files $uri /index.html`; `location /api/ { proxy_pass http://api:8080/api/; }`; `location = /api/health { proxy_pass http://api:8080/health/ready; }`; `location = /healthz { return 200; }`)
 - [X] T028 [US1] Add `web` service to `docker-compose.yml` (build `web/`, healthcheck `wget -qO- http://localhost/healthz`, `depends_on: api: condition: service_healthy`, port `${WEB_PORT:-80}:80`)
-- [ ] T029 [US1] Run `frontend-reviewer` on `web/`; fix findings; verify `cd web && npm test -- --watch=false` green, `docker compose up --build` → three healthy services, `http://localhost` shows "API: OK", stopping `api` flips the indicator; commit "Web shell + compose"
+- [X] T029 [US1] Run `frontend-reviewer` on `web/`; fix findings; verify `cd web && npm test -- --watch=false` green, `docker compose up --build` → three healthy services, `http://localhost` shows "API: OK", stopping `api` flips the indicator; commit "Web shell + compose"
 
 **Checkpoint**: US1 complete — SC-001 verifiable.
 
