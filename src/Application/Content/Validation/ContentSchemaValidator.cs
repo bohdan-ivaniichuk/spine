@@ -17,8 +17,11 @@ public sealed class ContentSchemaValidator
     public ContentValidationResult Validate(ContentSet set)
     {
         var result = new ContentValidationResult();
-        var manifestSchema = JsonSchema.FromText(set.ManifestSchemaJson);
-        var contentSchema = JsonSchema.FromText(set.ContentSchemaJson);
+        // A private registry: FromText registers by $id in the global one and refuses to re-register,
+        // which would break any second validation in the same process (tests, retries).
+        var buildOptions = new BuildOptions { SchemaRegistry = new SchemaRegistry() };
+        var manifestSchema = JsonSchema.FromText(set.ManifestSchemaJson, buildOptions);
+        var contentSchema = JsonSchema.FromText(set.ContentSchemaJson, buildOptions);
 
         if (set.Manifest is not null)
         {

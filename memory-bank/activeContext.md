@@ -9,7 +9,7 @@ run are the remaining 001 steps.
 
 **Done**
 - Solution `InterviewPrep.sln`: Domain / Application / Infrastructure / Api + 4 test projects, CPM pins.
-- Schema: 11 tables, `InitialSchema` migration, migrate-on-start with bounded retry, seeded learner.
+- Schema: 12 tables, `InitialSchema` migration, migrate-on-start with bounded retry, seeded learner.
 - `import-content` CLI verb: schema + rule validation (file/pointer/rule errors), hashes, diff, single
   transaction under `pg_try_advisory_xact_lock`, soft-deprecation, `--validate-only`, `--dry-run`.
 - Read API: `/api/knowledge/tree`, `/api/knowledge/concepts/{d}/{t}/{c}`, `/health`, `/health/ready`,

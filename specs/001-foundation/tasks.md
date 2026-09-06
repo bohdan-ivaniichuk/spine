@@ -49,7 +49,7 @@ depends on this.
 
 ### Persistence
 
-- [X] T009 Create `src/Infrastructure/Persistence/AppDbContext.cs` with `DbSet`s for all 11 tables, `UseSnakeCaseNamingConvention()` applied in `AddInfrastructure`, `OnModelCreating` applying configurations from assembly
+- [X] T009 Create `src/Infrastructure/Persistence/AppDbContext.cs` with `DbSet`s for all 12 tables, `UseSnakeCaseNamingConvention()` applied in `AddInfrastructure`, `OnModelCreating` applying configurations from assembly
 - [X] T010 [P] Create content entity configurations in `src/Infrastructure/Persistence/Configurations/`: `DomainConfiguration.cs`, `TopicConfiguration.cs`, `ConceptConfiguration.cs`, `ConceptTranslationConfiguration.cs`, `QuestionConfiguration.cs`, `QuestionTranslationConfiguration.cs`, `KataConfiguration.cs`, `KataTranslationConfiguration.cs` — keys, unique indexes, CHECK constraints (level/type/language/kata language/time limit/id regex/options-xor-rubric), `jsonb` columns with value converters **and ValueComparers** for options/rubric, `text[]` tags, `timestamptz` per data-model.md
 - [X] T011 [P] Create progress configurations in `src/Infrastructure/Persistence/Configurations/`: `LearnerConfiguration.cs`, `ReviewStateConfiguration.cs`, `AttemptConfiguration.cs`, `SessionConfiguration.cs` — two nullable FKs + `item_type` CHECK + computed stored `item_id` (`HasComputedColumnSql("COALESCE(question_id, kata_id)", stored: true)`), unique `(user_id, item_id)`, `(user_id, due_at)` index, attempts indexes, sessions scope CHECK, `algorithm` default `'sm2'`, `ease` default 2.5
 - [X] T012 Create `src/Infrastructure/Persistence/AppDbContextDesignTimeFactory.cs` (`IDesignTimeDbContextFactory<AppDbContext>` reading `ConnectionStrings__Default` env, fallback `Host=localhost;Database=interviewprep;Username=interviewprep`, password via `PGPASSWORD`) and `src/Infrastructure/DependencyInjection.cs` (`AddInfrastructure(IConfiguration)` registering `AppDbContext` with Npgsql, naming convention, `EnableRetryOnFailure`)
@@ -130,9 +130,9 @@ option text → exactly those translations updated, ids unchanged; progress rows
 
 ### Integration tests (Testcontainers)
 
-- [ ] T048 [US2] Create `tests/Infrastructure.Tests/PostgresFixture.cs` (Testcontainers `postgres:16-alpine`, collection fixture, `AppDbContext` factory with migrations applied) and `[Trait("Category","Integration")]` collection definition
-- [ ] T049 [P] [US2] Create `tests/Infrastructure.Tests/Persistence/MigrationsTests.cs`: `MigrateAsync` on empty DB; second call no-op; `information_schema` has the 11 tables, the unique indexes and CHECK constraints from data-model.md
-- [ ] T050 [US2] Create `tests/Infrastructure.Tests/Content/ContentImporterTests.cs`: import fixture → counts/ids; re-import → 0 created / 0 updated and identical `updated_at`; edit note + option text → exactly two translation updates, ids unchanged; insert `review_state` + `attempt` for a question, change its prompt, re-import → progress rows byte-identical; remove a question → `deprecated_at` set, progress kept; re-add → cleared; invalid file among valid → zero rows written, exit 1; advisory lock held on another connection → exit 2; `--dry-run` leaves DB unchanged
+- [X] T048 [US2] Create `tests/Infrastructure.Tests/PostgresFixture.cs` (Testcontainers `postgres:16-alpine`, collection fixture, `AppDbContext` factory with migrations applied) and `[Trait("Category","Integration")]` collection definition
+- [X] T049 [P] [US2] Create `tests/Infrastructure.Tests/Persistence/MigrationsTests.cs`: `MigrateAsync` on empty DB; second call no-op; `information_schema` has the 12 tables, the unique indexes and CHECK constraints from data-model.md
+- [X] T050 [US2] Create `tests/Infrastructure.Tests/Content/ContentImporterTests.cs`: import fixture → counts/ids; re-import → 0 created / 0 updated and identical `updated_at`; edit note + option text → exactly two translation updates, ids unchanged; insert `review_state` + `attempt` for a question, change its prompt, re-import → progress rows byte-identical; remove a question → `deprecated_at` set, progress kept; re-add → cleared; invalid file among valid → zero rows written, exit 1; advisory lock held on another connection → exit 2; `--dry-run` leaves DB unchanged
 - [ ] T051 [US2] Run `code-reviewer` on the import path; fix findings; verify `dotnet test` (Docker running) green; commit "Import: integration tests"
 
 **Checkpoint**: US2 complete — SC-002, SC-003, SC-004 verifiable.
@@ -166,9 +166,9 @@ never reference learners. (Schema and seeder were built in Phase 2; this phase p
 **Independent Test**: after first start exactly one `users` row; after restart still one; progress
 tables empty; no content table has a `user_id` column.
 
-- [ ] T058 [P] [US4] Create `tests/Infrastructure.Tests/Persistence/LearnerSeederTests.cs`: two runs → exactly one row with `LocalLearner.Id` and `preferred_language = 'en'`
-- [ ] T059 [P] [US4] Create `tests/Infrastructure.Tests/Persistence/ProgressSchemaTests.cs`: inserting a `review_state` with both FKs null or mismatched `item_type` fails the CHECK; duplicate `(user_id, item_id)` fails the unique index; `item_id` equals the set FK; `sessions` scope CHECK enforced; content tables have no `user_id` column (`information_schema.columns`)
-- [ ] T060 [US4] Verify `dotnet test` green; commit "Progress schema tests"
+- [X] T058 [P] [US4] Create `tests/Infrastructure.Tests/Persistence/LearnerSeederTests.cs`: two runs → exactly one row with `LocalLearner.Id` and `preferred_language = 'en'`
+- [X] T059 [P] [US4] Create `tests/Infrastructure.Tests/Persistence/ProgressSchemaTests.cs`: inserting a `review_state` with both FKs null or mismatched `item_type` fails the CHECK; duplicate `(user_id, item_id)` fails the unique index; `item_id` equals the set FK; `sessions` scope CHECK enforced; content tables have no `user_id` column (`information_schema.columns`)
+- [X] T060 [US4] Verify `dotnet test` green; commit "Progress schema tests"
 
 **Checkpoint**: US4 complete — Principle IV proven by tests.
 

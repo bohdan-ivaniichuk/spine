@@ -34,7 +34,7 @@ shell served by nginx with a live "API: OK" indicator. Design details: [research
 
 **Constraints**: no password literals in any committed file (secrets-scan hook); app usable without `ANTHROPIC_API_KEY`; content tables never reference users; import never writes progress tables; whole-directory import only (deprecation sweep must be complete)
 
-**Scale/Scope**: single learner; ~5 domains / ~20 topics / ~120 concepts / ~600 questions; 11 tables; 2 read endpoints; 1 CLI verb; 1 Angular component
+**Scale/Scope**: single learner; ~5 domains / ~20 topics / ~120 concepts / ~600 questions; 12 tables; 2 read endpoints; 1 CLI verb; 1 Angular component
 
 ## Constitution Check
 
@@ -129,7 +129,7 @@ No constitution violations to justify.
 
 - **Phase 0 — research.md**: package choices (JsonSchema.Net over NJsonSchema; EFCore.NamingConventions;
   Testcontainers), key-strategy decisions, polymorphic progress key, health/compose patterns.
-- **Phase 1 — data-model.md, contracts/, quickstart.md**: 11 tables with constraints; two read
+- **Phase 1 — data-model.md, contracts/, quickstart.md**: 12 tables with constraints; two read
   endpoints + health; CLI contract; end-to-end validation guide.
 - **Phase 2 — tasks.md** (`/speckit-tasks`): ordered, independently verifiable steps 1–12 from the
   architect's plan (skeleton → domain → persistence + migration → host + health + seeder → compose →
