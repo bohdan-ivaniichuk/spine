@@ -64,6 +64,19 @@ Subagents (`.claude/agents/`):
 Content pipeline: taxonomy → `content-author` → JSON seed → human review (flip `"reviewed": true`) →
 `import-content` → visible "unreviewed" badge in the app for anything not yet reviewed.
 
+Project skills (`.claude/skills/`, besides `speckit-*` and the official `angular-*` / `dotnet` ones):
+
+| Skill | Use when |
+|---|---|
+| `web-toolchain` | Before any `ng`/`npm`/`npx` in `web/` — selects Node 22.22+ via nvm, npm 11 for installs, verified test/build flags. |
+| `ef-migrations` | Adding/applying/reviewing an EF Core migration — env vars, commands, SQL review checklist, `bin\Debug` clean-up. |
+| `sync-claude-md` | Reconciling this file against the code (never regenerate). |
+
+**Rule: turn recurring problems into skills.** When something costs real time and could happen again
+(toolchain quirk, multi-step procedure, environment setup), write or extend a skill under
+`.claude/skills/<name>/SKILL.md` with the trigger, exact commands, verification and pitfalls, and list it
+in the table above. "Things that bite" below is the fallback for one-line gotchas, not a substitute.
+
 ## Common commands
 
 ```bash
