@@ -21,7 +21,8 @@ Single git repository, single solution, one Angular app. Default branch for work
 | `src/Domain`, `src/Application`, `src/Infrastructure`, `src/Api` | Modular monolith, .NET 10, FastEndpoints. Layering Domain → Application → Infrastructure → Api, no upward references. *(planned — created by feature 001)* |
 | `tests/` | xUnit test projects mirroring `src/`; Testcontainers + PostgreSQL for integration. *(planned)* |
 | `web/` | Angular (latest stable), standalone components, signals, Tailwind, Monaco for katas. *(planned)* |
-| `content/schema/content.schema.json` | JSON Schema every seed file must validate against. |
+| `content/schema/content.schema.json`, `content/schema/manifest.schema.json` | JSON Schemas for topic seed files and for the manifest. |
+| `content/manifest.json` | Ordered domains and topics with titles (mirrors the taxonomy). Import reads it first; unknown (domain, topic) pairs are rejected. |
 | `content/<domain>/<topic>.json` | Seed content: concepts, notes, MCQ/open questions, katas, `en` + optional `uk`. Human-reviewed (`"reviewed": true`) before it counts. |
 | `specs/000-taxonomy.md` | The knowledge taxonomy — the only source of concept slugs. |
 | `specs/NNN-feature/` | Spec Kit feature folders (`spec.md`, `plan.md`, `tasks.md`). |

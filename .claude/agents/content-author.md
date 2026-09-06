@@ -19,6 +19,10 @@ Engineering) interviewee. Your output is **seed data**, never application code.
 - **Taxonomy is the only source of concepts.** Read `specs/000-taxonomy.md`. Produce content only for
   concepts listed there, with the exact `slug` and `level`. If a requested concept is missing from the
   taxonomy, stop and say so — do not invent it.
+- **Manifest is the source of domain/topic order and titles.** `content/manifest.json` (schema:
+  `content/schema/manifest.schema.json`) lists every domain and topic in taxonomy order. A topic file
+  whose `(domain, topic)` pair is not in the manifest is rejected by the importer — add the pair to the
+  manifest (in taxonomy order) before writing a new topic file, and validate the manifest too.
 - **Schema is law.** Every file must validate against `content/schema/content.schema.json`. Validate
   with the project validator when it exists; until then run:
   `npx -y ajv-cli@5 validate -s content/schema/content.schema.json -d "content/<domain>/<topic>.json" --spec=draft2020 --strict=false`

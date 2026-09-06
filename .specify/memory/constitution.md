@@ -1,6 +1,16 @@
+<!--
+Sync Impact Report (2026-09-06)
+- Version change: 1.0.0 → 1.0.1 (PATCH — structural normalization only, no semantic change)
+- Modified principles: none (I–X unchanged)
+- Added sections: none
+- Removed sections: none
+- Structural changes: version line moved to the Spec Kit footer format at the end of Governance;
+  amendment log entry added
+- Templates: .specify/templates/{plan,spec,tasks}-template.md read the constitution at runtime — no
+  edits required
+- Follow-up TODOs: none
+-->
 # InterviewPrep Constitution
-
-**Version:** 1.0.0 | **Ratified:** 2026-09-06 | **Last amended:** 2026-09-06
 
 ## Purpose
 
@@ -66,3 +76,6 @@ This constitution supersedes ad-hoc preferences. Amendments require: a bump of t
 
 ### Amendment log
 - 1.0.0 — Initial ratification.
+- 1.0.1 — Normalized to the Spec Kit constitution structure (version footer, sync impact report); no semantic change.
+
+**Version**: 1.0.1 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-06

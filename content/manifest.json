@@ -1,0 +1,114 @@
+{
+  "domains": [
+    {
+      "slug": "dotnet",
+      "title": "C# & .NET Runtime",
+      "topics": [
+        {
+          "slug": "clr-memory",
+          "title": "Memory & GC"
+        },
+        {
+          "slug": "async",
+          "title": "Async & Threading"
+        },
+        {
+          "slug": "csharp-lang",
+          "title": "Language Features"
+        },
+        {
+          "slug": "dotnet-platform",
+          "title": "Platform & Tooling"
+        }
+      ]
+    },
+    {
+      "slug": "aspnet-data",
+      "title": "ASP.NET Core, EF Core & PostgreSQL",
+      "topics": [
+        {
+          "slug": "pipeline",
+          "title": "Request Pipeline"
+        },
+        {
+          "slug": "security",
+          "title": "Auth & Security"
+        },
+        {
+          "slug": "efcore",
+          "title": "EF Core"
+        },
+        {
+          "slug": "postgres",
+          "title": "PostgreSQL & SQL"
+        },
+        {
+          "slug": "api-design",
+          "title": "API Design & Integration"
+        }
+      ]
+    },
+    {
+      "slug": "angular",
+      "title": "Angular",
+      "topics": [
+        {
+          "slug": "core",
+          "title": "Core Mechanics"
+        },
+        {
+          "slug": "rxjs-state",
+          "title": "RxJS & State"
+        },
+        {
+          "slug": "routing-forms-http",
+          "title": "Routing, Forms, HTTP"
+        },
+        {
+          "slug": "performance-arch",
+          "title": "Performance & Architecture"
+        }
+      ]
+    },
+    {
+      "slug": "architecture",
+      "title": "Architecture, Patterns & System Design",
+      "topics": [
+        {
+          "slug": "principles",
+          "title": "Principles & Patterns"
+        },
+        {
+          "slug": "distributed",
+          "title": "Distributed Systems"
+        },
+        {
+          "slug": "system-design",
+          "title": "System Design Interviews"
+        },
+        {
+          "slug": "lead",
+          "title": "Tech Lead Practice"
+        }
+      ]
+    },
+    {
+      "slug": "ai-engineering",
+      "title": "Practical AI Engineering",
+      "topics": [
+        {
+          "slug": "llm-foundations",
+          "title": "Foundations for Engineers"
+        },
+        {
+          "slug": "patterns",
+          "title": "Application Patterns"
+        },
+        {
+          "slug": "ai-sdlc",
+          "title": "AI in the Development Process"
+        }
+      ]
+    }
+  ]
+}
