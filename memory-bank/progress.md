@@ -19,7 +19,12 @@
 - [ ] 003 Knowledge tree & notes
 - [ ] 004 LLM grading (open + kata)
 - [ ] 005 Weak-spots & failed-question review
-- [ ] Content batches per taxonomy order; `uk` translation pass per reviewed topic.
+- [ ] Content sprint (user priority, 2026-09-06): after 002 integration, run the content workflow 2–3 topics
+      at a time for the rest of domain 1 (`csharp-lang`, `dotnet-platform`), all of domain 2 (`pipeline`,
+      `security`, `efcore`, `postgres`, `api-design`) and domain 4 (`principles`, `distributed`,
+      `system-design`, `lead`). Author prompt gains a "classic interview questions first" rule: the first
+      MCQ and the open question of each concept must be what interviewers actually ask. Angular (3) and
+      AI engineering (5) afterwards. `uk` translation pass only for reviewed items.
 
 ## Known issues
 
