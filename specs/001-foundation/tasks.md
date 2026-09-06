@@ -176,11 +176,11 @@ tables empty; no content table has a `user_id` column.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T061 [P] Update `README.md` quickstart (copy `.env.example`, `docker compose up`, both import commands, local `PGPASSWORD` inner loop) from `specs/001-foundation/quickstart.md`
-- [ ] T062 [P] Run the `sync-claude-md` skill to reconcile `CLAUDE.md` (layout table: `src/`, `tests/`, `web/` no longer "planned"; commands; hooks unchanged)
-- [ ] T063 [P] Create `docs/architecture/decisions/0002-foundation-data-model.md` (surrogate vs natural keys, polymorphic progress key, soft-deprecation, derived `concepts.reviewed`, content hashes, text enums + CHECK, session scope columns)
-- [ ] T064 [P] Update `memory-bank/activeContext.md`, `progress.md`, `systemPatterns.md`, `techContext.md` (pinned versions) and close `TECH_DEBT.md` item 1.1
-- [ ] T065 Run `code-reviewer` (whole 001 diff vs `dev` base) and `frontend-reviewer`; fix must-fix findings
+- [X] T061 [P] Update `README.md` quickstart (copy `.env.example`, `docker compose up`, both import commands, local `PGPASSWORD` inner loop) from `specs/001-foundation/quickstart.md`
+- [X] T062 [P] Run the `sync-claude-md` skill to reconcile `CLAUDE.md` (layout table: `src/`, `tests/`, `web/` no longer "planned"; commands; hooks unchanged)
+- [X] T063 [P] Create `docs/architecture/decisions/0002-foundation-data-model.md` (surrogate vs natural keys, polymorphic progress key, soft-deprecation, derived `concepts.reviewed`, content hashes, text enums + CHECK, session scope columns)
+- [X] T064 [P] Update `memory-bank/activeContext.md`, `progress.md`, `systemPatterns.md`, `techContext.md` (pinned versions) and close `TECH_DEBT.md` item 1.1
+- [X] T065 Run `code-reviewer` (whole 001 diff vs `dev` base) and `frontend-reviewer`; fix must-fix findings
 - [ ] T066 Run quickstart.md end to end from a clean clone (`git clone` into a temp dir, follow README only); record timings for SC-001/SC-002/SC-005 in `specs/001-foundation/quickstart.md`; final commit "001 Foundation complete"
 
 ---
