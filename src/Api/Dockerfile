@@ -13,6 +13,7 @@ RUN dotnet publish src/Api/InterviewPrep.Api.csproj -c Release -o /app --no-rest
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
+RUN apk add --no-cache krb5-libs
 ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true \
     ASPNETCORE_ENVIRONMENT=Production

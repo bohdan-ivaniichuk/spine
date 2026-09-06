@@ -1,1 +1,27 @@
-<p>api-status works!</p>
+<div class="flex items-center gap-3 text-sm">
+  <span
+    class="inline-block size-2.5 rounded-full"
+    [class.bg-amber-400]="health.isLoading()"
+    [class.bg-emerald-500]="!health.isLoading() && health.hasValue()"
+    [class.bg-red-500]="unreachable()"
+    aria-hidden="true"
+  ></span>
+  <span aria-live="polite" class="text-slate-700">
+    @if (health.isLoading()) {
+      Checking API…
+    } @else if (health.hasValue()) {
+      API: OK
+    } @else {
+      API: unreachable
+    }
+  </span>
+  @if (unreachable()) {
+    <button
+      type="button"
+      class="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+      (click)="health.reload()"
+    >
+      Retry
+    </button>
+  }
+</div>

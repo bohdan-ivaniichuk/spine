@@ -1,3 +1,5 @@
+using InterviewPrep.Application.Content;
+using InterviewPrep.Infrastructure.Content;
 using InterviewPrep.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -17,6 +19,7 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(options => ConfigureDbContext(options, connectionString));
         services.AddScoped<StartupMigrator>();
         services.AddScoped<LearnerSeeder>();
+        services.AddScoped<IContentImporter, ContentImporter>();
         return services;
     }
 
