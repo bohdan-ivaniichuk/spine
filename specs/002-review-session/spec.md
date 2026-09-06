@@ -15,6 +15,7 @@
 - Q: Which items are scheduled in this feature? → A: Multiple-choice questions only; open questions and katas are graded in feature 004 and become schedulable there (the review-state table already supports both).
 - Q: How is an answer graded for spaced repetition? → A: Two outcomes. Correct = "good" (quality 4 in SM-2 terms); wrong = "again" (quality 1): repetitions reset, the question comes back tomorrow. No self-rated "easy/hard" buttons in this feature.
 - Q: What happens to an unfinished session when a new one starts? → A: The open session is finished automatically (its summary is computed from the answers it has) and the new one starts; a learner never has two open sessions.
+- Q: Where is session membership stored? → A: On the session row as an ordered list of question ids plus the two limits (additive columns); one answer per question per session is enforced by a database unique index.
 - Q: Do unreviewed and deprecated questions appear in sessions? → A: Unreviewed questions do appear, with a visible "unreviewed" badge; deprecated questions never appear, and their existing review states are simply left alone.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -208,9 +209,8 @@ counts, the ranked weak concepts, and the "due tomorrow" number.
 ### Key Entities *(include if feature involves data)*
 
 - **Session** (existing table): learner, started/finished, scope type + slugs, answered/correct
-  counts; gains no new columns. Session membership (the ordered question list) is derived when the
-  session starts and stored with the session as an ordered list of question ids so resume is
-  deterministic.
+  counts; gains the ordered list of question ids (membership frozen at start, so resume is
+  deterministic) and the two limits used. No existing column changes.
 - **Attempt** (existing): item = question, answer payload `{ selectedIndex, selectedText }`,
   `isCorrect`, optional `sessionId`.
 - **Review state** (existing): SM-2 fields + `algorithm_state` (`{ lastQuality }`), `algorithm = sm2`.
