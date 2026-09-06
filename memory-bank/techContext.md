@@ -8,17 +8,17 @@ Re-verify with context7 before pinning anything in a csproj/package.json.
 | Item | Version | Notes |
 |---|---|---|
 | .NET | 10 (LTS, GA 2025-11, supported to 2028-11) | Installed locally: SDK 10.0.102. .NET 8/9 end of support 2026-11. |
-| ASP.NET Core + FastEndpoints | FastEndpoints 8.3.0 (2026-08-20) | Endpoints, validators (FluentValidation), Swagger. |
-| EF Core + Npgsql | Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 (needs EF Core ≥ 10.0.4) | jsonb for `algorithm_state`. |
+| ASP.NET Core + FastEndpoints | FastEndpoints 8.3.0 + FastEndpoints.Swagger 8.3.0 | Endpoints, validators (FluentValidation), Swagger; `Send.OkAsync` API; `c.Errors.UseProblemDetails()`. |
+| EF Core + Npgsql | Microsoft.EntityFrameworkCore 10.0.11, Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3, EFCore.NamingConventions 10.0.1, dotnet-ef 10.0.11 | jsonb columns via value converters + comparers; snake_case. |
 | PostgreSQL | 16+ (Docker `postgres:16-alpine` or 17) | |
 | Anthropic .NET SDK | NuGet `Anthropic` 12.46.0 (official first-party since v10; older `tryAGI.Anthropic` is a community fork) | Structured outputs; model via env (`ANTHROPIC_MODEL`). |
 | Anthropic models | grading: `claude-sonnet-5`; cheap fallback: `claude-haiku-4-5` | From platform.claude.com model overview. |
-| Angular | 22 (released 2026-06-03; LTS to 2027-05) | Standalone, signals, `resource`/`httpResource`, `@defer`. |
-| Node | 22 LTS (installed 22.19.0) | |
-| Tailwind | latest stable at scaffold time | |
+| Angular | 22.1.5 (CLI 22.1.7; released 2026-06-03; LTS to 2027-05) | Zoneless, standalone, signals, `httpResource`, `@defer`. **Needs Node ≥ 22.22.3** (`nvm use 22` → 22.23.2). Vitest 4 + jsdom is the CLI default runner. |
+| Node | 22 LTS (22.23.2 via nvm; system default 22.19.0 is too old for Angular 22 CLI) | |
+| Tailwind | 4.3.3 (`@tailwindcss/postcss`, `@use 'tailwindcss'` in `styles.scss`) | |
 | Monaco wrapper | `ngx-monaco-editor-v2` 22.x (supports Angular 14–22) — version UNVERIFIED against npm directly | Alternative: load `monaco-editor` directly in a `@defer` block. |
-| Testing | xUnit, Testcontainers (PostgreSQL), Angular default runner, Playwright MCP | |
-| Tooling | Docker 29.6, uv 0.11, Spec Kit (fresh `specify init`, 2026-09-06) | |
+| Testing | xUnit 2.9.3, Shouldly 4.3, Testcontainers.PostgreSql 4.14, Mvc.Testing 10.0.11; Vitest (web); Playwright MCP | |
+| Tooling | Docker 29.6, uv 0.11, Spec Kit (fresh `specify init`, 2026-09-06), JsonSchema.Net 9.4.0, Serilog.AspNetCore 10.0.0 | |
 
 ## Claude Code tooling in this repo
 

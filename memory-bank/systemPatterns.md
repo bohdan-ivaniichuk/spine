@@ -25,6 +25,22 @@ say so rather than deleting.
 - **One command:** `docker compose up` → `postgres` (healthcheck) → `api` (migrate on start) → `web`
   (nginx serving the build, proxying `/api`).
 
+## 2026-09-06 — 001 Foundation as built
+
+- **Keys:** surrogate int for domains/topics/concepts; natural text ids for questions/katas. Progress
+  references items via `item_type` + `question_id`/`kata_id` + generated `item_id` (ADR 0002).
+- **Import:** `ContentFileSystem.Load` → schema validator (JsonSchema.Net, list output) → rule
+  validator (stable rule ids) → `ImportPlanBuilder` (hashes, derived `reviewed`) → `ImportDiff`
+  (pure, mutates the tracked graph, never assigns to unchanged rows) → one transaction + advisory lock.
+  Exit codes 0/1/2/3 per `specs/001-foundation/contracts/import-cli.md`.
+- **Reads:** `IKnowledgeQueries` (Application) implemented in Infrastructure with `AsNoTracking`
+  projections; tree = 3 flat queries stitched in memory; English fallback flagged per item.
+- **Host:** one executable; `Program.cs` branches to the CLI when `args[0] == "import-content"`;
+  Serilog (compact JSON outside Development); FastEndpoints with `api` prefix + ProblemDetails.
+- **Web:** zoneless Angular; `httpResource` for server state; nginx maps `/api/health` → `/health/ready`.
+- **Compose:** healthchecks on `127.0.0.1`; api waits for postgres, web waits for api; content mounted
+  read-only at `/content`.
+
 ## Tooling patterns
 
 - Spec Kit feature folders under `specs/NNN-*`; `specs/000-taxonomy.md` is content scope, not a feature.

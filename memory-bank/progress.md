@@ -3,12 +3,14 @@
 ## What works
 
 - [x] Workspace shell: Spec Kit, hooks, agents, skills, MCP config, memory-bank, docs (2026-09-06).
-- [x] Content schema `content/schema/content.schema.json` (2026-09-06).
+- [x] Content contract: `content/schema/content.schema.json`, `manifest.schema.json`, `content/manifest.json`.
+- [x] 001 Foundation — schema + migration, seeded learner, `import-content` (idempotent, deprecation,
+      dry-run, validate-only), knowledge read endpoints, health, compose (postgres/api/web), web shell.
+- [x] Content batch `dotnet/clr-memory` (EN, unreviewed) imported.
 
 ## In progress
 
-- [ ] 001 Foundation — spec / clarify.
-- [ ] Content: `dotnet/clr-memory` first batch (EN, unreviewed).
+- [ ] 001 tests (unit + Testcontainers + API) and reviewer pass; clean-clone run.
 
 ## Planned (in order)
 
@@ -20,4 +22,5 @@
 
 ## Known issues
 
-_None yet._
+- Angular 22 CLI requires Node ≥ 22.22.3 (`nvm use 22`); see CLAUDE.md "Things that bite".
+- First start on an empty DB logs two benign EF errors about `__EFMigrationsHistory`.
