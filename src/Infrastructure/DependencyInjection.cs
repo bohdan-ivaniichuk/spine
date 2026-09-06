@@ -1,5 +1,7 @@
 using InterviewPrep.Application.Content;
+using InterviewPrep.Application.Knowledge;
 using InterviewPrep.Infrastructure.Content;
+using InterviewPrep.Infrastructure.Knowledge;
 using InterviewPrep.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<StartupMigrator>();
         services.AddScoped<LearnerSeeder>();
         services.AddScoped<IContentImporter, ContentImporter>();
+        services.AddScoped<IKnowledgeQueries, KnowledgeQueries>();
         return services;
     }
 

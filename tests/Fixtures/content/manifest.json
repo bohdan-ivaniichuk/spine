@@ -1,0 +1,19 @@
+{
+  "domains": [
+    {
+      "slug": "dotnet",
+      "title": "C# & .NET Runtime",
+      "topics": [
+        { "slug": "clr-memory", "title": "Memory & GC" },
+        { "slug": "async", "title": "Async & Threading" }
+      ]
+    },
+    {
+      "slug": "angular",
+      "title": "Angular",
+      "topics": [
+        { "slug": "core", "title": "Core Mechanics" }
+      ]
+    }
+  ]
+}

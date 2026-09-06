@@ -18,9 +18,11 @@ Single git repository, single solution, one Angular app. Default branch for work
 
 | Path | What's in it |
 |---|---|
-| `src/Domain`, `src/Application`, `src/Infrastructure`, `src/Api` | Modular monolith, .NET 10, FastEndpoints. Layering Domain → Application → Infrastructure → Api, no upward references. *(planned — created by feature 001)* |
-| `tests/` | xUnit test projects mirroring `src/`; Testcontainers + PostgreSQL for integration. *(planned)* |
-| `web/` | Angular (latest stable), standalone components, signals, Tailwind, Monaco for katas. *(planned)* |
+| `src/Domain`, `src/Application`, `src/Infrastructure`, `src/Api` | Modular monolith, .NET 10, FastEndpoints 8. Layering Domain → Application → Infrastructure → Api, no upward references. `Api` also hosts the `import-content` CLI verb (`Program.cs` branches on `args[0]`). |
+| `tests/` | xUnit + Shouldly, mirroring `src/`; `Infrastructure.Tests` and `Api.Tests` use Testcontainers (`Category=Integration`). Fixtures under `tests/Fixtures/`. |
+| `web/` | Angular 22 (zoneless, standalone, signals, `httpResource`), Tailwind 4, Vitest; nginx image proxies `/api`. Feature folders `knowledge/`, `review/`, `grading/`. |
+| `docker-compose.yml`, `.env.example` | `postgres` + `api` + `web` with health checks; `docker compose run --rm api import-content` imports `./content` (mounted read-only). |
+| `scripts/validate-content.sh` | Validates content against schema + import rules without a database. |
 | `content/schema/content.schema.json`, `content/schema/manifest.schema.json` | JSON Schemas for topic seed files and for the manifest. |
 | `content/manifest.json` | Ordered domains and topics with titles (mirrors the taxonomy). Import reads it first; unknown (domain, topic) pairs are rejected. |
 | `content/<domain>/<topic>.json` | Seed content: concepts, notes, MCQ/open questions, katas, `en` + optional `uk`. Human-reviewed (`"reviewed": true`) before it counts. |
@@ -65,23 +67,25 @@ Content pipeline: taxonomy → `content-author` → JSON seed → human review (
 ## Common commands
 
 ```bash
-# Backend (once feature 001 lands)
+# Backend
 dotnet build -c Release
-dotnet test --filter "Category!=Integration"          # unit
+dotnet test --filter "Category!=Integration"          # unit (no Docker)
 dotnet test                                            # + Testcontainers (Docker must be running)
-dotnet ef migrations add <Name> --project src/Infrastructure --startup-project src/Api
-dotnet run --project src/Api -- import-content         # validate + upsert content/**/*.json
+export ConnectionStrings__Default="Host=localhost;Port=5432;Database=interviewprep;Username=interviewprep" PGPASSWORD=<from .env>
+dotnet ef migrations add <Name> --project src/Infrastructure --startup-project src/Api --output-dir Persistence/Migrations
+dotnet run --project src/Api --no-launch-profile -- import-content [--validate-only] [--dry-run]
+dotnet run --project src/Api                           # Development profile: http://localhost:8080, Swagger at /swagger
 
-# Frontend
-cd web && npm ci && npm start                          # dev server on 4200
+# Frontend (nvm use 22 first — see Things that bite)
+cd web && npm ci && npm start                          # dev server on 4200, /api proxied to 8080
 cd web && npm test -- --watch=false
 
 # Everything
-docker compose up --build                              # postgres + api (8080) + web (80)
+cp .env.example .env && docker compose up --build      # postgres + api (8080) + web (80)
 docker compose run --rm api import-content
 
-# Content validation without the API
-npx -y ajv-cli@5 validate -s content/schema/content.schema.json -d "content/**/*.json" --spec=draft2020 --strict=false
+# Content validation without a database
+scripts/validate-content.sh
 ```
 
 ## Hooks (`.claude/settings.json`)
@@ -122,5 +126,23 @@ npx -y ajv-cli@5 validate -s content/schema/content.schema.json -d "content/**/*
 
 ## Things that bite
 
-_Empty for now. Add an entry the first time something costs more than 30 minutes; each entry is one
-paragraph: symptom → cause → what to do instead._
+- **Angular 22 CLI needs Node ≥ 22.22.3** (`^22.22.3 || ^24.15.0 || >=26`). The machine's default
+  `node` may be older; use `nvm use 22` (22.23.2 is installed) before any `ng`/`npm` command in `web/`.
+  The Docker build is unaffected (`node:22-alpine`). npm 10's arborist can fail on the jsdom/canvas
+  optional peer with "Cannot read properties of null (reading 'edgesOut')" — `npx npm@11 install` works;
+  `npm ci` from the lockfile is fine.
+- **`dotnet ef` creates a literal `bin\Debug` folder** (backslash in the name) next to `src/Api` and
+  `src/Infrastructure` on macOS (Roslyn BuildHost artefacts). `.gitignore` covers it (`**/bin\\Debug/`);
+  never `git add` it by hand.
+- **Alpine containers resolve `localhost` to IPv6 first**; nginx/Kestrel listen on IPv4. Healthchecks use
+  `127.0.0.1`, not `localhost`.
+- **First start on an empty database logs two EF "Failed executing DbCommand" errors** for
+  `__EFMigrationsHistory` before the migration creates it. Expected noise from `MigrateAsync`, not a
+  failure — the log continues with "Applying 1 migration(s)".
+- **`dotnet run --project src/Api` uses `src/Api` as the working directory**, so `import-content`
+  walks up to find the nearest `content/schema/content.schema.json`. Pass `--content-dir` (or set
+  `CONTENT_DIR`) when importing something else. Use `--no-launch-profile` in scripts to avoid the
+  Development profile.
+- **`secrets-scan` blocks any connection string with a literal password.** Keep passwords out of every
+  committed file: compose interpolates `${POSTGRES_PASSWORD}`, local runs export `PGPASSWORD` or
+  `ConnectionStrings__Default` from `.env`.

@@ -1,0 +1,57 @@
+{
+  "domain": "dotnet",
+  "topic": "clr-memory",
+  "concepts": [
+    {
+      "slug": "stack-vs-heap",
+      "title": "Stack vs Heap",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Stack vs Heap",
+          "note": "## What it is\n\nA variable of a value type contains its data; a variable of a reference type contains a pointer to an object on the managed heap. The accurate rule: a value lives wherever its containing variable lives, so a struct field of a class sits inline in the heap object."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Where is a struct stored when it is a field of a class instance?",
+              "options": [
+                {
+                  "text": "Always on the stack",
+                  "correct": false
+                },
+                {
+                  "text": "Inline inside the class object on the heap",
+                  "correct": true
+                },
+                {
+                  "text": "In a separate heap allocation",
+                  "correct": false
+                },
+                {
+                  "text": "In the Large Object Heap",
+                  "correct": false
+                }
+              ],
+              "explanation": "A struct field is laid out inline in its parent object, so it lives on the heap.",
+              "rubric": [
+                "Names the heap",
+                "Mentions inline layout",
+                "Rejects the stack answer"
+              ]
+            }
+          },
+          "tags": [
+            "value-types"
+          ]
+        }
+      ]
+    }
+  ]
+}

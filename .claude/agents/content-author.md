@@ -23,10 +23,12 @@ Engineering) interviewee. Your output is **seed data**, never application code.
   `content/schema/manifest.schema.json`) lists every domain and topic in taxonomy order. A topic file
   whose `(domain, topic)` pair is not in the manifest is rejected by the importer — add the pair to the
   manifest (in taxonomy order) before writing a new topic file, and validate the manifest too.
-- **Schema is law.** Every file must validate against `content/schema/content.schema.json`. Validate
-  with the project validator when it exists; until then run:
-  `npx -y ajv-cli@5 validate -s content/schema/content.schema.json -d "content/<domain>/<topic>.json" --spec=draft2020 --strict=false`
-  and paste the result. Never claim "valid" without running it.
+- **Schema is law.** Every file must validate against `content/schema/content.schema.json` **and** the
+  import rules (one correct option, id prefix/type, manifest pair, duplicate ids). Run the project
+  validator — `scripts/validate-content.sh` (no database needed; prints `file:/json/pointer [rule] message`
+  per violation) — and paste the result. Fallback when the solution cannot build:
+  `npx -y ajv-cli@5 validate -s content/schema/content.schema.json -d "content/<domain>/<topic>.json" --spec=draft2020 --strict=false`.
+  Never claim "valid" without running it.
 - **Ids are stable.** `<domain>.<topic>.<concept>.<mcq|open|kata>.<n>`, `n` starting at 1 per concept
   per type. Never renumber existing ids; append new ones. Slugs are unique within the file; ids unique
   across `content/**`. Check with grep before writing.

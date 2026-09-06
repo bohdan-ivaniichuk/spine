@@ -10,20 +10,13 @@ Add items as they are discovered; remove them when fixed (with the commit).
 |---|---|---|
 | Critical | 0 | — |
 | High | 0 | — |
-| Medium | 1 | Content validation relies on `npx ajv-cli` until the API `import-content` validator exists |
+| Medium | 0 | — |
 | Low | 1 | Monaco wrapper version unverified against npm |
 
 ## 1. Content pipeline
 
-### 1.1 [MEDIUM] Schema validation has no project-owned runner yet
-- **Files:** `content/schema/content.schema.json`, `.claude/agents/content-author.md`
-- **Problem:** Until feature 001 ships `import-content`, validation runs through `npx -y ajv-cli@5`,
-  which is not pinned in the repo and needs network on first run.
-- **Why it matters:** `content-author` may claim "valid" against a slightly different validator than the
-  importer will use later.
-- **Fix:** Feature 001 adds the importer; then add a `scripts/validate-content.sh` that calls it (or a
-  tiny Node script with the same `ajv` version pinned in `web/package.json`).
-- **Effort:** S
+_1.1 (schema validation runner) closed by feature 001: `scripts/validate-content.sh` runs the same
+validator as the importer (`import-content --validate-only`)._
 
 ## 2. Tooling
 

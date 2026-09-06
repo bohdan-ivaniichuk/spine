@@ -65,6 +65,7 @@ app.UseFastEndpoints(c =>
 {
     c.Endpoints.RoutePrefix = "api";
     c.Serializer.Options.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    c.Errors.UseProblemDetails();
 });
 if (app.Environment.IsDevelopment())
 {

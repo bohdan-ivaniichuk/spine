@@ -1,0 +1,179 @@
+{
+  "domain": "dotnet",
+  "topic": "clr-memory",
+  "concepts": [
+    {
+      "slug": "stack-vs-heap",
+      "title": "Stack vs Heap: Value and Reference Semantics",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Stack vs Heap: Value and Reference Semantics",
+          "note": "## What it is\n\nA variable of a **value type** (`struct`, `enum`, primitives) contains its data; a variable of a **reference type** contains a pointer to an object on the managed heap. The accurate rule: a value lives wherever its containing variable lives. An uncaptured local sits in the stack frame, a struct field of a class sits inline in the heap object, and a local captured by a lambda is hoisted into a compiler-generated class.\n\n```csharp\nstruct Point { public int X, Y; }\nobject boxed = new Point(); // allocation: a copy on the heap\n```\n\n## Interview angle\n\nBoxing, `readonly struct`, and defensive copies are the follow-ups."
+        },
+        "uk": {
+          "title": "Стек і купа: семантика значень та посилань",
+          "note": "## Що це\n\nЗмінна **типу-значення** (`struct`, `enum`, примітиви) містить свої дані; змінна **посилального типу** містить вказівник на об'єкт у керованій купі. Точне правило: значення живе там, де живе змінна, що його містить. Незахоплена локальна змінна лежить у кадрі стеку, поле-структура класу лежить усередині об'єкта в купі, а локальна змінна, захоплена лямбдою, переноситься до згенерованого компілятором класу.\n\n```csharp\nstruct Point { public int X, Y; }\nobject boxed = new Point(); // алокація: копія в купі\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Where is a `struct` stored when it is a field of a `class` instance?",
+              "options": [
+                { "text": "Always on the stack", "correct": false },
+                { "text": "Inline inside the class object on the heap", "correct": true },
+                { "text": "In a separate heap allocation referenced by the class", "correct": false },
+                { "text": "In the Large Object Heap", "correct": false }
+              ],
+              "explanation": "A struct field is laid out inline in its parent object, so it lives on the heap. It is not a separate allocation and the stack is irrelevant here; the LOH is only for objects over 85,000 bytes."
+            },
+            "uk": {
+              "prompt": "Де зберігається `struct`, якщо вона є полем екземпляра `class`?",
+              "options": [
+                { "text": "Завжди на стеку", "correct": false },
+                { "text": "Усередині об'єкта класу в купі", "correct": true },
+                { "text": "В окремій алокації в купі, на яку посилається клас", "correct": false },
+                { "text": "У Large Object Heap", "correct": false }
+              ],
+              "explanation": "Поле-структура розміщується всередині батьківського об'єкта, тобто в купі. Це не окрема алокація, стек тут ні до чого, а LOH лише для об'єктів понад 85 000 байт."
+            }
+          },
+          "tags": ["value-types", "boxing"]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Which statement causes a boxing allocation?",
+              "options": [
+                { "text": "`int x = 5;`", "correct": false },
+                { "text": "`object o = 5;`", "correct": true },
+                { "text": "`int y = x + 1;`", "correct": false },
+                { "text": "`var s = x.ToString();`", "correct": false }
+              ],
+              "explanation": "Assigning a value type to `object` boxes it. Arithmetic and local assignment do not allocate; `ToString()` allocates a string but does not box."
+            }
+          },
+          "tags": ["boxing"]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Explain why 'value types live on the stack' is inaccurate and give two cases where a value type ends up on the heap.",
+              "rubric": [
+                "States that storage follows the containing variable, not the type",
+                "Names a struct field of a class as a heap case",
+                "Names a captured local or array element as a heap case"
+              ],
+              "explanation": "The location is decided by where the containing variable lives: class fields, array elements, captured locals and boxed values all put value types on the heap."
+            }
+          },
+          "tags": ["value-types"]
+        }
+      ]
+    },
+    {
+      "slug": "span-memory",
+      "title": "Span<T>, Memory<T> and Zero-Allocation Parsing",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Span<T>, Memory<T> and Zero-Allocation Parsing",
+          "note": "## What it is\n\n`Span<T>` is a `ref struct` that provides a typed view over contiguous memory: an array segment, `stackalloc` bytes, or native memory. Because it is stack-only it cannot be captured by a lambda, stored in a field of a class, or used across an `await`. `Memory<T>` is the heap-friendly counterpart for those cases.\n\n```csharp\nSpan<byte> buffer = stackalloc byte[64];\nif (Utf8Formatter.TryFormat(42, buffer, out var written)) { /* no allocation */ }\n```\n\nCombine with `ArrayPool<T>.Shared` to rent large buffers instead of allocating them."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Why can a `Span<T>` not be stored in a field of a class?",
+              "options": [
+                { "text": "It is a `ref struct` and must stay on the stack", "correct": true },
+                { "text": "It is too large to fit in an object", "correct": false },
+                { "text": "Classes cannot contain generic fields", "correct": false },
+                { "text": "It would be collected by the GC too early", "correct": false }
+              ],
+              "explanation": "`Span<T>` is a `ref struct`, which the compiler restricts to the stack so that the memory it points at cannot outlive its owner. Size and genericity are not the reason, and the GC does not collect spans."
+            }
+          },
+          "tags": ["span", "ref-struct"]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which type should an async method accept to slice a buffer without allocating?",
+              "options": [
+                { "text": "`Span<byte>`", "correct": false },
+                { "text": "`Memory<byte>`", "correct": true },
+                { "text": "`byte[]` plus offset and length", "correct": false },
+                { "text": "`IEnumerable<byte>`", "correct": false }
+              ],
+              "explanation": "`Memory<T>` can live on the heap and cross `await` boundaries; `Span<T>` cannot. Arrays with offsets work but allocate on slicing, and `IEnumerable<byte>` is not a buffer view."
+            }
+          },
+          "tags": ["span", "async"]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Describe how you would parse a comma-separated line of integers without allocating per field.",
+              "rubric": [
+                "Uses `ReadOnlySpan<char>` slicing instead of `string.Split`",
+                "Uses `int.TryParse(ReadOnlySpan<char>, ...)` or `Utf8Parser`",
+                "Mentions `stackalloc` or `ArrayPool<T>` for scratch buffers",
+                "Notes the `ref struct` restriction for async code"
+              ],
+              "explanation": "Slice the input span at each comma and parse the slice directly; only the result array is allocated."
+            }
+          },
+          "tags": ["span", "parsing"]
+        }
+      ],
+      "katas": [
+        {
+          "id": "dotnet.clr-memory.span-memory.kata.1",
+          "title": "Sum integers from a UTF-8 line without allocating",
+          "language": "csharp",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "task": "Implement `int Sum(ReadOnlySpan<byte> utf8Line)` that sums comma-separated integers without allocating on the heap.",
+              "rubric": [
+                "No `string` or array allocation inside the loop",
+                "Uses `Utf8Parser.TryParse` or equivalent span parsing",
+                "Handles the trailing field without a comma"
+              ],
+              "referenceSolution": "int Sum(ReadOnlySpan<byte> line)\n{\n    var total = 0;\n    while (!line.IsEmpty)\n    {\n        var comma = line.IndexOf((byte)',');\n        var field = comma < 0 ? line : line[..comma];\n        Utf8Parser.TryParse(field, out int value, out _);\n        total += value;\n        line = comma < 0 ? default : line[(comma + 1)..];\n    }\n    return total;\n}"
+            }
+          },
+          "timeLimitMinutes": 20
+        }
+      ]
+    }
+  ]
+}
