@@ -43,15 +43,16 @@ if (builder.Environment.IsDevelopment())
     });
 }
 
-var app = builder.Build();
+await using var app = builder.Build();
 
 var startupTimeout = TimeSpan.FromSeconds(app.Configuration.GetValue("DB_STARTUP_TIMEOUT_SECONDS", 90));
 await using (var scope = app.Services.CreateAsyncScope())
 {
     try
     {
-        await scope.ServiceProvider.GetRequiredService<StartupMigrator>().MigrateAsync(startupTimeout);
-        await scope.ServiceProvider.GetRequiredService<LearnerSeeder>().SeedAsync();
+        var stopping = app.Lifetime.ApplicationStopping;
+        await scope.ServiceProvider.GetRequiredService<StartupMigrator>().MigrateAsync(startupTimeout, stopping);
+        await scope.ServiceProvider.GetRequiredService<LearnerSeeder>().SeedAsync(stopping);
     }
     catch (Exception ex)
     {

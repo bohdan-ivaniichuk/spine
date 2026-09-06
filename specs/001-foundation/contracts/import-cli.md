@@ -37,9 +37,9 @@ scripts/validate-content.sh                            # = --validate-only, no d
 | Code | Meaning |
 |---|---|
 | 0 | success, or nothing to import |
-| 1 | validation errors (manifest, schema, rules, type change) — nothing written |
+| 1 | validation or usage errors (manifest, schema, rules, type change, unknown argument, missing schema files) — nothing written |
 | 2 | import already in progress (advisory lock held) |
-| 3 | database / unexpected failure |
+| 3 | database / unexpected failure, content directory not found, cancelled |
 
 ## Error line format
 

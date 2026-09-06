@@ -15,19 +15,19 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
     {
         var domains = await db.Domains.AsNoTracking()
             .Where(d => includeDeprecated || d.DeprecatedAt == null)
-            .OrderBy(d => d.SortOrder)
+            .OrderBy(d => d.SortOrder).ThenBy(d => d.Id)
             .Select(d => new { d.Id, d.Slug, d.Title, d.SortOrder, d.DeprecatedAt })
             .ToListAsync(ct);
 
         var topics = await db.Topics.AsNoTracking()
             .Where(t => includeDeprecated || t.DeprecatedAt == null)
-            .OrderBy(t => t.SortOrder)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Id)
             .Select(t => new { t.Id, t.DomainId, t.Slug, t.Title, t.SortOrder, t.DeprecatedAt })
             .ToListAsync(ct);
 
         var concepts = await db.Concepts.AsNoTracking()
             .Where(c => includeDeprecated || c.DeprecatedAt == null)
-            .OrderBy(c => c.SortOrder)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
             .Select(c => new
             {
                 c.Id,

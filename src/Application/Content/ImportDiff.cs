@@ -89,10 +89,18 @@ public static class ImportDiff
                 counts.Unchanged++;
             }
 
-            // A topic listed in the manifest but without a file keeps whatever concepts it already has.
             if (pt.File is not null)
             {
                 DiffConcepts(topic, pt, now, change);
+            }
+            else
+            {
+                // Listed in the manifest but no seed file: its concepts are absent from the seed set (FR-024).
+                var file = $"{pd.Slug}/{pt.Slug}.json";
+                foreach (var concept in topic.Concepts)
+                {
+                    Deprecate(concept, file, now, change);
+                }
             }
         }
 

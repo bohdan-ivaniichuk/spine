@@ -35,8 +35,8 @@ public static class ImportContentCommand
                     Console.WriteLine("usage: import-content [--content-dir <path>] [--validate-only] [--dry-run]");
                     return 0;
                 default:
-                    Console.Error.WriteLine($"unknown argument '{args[i]}'");
-                    return (int)ImportExitCode.Failure;
+                    Console.Error.WriteLine($"unknown argument '{args[i]}' (usage: import-content [--content-dir <path>] [--validate-only] [--dry-run])");
+                    return (int)ImportExitCode.ValidationFailed;
             }
         }
 
@@ -53,16 +53,29 @@ public static class ImportContentCommand
         builder.Services.AddInfrastructure(builder.Configuration);
         using var host = builder.Build();
 
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+        };
+
         try
         {
             using var scope = host.Services.CreateScope();
             var importer = scope.ServiceProvider.GetRequiredService<IContentImporter>();
-            var result = await importer.ImportAsync(new ImportOptions(contentDir, validateOnly, dryRun));
+            var result = await importer.ImportAsync(new ImportOptions(contentDir, validateOnly, dryRun), cts.Token);
             return Report(result, contentDir);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("import cancelled; nothing written");
+            return (int)ImportExitCode.Failure;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"import failed: {ex.Message}");
+            Console.Error.WriteLine($"import failed: {ex.GetBaseException().Message}");
+            host.Services.GetRequiredService<ILogger<IContentImporter>>().LogError(ex, "import failed");
             return (int)ImportExitCode.Failure;
         }
     }

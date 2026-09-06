@@ -14,10 +14,23 @@ public static class ContentFileSystem
     public const string ManifestFile = "manifest.json";
 
     /// <summary>Loads everything; JSON syntax errors are reported as validation errors, not exceptions.</summary>
-    public static (ContentSet Set, ContentValidationResult ParseErrors) Load(string contentDir)
+    public static (ContentSet? Set, ContentValidationResult ParseErrors) Load(string contentDir)
     {
         var errors = new ContentValidationResult();
         var schemaDir = Path.Combine(contentDir, SchemaDir);
+        foreach (var schemaFile in new[] { ContentSchemaFile, ManifestSchemaFile })
+        {
+            if (!File.Exists(Path.Combine(schemaDir, schemaFile)))
+            {
+                errors.Add($"{SchemaDir}/{schemaFile}", "", "schema-missing", "schema file is missing from the content directory");
+            }
+        }
+
+        if (!errors.IsValid)
+        {
+            return (null, errors);
+        }
+
         var contentSchema = File.ReadAllText(Path.Combine(schemaDir, ContentSchemaFile));
         var manifestSchema = File.ReadAllText(Path.Combine(schemaDir, ManifestSchemaFile));
 

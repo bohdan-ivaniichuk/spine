@@ -46,7 +46,11 @@ position in the topic file.
   is left untouched.
 - Existing question whose `type` differs from the incoming one → validation error (a type change is a
   new id by construction).
+- A topic listed in the manifest whose seed file is absent: its concepts (and their questions/katas) are
+  deprecated like any other absent item (FR-024). Re-adding the file reactivates them.
 - Progress rows: never created, updated or deleted by import.
+- Indexes: `(user_id, due_at)` and unique `(user_id, item_id)` on `review_states`; no standalone `due_at`
+  index on purpose — every due-queue query is per learner (Principle IV).
 
 ## EF mapping notes
 

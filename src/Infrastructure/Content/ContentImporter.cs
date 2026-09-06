@@ -17,12 +17,22 @@ public sealed class ContentImporter(AppDbContext db, ILogger<ContentImporter> lo
 
     public async Task<ImportResult> ImportAsync(ImportOptions options, CancellationToken ct = default)
     {
-        if (!Directory.Exists(options.ContentDir) || !ContentFileSystem.HasAnyContent(options.ContentDir))
+        if (!Directory.Exists(options.ContentDir))
         {
-            return new ImportResult(ImportExitCode.Success, [], null, "nothing to import");
+            return new ImportResult(ImportExitCode.Failure, [], null, $"content directory not found: {options.ContentDir}");
+        }
+
+        if (!ContentFileSystem.HasAnyContent(options.ContentDir))
+        {
+            return new ImportResult(ImportExitCode.Success, [], null, $"nothing to import in {options.ContentDir}");
         }
 
         var (set, parseErrors) = ContentFileSystem.Load(options.ContentDir);
+        if (set is null)
+        {
+            return new ImportResult(ImportExitCode.ValidationFailed, parseErrors.Errors, null);
+        }
+
         var errors = new List<ContentValidationError>(parseErrors.Errors);
         errors.AddRange(new ContentSchemaValidator().Validate(set).Errors);
         errors.AddRange(new ContentRuleValidator().Validate(set).Errors);
@@ -42,6 +52,9 @@ public sealed class ContentImporter(AppDbContext db, ILogger<ContentImporter> lo
         var strategy = db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
+            // A retried attempt must start from a clean tracker: tracked, already-mutated entities would
+            // make the diff report "unchanged" while still carrying Added/Modified state from the failed attempt.
+            db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
 
             var locked = await db.Database
