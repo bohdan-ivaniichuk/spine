@@ -53,4 +53,15 @@ dotnet run --project src/Api                        # migrates, seeds learner, s
 cd web && npm start                                 # 4200 with /api proxied to 8080
 ```
 
+## Measured on 2026-09-06 (clean clone, Apple Silicon, Docker layers warm)
+
+| Criterion | Target | Measured |
+|---|---|---|
+| SC-001 healthy stack after `docker compose up --build` | < 2 min | 30 s (18 s build + 12 s to healthy) |
+| SC-002 import of the MVP content set; repeat import | < 30 s; 0 created / 0 updated | 2 s; 0 / 0 (35 questions unchanged) |
+| SC-003 contract violations reported with file + pointer + rule | 100% | verified by `ContentSchemaValidatorTests`, `ContentRuleValidatorTests`, importer test (h) |
+| SC-004 progress untouched by re-import | 100% | `ContentImporterTests` (d) |
+| SC-005 tree / concept reads | < 300 ms | 236 ms cold, 6–9 ms warm |
+| SC-006 no table/column renamed for 002–005 | — | checked at each feature's planning |
+
 Expected outcomes map to spec SC-001…SC-005; SC-006 is checked when 002–005 are planned.

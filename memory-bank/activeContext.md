@@ -2,10 +2,10 @@
 
 ## Where things stand (2026-09-06, branch `dev`)
 
-Feature **001 Foundation** is implemented end to end and running under `docker compose up`
-(postgres + api + web, all healthy); the first content batch `dotnet/clr-memory` is imported.
-Test suites (unit, Testcontainers integration, API) are being finalised; reviewers and the clean-clone
-run are the remaining 001 steps.
+Feature **001 Foundation** is complete (merged to `main`): stack runs under `docker compose up`,
+103 tests green, both reviewers clean, clean-clone quickstart measured. Visual direction chosen
+(ADR 0004: light "Calm workspace" + dark "Developer dark"). Feature **002 Review session** is in
+progress: spec done, plan/tasks next, implementation via workflow.
 
 **Done**
 - Solution `InterviewPrep.sln`: Domain / Application / Infrastructure / Api + 4 test projects, CPM pins.
@@ -20,14 +20,12 @@ run are the remaining 001 steps.
   by the content workflow (author → reviewer → fix → assemble); digest in `working/`.
 
 **In flight**
-- Unit tests (Application), integration tests (Infrastructure, Api) — written by test-author agents.
-- Aspire: decided — defer to feature 004 (ADR 0003); `working/aspire-research-2026-09-06.md` has the brief.
+- 002 Review session: `specs/002-review-session/spec.md` (no open clarifications; MCQ only, two-outcome SM-2, session membership stored on the session).
 
 **Next**
-1. Finish 001: reviewers (code-reviewer, frontend-reviewer), clean-clone quickstart, final commit.
+1. 002: plan → tasks → implement (workflow: backend SM-2 + endpoints, Angular review feature, tests, reviewers) → user tests a session in the browser.
 2. Human review of `working/content-review-digest-clr-memory.md` → flip `reviewed: true` → re-import.
-3. `/speckit-specify` 002 Review session (MCQ + SM-2).
-4. Next content batch: `dotnet/async`.
+3. 003 Knowledge tree & notes; next content batch `dotnet/async`.
 
 **Waiting on the user**
 - Content review of `clr-memory` (flip `"reviewed": true` on accepted items).

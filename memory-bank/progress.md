@@ -10,11 +10,12 @@
 
 ## In progress
 
-- [ ] 001 tests (unit + Testcontainers + API) and reviewer pass; clean-clone run.
+- [x] 001 tests: 57 unit + 27 integration + 19 API green; both reviewers clean; clean-clone run 30 s to healthy (2026-09-06).
+- [x] Visual direction: light/dark themes and tokens in the shell (ADR 0004).
 
 ## Planned (in order)
 
-- [ ] 002 Review session (MCQ + SM-2)
+- [ ] 002 Review session (MCQ + SM-2) — spec written 2026-09-06, in implementation
 - [ ] 003 Knowledge tree & notes
 - [ ] 004 LLM grading (open + kata)
 - [ ] 005 Weak-spots & failed-question review

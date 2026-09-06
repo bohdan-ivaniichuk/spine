@@ -181,7 +181,7 @@ tables empty; no content table has a `user_id` column.
 - [X] T063 [P] Create `docs/architecture/decisions/0002-foundation-data-model.md` (surrogate vs natural keys, polymorphic progress key, soft-deprecation, derived `concepts.reviewed`, content hashes, text enums + CHECK, session scope columns)
 - [X] T064 [P] Update `memory-bank/activeContext.md`, `progress.md`, `systemPatterns.md`, `techContext.md` (pinned versions) and close `TECH_DEBT.md` item 1.1
 - [X] T065 Run `code-reviewer` (whole 001 diff vs `dev` base) and `frontend-reviewer`; fix must-fix findings
-- [ ] T066 Run quickstart.md end to end from a clean clone (`git clone` into a temp dir, follow README only); record timings for SC-001/SC-002/SC-005 in `specs/001-foundation/quickstart.md`; final commit "001 Foundation complete"
+- [X] T066 Run quickstart.md end to end from a clean clone (`git clone` into a temp dir, follow README only); record timings for SC-001/SC-002/SC-005 in `specs/001-foundation/quickstart.md`; final commit "001 Foundation complete"
 
 ---
 
