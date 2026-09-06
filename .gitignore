@@ -40,3 +40,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# dotnet-ef BuildHost artefacts (literal backslash folder name on macOS)
+**/bin\\Debug/
