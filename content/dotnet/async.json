@@ -1,0 +1,1296 @@
+{
+  "domain": "dotnet",
+  "topic": "async",
+  "concepts": [
+    {
+      "slug": "async-await-internals",
+      "title": "async/await Internals: State Machine, Task vs ValueTask, Continuations, ConfigureAwait",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "async/await Internals: State Machine, Task vs ValueTask, Continuations, ConfigureAwait",
+          "note": "## What it is\n\n`async`/`await` is a **compiler** feature, not a runtime one. The C# compiler rewrites an `async` body into a state machine; each `await` is a point where that machine may suspend and resume. The CLR sees an ordinary method that fills a struct, calls `Start` on a *method builder* and returns whatever the builder exposes: `Task`, `Task<T>`, `ValueTask<T>`, or any type carrying `[AsyncMethodBuilder]` (C# 7).\n\n## How it works underneath\n\nFor `async Task<int> M()` the compiler emits a nested struct (`<M>d__0`; a class in Debug builds so the debugger can inspect it) implementing `IAsyncStateMachine`, with:\n\n- `int <>1__state`: `-1` running/not started, `-2` finished, `n >= 0` suspended at await number `n`;\n- `AsyncTaskMethodBuilder<int> <>t__builder`, which creates and completes the returned task;\n- hoisted parameters and locals that must survive across an `await`;\n- one awaiter field per awaiter type (`TaskAwaiter<int> <>u__1`).\n\nCalling `M()` runs `MoveNext()` **synchronously on the caller's thread**. At each `await e` the generated code does `awaiter = e.GetAwaiter(); if (awaiter.IsCompleted) { take the result and keep going } else { state = n; builder.AwaitUnsafeOnCompleted(ref awaiter, ref this); return; }`.\n\nTwo things happen on that first real suspension. First, the builder boxes the struct — since .NET Core 2.1 the box is an `AsyncStateMachineBox<TStateMachine>` that *is* the `Task` object: one allocation instead of at least four on .NET Framework (boxed state machine, `MoveNextRunner`, `Action` delegate, `Task`). Second, the awaiter's `UnsafeOnCompleted` registers `MoveNext` as the continuation of the awaited task. `TaskAwaiter` captures `SynchronizationContext.Current` (or a non-default `TaskScheduler.Current`) unless the awaitable came from `ConfigureAwait(false)`; the builder separately captures `ExecutionContext`, so `AsyncLocal<T>` values flow regardless of `ConfigureAwait`.\n\nWhen the awaited task completes, the continuation either runs inline on the thread that completed it — unless that thread sits on a non-default `SynchronizationContext`/`TaskScheduler`, in which case the runtime queues it to the thread pool rather than inlining (`TaskCreationOptions.RunContinuationsAsynchronously` opts out of inlining altogether) — or is posted to the captured context. `MoveNext` re-enters at `case n`, calls `awaiter.GetResult()` — which rethrows the original exception, not an `AggregateException` — and continues. `return x` becomes `builder.SetResult(x)`; anything thrown from the body is caught inside `MoveNext` and becomes `builder.SetException(ex)` (an `OperationCanceledException` makes the task `Canceled`). So an `async Task` method never throws synchronously, even for argument validation placed before the first `await`; eager throwing needs a non-`async` wrapper.\n\n**Hot path.** If every awaiter reports `IsCompleted == true`, the struct never leaves the stack; the only allocation is the `Task<int>` itself, and `AsyncTaskMethodBuilder<T>` skips even that for cached results (`true`/`false`, `int` in `-1..8`, `null`). For everything else — `Task<string>`, a buffered `ReadAsync` returning 4096 — `ValueTask<T>` removes the allocation: it is a struct holding the result inline, or wrapping a `Task<T>`, or (since .NET Core 2.1) an `IValueTaskSource<T>` that `Socket`, `PipeReader` and `ChannelReader<T>` implement with pooled, reusable objects. Since .NET 6 / C# 10 the box for an `async ValueTask<T>` method itself can be pooled via `[AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]` on the method. The price is a stricter contract: await a `ValueTask` **once**, never call `.Result` before it completed, never await it concurrently, and call `AsTask()` (or `Preserve()`) *instead of* that single await when you need anything else — a pooled source is recycled right after the first `GetResult`.\n\n## What an interviewer probes\n\n- Which thread runs the code before the first `await`? The caller's; no thread is created.\n- What does `ConfigureAwait(false)` really change? Only whether the awaiter captures `SynchronizationContext`/`TaskScheduler`. It does nothing when the task is already complete (no continuation is scheduled), and it does not stop `ExecutionContext` flow. ASP.NET Core has no `SynchronizationContext`, so there it is a micro-optimisation; it stays mandatory in libraries because the same code may run under WPF, WinForms, MAUI or Blazor, which do have one. .NET 8 added `ConfigureAwait(ConfigureAwaitOptions)`: `ForceYielding` (always suspend, like `Task.Yield()`), `SuppressThrowing` (non-generic `Task` only; `Task<T>` throws `ArgumentOutOfRangeException`) and `ContinueOnCapturedContext`.\n- `Task` vs `ValueTask` in a public API? Default to `Task` (awaitable by many consumers, cacheable, `WhenAll`-friendly); choose `ValueTask` when synchronous completion dominates or a pooled `IValueTaskSource` backs it.\n- What is next? .NET 10 ships an experimental, opt-in *runtime async* mode where the JIT implements suspension natively instead of compiler-emitted state machines.\n\n## Common misconceptions\n\n- \"`async` runs the method on another thread\" — it runs synchronously until the first incomplete awaiter.\n- \"`ConfigureAwait(false)` moves the continuation to the thread pool\" — it only removes the capture.\n- \"`ValueTask` is a cheaper `Task`\" — it is a different, single-consumption contract.\n\n## Generated code (simplified, Release)\n\n```csharp\n// Source\nasync Task<int> ReadLengthAsync(Stream s)\n{\n    var buf = new byte[4];\n    int n = await s.ReadAsync(buf, 0, 4).ConfigureAwait(false);\n    return n == 4 ? BitConverter.ToInt32(buf, 0) : -1;\n}\n\n// What the compiler emits\n[AsyncStateMachine(typeof(<ReadLengthAsync>d__0))]\nTask<int> ReadLengthAsync(Stream s)\n{\n    var sm = new <ReadLengthAsync>d__0 { s = s, <>1__state = -1,\n        <>t__builder = AsyncTaskMethodBuilder<int>.Create() };\n    sm.<>t__builder.Start(ref sm);      // runs MoveNext synchronously\n    return sm.<>t__builder.Task;\n}\n\nstruct <ReadLengthAsync>d__0 : IAsyncStateMachine\n{\n    public int <>1__state;\n    public AsyncTaskMethodBuilder<int> <>t__builder;\n    public Stream s;\n    byte[] <buf>5__1;\n    ConfiguredTaskAwaitable<int>.ConfiguredTaskAwaiter <>u__1;\n\n    public void MoveNext()\n    {\n        int result;\n        try\n        {\n            ConfiguredTaskAwaitable<int>.ConfiguredTaskAwaiter awaiter;\n            if (<>1__state != 0)\n            {\n                <buf>5__1 = new byte[4];\n                awaiter = s.ReadAsync(<buf>5__1, 0, 4).ConfigureAwait(false).GetAwaiter();\n                if (!awaiter.IsCompleted)\n                {\n                    <>1__state = 0;\n                    <>u__1 = awaiter;\n                    <>t__builder.AwaitUnsafeOnCompleted(ref awaiter, ref this); // boxes once\n                    return;\n                }\n            }\n            else { awaiter = <>u__1; <>u__1 = default; <>1__state = -1; }\n            int n = awaiter.GetResult();   // rethrows the original exception\n            result = n == 4 ? BitConverter.ToInt32(<buf>5__1, 0) : -1;\n        }\n        catch (Exception ex) { <>1__state = -2; <>t__builder.SetException(ex); return; }\n        <>1__state = -2; <>t__builder.SetResult(result);\n    }\n\n    // SetStateMachine omitted\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.async-await-internals.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async-await",
+            "state-machine",
+            "exceptions",
+            "task"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Consider the following method and call site (Release build, .NET 10). What happens?\n\n```csharp\nasync Task SaveAsync(string path)\n{\n    if (path is null) throw new ArgumentNullException(nameof(path));\n    await File.WriteAllTextAsync(path, \"x\");\n}\n\nTask t = SaveAsync(null);   // line A\nawait t;                    // line B\n```",
+              "options": [
+                {
+                  "text": "Line A throws `ArgumentNullException` synchronously, because the throw happens before the first `await` and therefore runs on the caller's thread.",
+                  "correct": false
+                },
+                {
+                  "text": "Line A returns a faulted task; line B throws an `AggregateException` whose `InnerException` is the `ArgumentNullException`.",
+                  "correct": false
+                },
+                {
+                  "text": "Line A completes normally and returns a task whose `Status` is `Faulted`; the `ArgumentNullException` is thrown at line B, unwrapped.",
+                  "correct": true
+                },
+                {
+                  "text": "Line A returns a task whose `Status` is `Canceled`, because the state machine aborts before reaching its first `await`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The body of an `async` method runs inside the generated `MoveNext`, whose `try/catch` catches every exception and forwards it to `AsyncTaskMethodBuilder.SetException`, so the caller always gets a task back and the exception surfaces only when that task is awaited; `TaskAwaiter.GetResult` rethrows the original exception, not a wrapper. The 'throws synchronously' option is half right (the code does run on the caller's thread before the first `await`) but draws the wrong conclusion: the exception is caught by the state machine, not propagated to the call site; you only get eager throwing by validating in a non-`async` wrapper method. The `AggregateException` option confuses `await` with `.Wait()`/`.Result`, which are the APIs that wrap in `AggregateException`. The `Canceled` option is wrong because only an `OperationCanceledException` produces a `Canceled` task; any other exception produces `Faulted`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.async-await-internals.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "valuetask",
+            "ivaluetasksource",
+            "async-await",
+            "pooling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`ReadAsync` below is backed by a pooled `IValueTaskSource<int>` (as `Socket`, `PipeReader` and `ChannelReader<T>` do with their own `IValueTaskSource<T>` types). Which statement about this code is true?\n\n```csharp\nValueTask<int> vt = reader.ReadAsync(buffer);\nint first  = await vt;\nint second = await vt;   // same ValueTask again\n```",
+              "options": [
+                {
+                  "text": "It is fine: like `Task<int>`, a completed `ValueTask<int>` caches its result, because the struct stores the value in its own result field once `GetResult` has run, so `second` equals `first` without re-running the read.",
+                  "correct": false
+                },
+                {
+                  "text": "Undefined behaviour: the pooled source may already have been reset or reused after the first `GetResult`, so the second `await` can throw or observe another operation's result.",
+                  "correct": true
+                },
+                {
+                  "text": "The second `await` transparently restarts the read: a `ValueTask<int>` is a deferred operation like `Func<Task<int>>`, so `second` receives the next chunk of data from the reader.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: since C# 11 the compiler tracks single-consumption awaitables and reports an error when a `ValueTask<T>` local is awaited a second time.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ValueTask<T>` is a single-consumption handle: when it wraps an `IValueTaskSource<T>`, the first `GetResult` call is the signal for the source to recycle itself, so any further `await`, `.Result` access, or concurrent await is outside the contract and may observe another operation's state. The fix is to call `AsTask()` (or `Preserve()`, .NET 5+) *instead of* the first `await` when multiple consumers are needed; calling it after `vt` has already been consumed is just as invalid on a pooled source. The 'caches its result' option is the misconception that `ValueTask` is a cheaper `Task`: the struct does hold an inline result field, but only when it was created from a plain value or wraps a real `Task<T>`; when it wraps an `IValueTaskSource<T>` the result lives in the (recyclable) source, and callers cannot know which backing they got. The 'restarts the read' option treats `ValueTask` like a lazy `Func<Task<T>>`; the operation started when `ReadAsync` was called and the struct only represents that one operation. The 'does not compile' option is wrong because no C# version tracks how many times an awaitable is awaited; the rule is enforced by documentation and analyzers (CA2012), not by the language."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.async-await-internals.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "configureawait",
+            "synchronization-context",
+            "execution-context",
+            "async-await"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `await task.ConfigureAwait(false)` is true on .NET 10?",
+              "options": [
+                {
+                  "text": "It guarantees the continuation runs on a thread-pool thread, because the awaiter queues `MoveNext` through `ThreadPool.UnsafeQueueUserWorkItem` instead of running it inline, even when `task` is already completed.",
+                  "correct": false
+                },
+                {
+                  "text": "It stops both the `SynchronizationContext` and the `ExecutionContext` from flowing, which is why `AsyncLocal<T>` values set before the `await` are no longer visible after it in ASP.NET Core.",
+                  "correct": false
+                },
+                {
+                  "text": "It is required in ASP.NET Core request handlers: the `AspNetCoreSynchronizationContext` admits one thread per request, so a caller blocking with `.Result` deadlocks unless the continuation is released from that context.",
+                  "correct": false
+                },
+                {
+                  "text": "It only controls whether the awaiter captures `SynchronizationContext.Current`/`TaskScheduler.Current`; `ExecutionContext` still flows and an already-completed `task` never yields.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`ConfigureAwait(false)` changes one bit passed to the awaiter: whether to capture the current `SynchronizationContext` (or non-default `TaskScheduler`) when registering the continuation. Everything else stays: `ExecutionContext` is captured by the method builder independently, so `AsyncLocal<T>` flows; and when the awaited task is already complete, `IsCompleted` returns `true` and the state machine keeps running inline without any scheduling, on the current thread. The `UnsafeQueueUserWorkItem` option is the 'moves to the thread pool' misconception with an invented mechanism: nothing is queued by the awaiter, the continuation runs on whichever thread completes the task (inline, unless that thread has a non-default context or the task was created with `RunContinuationsAsynchronously`), and a completed task never yields; `ConfigureAwaitOptions.ForceYielding` (.NET 8) is the API for forcing a yield. The 'stops both contexts' option is wrong because `ExecutionContext` flow is not affected by `ConfigureAwait`; suppressing it needs `ExecutionContext.SuppressFlow`. The deadlock option is wrong because ASP.NET Core has no `SynchronizationContext` at all (there is no `AspNetCoreSynchronizationContext` type), so `ConfigureAwait(false)` cannot prevent a deadlock there; the classic deadlock belonged to `AspNetSynchronizationContext` in ASP.NET on .NET Framework, which Core removed."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.async-await-internals.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "state-machine",
+            "allocations",
+            "task",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An `async Task<int> CountAsync()` method (Release build, .NET 10) is called and every awaited operation happens to be already completed by the time it is awaited, so the method never suspends. Which statement about allocations is true?",
+              "options": [
+                {
+                  "text": "The state machine struct is never boxed; the only possible heap allocation is the returned `Task<int>`, and even that is skipped for cached results such as `-1..8`, `true`/`false` or `null`.",
+                  "correct": true
+                },
+                {
+                  "text": "The state machine is boxed on the heap as soon as the method is invoked, because `AsyncTaskMethodBuilder.Start` needs a reference-type instance to hold hoisted locals.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing is allocated at all, because `Task<int>` is a struct that carries the result inline when the method completes synchronously.",
+                  "correct": false
+                },
+                {
+                  "text": "Two allocations always occur, the boxed state machine and the `Task<int>`; since .NET Core 2.1 they are merged into one object, so the synchronous path costs a single allocation.",
+                  "correct": false
+                }
+              ],
+              "explanation": "In Release builds the compiler emits the state machine as a struct, `Start` runs `MoveNext` on the caller's stack, and boxing happens only inside `AwaitUnsafeOnCompleted`, i.e. on the first awaiter whose `IsCompleted` is `false`. A method that never suspends therefore allocates at most the `Task<int>` result object, which `AsyncTaskMethodBuilder<T>` serves from a static cache for `bool`, small `int` values (-1 to 8) and `null` reference results. The 'boxed as soon as invoked' option describes Debug builds (where the state machine is a class) and generalises it to Release, which is wrong. The 'nothing is allocated' option confuses `Task<int>` with `ValueTask<int>`: `Task<T>` is a class, so a non-cached result always costs an object; `ValueTask<T>` is the type that carries a synchronous result inline. The 'two allocations merged into one' option correctly describes the .NET Core 2.1 `AsyncStateMachineBox` optimisation but applies it to the wrong path: the box-that-is-the-task exists only when the method actually suspends."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.async-await-internals.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async-await",
+            "state-machine",
+            "continuation",
+            "configureawait"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Walk me through everything that happens, from the call to the completion of the returned task, when this method is invoked from a thread-pool thread in ASP.NET Core and `A()` returns an already-completed task while `B()` does not:\n\n```csharp\nasync Task<int> M()\n{\n    int a = await A();\n    int b = await B();\n    return a + b;\n}\n```\n\nCover what the compiler generates, which thread runs which part, where allocations happen, how the synchronous completion of `A()` is detected, how the continuation is registered and resumed, how the result or an exception reaches the caller, and what `ConfigureAwait(false)` would change here.",
+              "explanation": "Model answer: the compiler turns `M` into an `IAsyncStateMachine` struct (state, `AsyncTaskMethodBuilder<int>`, hoisted `a`, awaiter fields) and `Start` runs `MoveNext` synchronously on the calling thread-pool thread; `await A()` sees `awaiter.IsCompleted == true`, so no continuation is registered and the code continues inline with no allocation. At `await B()` the state is saved, the awaiter is stored in its field, `AwaitUnsafeOnCompleted` boxes the machine once (the box is the returned `Task<int>` since .NET Core 2.1, so `M` allocates nothing before that point) and registers `MoveNext` as the continuation, capturing `ExecutionContext` always and `SynchronizationContext`/`TaskScheduler` only if present, which in ASP.NET Core they are not, so `ConfigureAwait(false)` changes nothing observable. When `B()` completes, its completing thread runs `MoveNext` inline (or posts it to the captured context, or queues it to the thread pool if the completing thread has a non-default context); `MoveNext` re-enters at the saved state, copies the awaiter out of its field, clears the field to `default`, resets the state to `-1`, and `GetResult` returns `b` or rethrows the original exception. `return a + b` becomes `SetResult`; any exception is caught in `MoveNext` and stored via `SetException`, reaching the caller unwrapped at its `await`.",
+              "rubric": [
+                "Describes the compiler-generated `IAsyncStateMachine` (struct in Release) with a state field, an `AsyncTaskMethodBuilder<int>`, hoisted locals (`a`) and awaiter fields, and that `MoveNext` runs synchronously on the calling thread-pool thread through `await A()` because the awaiter reports `IsCompleted == true`, so no continuation is registered for `A()`.",
+                "Explains that at `await B()` the state is saved and `AwaitUnsafeOnCompleted` boxes the state machine exactly once (since .NET Core 2.1 the box is the `Task<int>` object itself) and registers `MoveNext` as the continuation via `UnsafeOnCompleted`; `M` itself allocates nothing before that point, and a separate `Task<int>` would only be allocated if the method completed without ever suspending (and even then cached results avoid it).",
+                "States that the continuation runs on the thread that completes `B()` (inline, or posted to a captured `SynchronizationContext`/`TaskScheduler`), that `ExecutionContext` always flows, and that in ASP.NET Core there is no `SynchronizationContext`, so `ConfigureAwait(false)` only skips the capture check and changes nothing observable here.",
+                "Explains completion: `return a + b` becomes `builder.SetResult`, an exception thrown anywhere in the body is caught in `MoveNext` and becomes `SetException` (faulted task, `OperationCanceledException` makes it canceled), and the caller's `await` rethrows the original exception via `GetResult` rather than an `AggregateException`.",
+                "Describes resumption mechanics: `MoveNext` re-enters at the saved state number, copies the awaiter out of its hoisted field, clears that field to `default` and resets the state to `-1` before calling `awaiter.GetResult()` to obtain `b`."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "sync-context",
+      "title": "SynchronizationContext and the Classic ASP.NET Deadlock",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "SynchronizationContext and the Classic ASP.NET Deadlock",
+          "note": "## What it is\n\n`SynchronizationContext` (in `System.Threading`) is an abstraction over *where* a piece of work should run. It has two verbs: `Post(callback, state)` queues work asynchronously, `Send` runs it synchronously. The current instance lives in a thread-static slot, `SynchronizationContext.Current`, and is `null` unless a framework installed one. Frameworks install one to give code a \"home\" thread or logical execution unit:\n\n- WinForms: `WindowsFormsSynchronizationContext` posts to the message loop of the single UI thread.\n- WPF: `DispatcherSynchronizationContext` posts to the `Dispatcher` of the UI thread.\n- Classic ASP.NET (`System.Web`, .NET Framework): the task-friendly `AspNetSynchronizationContext` arrived in .NET Framework 4.5, enabled by `<httpRuntime targetFramework=\"4.5\" />` (equivalently `aspnet:UseTaskFriendlySynchronizationContext=true`); apps that do not opt in run on `LegacyAspNetSynchronizationContext`, the 4.5 name for the pre-4.5 behaviour. Neither is bound to one thread, but both are **exclusive**: at most one thread runs inside a request's context at a time, so `HttpContext.Current`, culture and identity stay consistent.\n- Blazor Server (ASP.NET Core 3.0+, \"interactive server\" render mode since .NET 8): `RendererSynchronizationContext`, one single logical thread per circuit.\n- Console apps, thread-pool threads, ASP.NET Core request threads: **nothing**, `Current` is `null`.\n\n## How it works underneath\n\nThe `await` machinery cares about the context at exactly one moment: when a task is *not yet complete*. `TaskAwaiter.OnCompleted` reads `SynchronizationContext.Current` on the awaiting thread; if it is non-null and not the plain base `SynchronizationContext`, the continuation is later delivered through `context.Post(...)`. Otherwise it falls back to `TaskScheduler.Current` (and, when that is the default, straight to the thread pool). `ConfigureAwait(false)` skips both captures; since .NET 8 also spelled `ConfigureAwait(ConfigureAwaitOptions.None)`. Two consequences interviewers test: the context is captured **per `await`**, not once per method, and on the thread that *awaits*, not the thread that *completes* the task.\n\nThe deadlock recipe needs three ingredients: (1) a context that admits only one thread (UI thread, or the exclusive ASP.NET request context), (2) a blocking wait on that thread (`.Result`, `.Wait()`, `.GetAwaiter().GetResult()`), and (3) at least one `await` inside the blocked call chain that captured that context. The blocked thread holds the context; the posted continuation waits for the thread; each waits on the other. In classic ASP.NET the stalemate ends only when `<httpRuntime executionTimeout>` (110 s by default with `debug=\"false\"`) aborts the request thread; with `debug=\"true\"` it is a true infinite hang.\n\n```csharp\n// Classic ASP.NET MVC 5 (.NET Framework 4.8): stalls on the first request.\npublic class ReportController : Controller\n{\n    private static readonly HttpClient Http = new HttpClient();\n\n    public ActionResult Index()\n    {\n        // Blocks the request thread while it still owns AspNetSynchronizationContext.\n        var body = LoadAsync().Result;\n        return Content(body);\n    }\n\n    private static async Task<string> LoadAsync()\n    {\n        // No ConfigureAwait(false): the continuation is Post()ed back to the\n        // request context, whose only thread is blocked in .Result above.\n        var json = await Http.GetStringAsync(\"https://example.org/data\");\n        return json.ToUpperInvariant();\n    }\n}\n\n// ASP.NET Core (any version since 1.0): same code returns.\n// SynchronizationContext.Current is null, so the continuation runs on a\n// pool thread while the request thread is blocked: sync-over-async, not a deadlock.\n```\n\n## Why ASP.NET Core dropped it\n\nASP.NET Core removed the request `SynchronizationContext` deliberately in 1.0 (2016). The classic context was expensive (every continuation went through a lock and a queue), it caused the deadlock class above, and its main service, flowing `HttpContext.Current`, was replaced by `IHttpContextAccessor` backed by `AsyncLocal<T>`, which flows via `ExecutionContext` whatever thread resumes. As a result, in ASP.NET Core: continuations resume on whatever thread-pool thread is free; `ConfigureAwait(false)` in application code is a no-op (still recommended in reusable libraries, which cannot know whether the caller is WPF or a console); and `HttpContext` is **not** thread-safe, so two continuations of one request running truly in parallel (`Task.WhenAll` over branches that both touch `HttpContext.Request`) can corrupt state the old exclusive context used to serialise.\n\n## What an interviewer probes\n\n- Trace the deadlock step by step: who holds what, and why `.Result` in a console app or a typical unit test does not reproduce it: no *single-threaded* context there (a console app has none; xUnit's `AsyncTestSyncContext` exists but forwards `Post` to the pool).\n- \"We added `ConfigureAwait(false)` and it still hangs.\" One `await` in the chain without it is enough; the fix belongs to *every* await that can observe the blocked context.\n- \"Is `.Result` safe in ASP.NET Core then?\" No deadlock, but a thread-pool thread is parked per call. The classic hill-climbing injection adds threads slowly; since .NET 6 the portable thread pool detects `Task.Wait`/`.Result` on a worker (`NotifyThreadBlocked`) and compensates faster, but that is bounded, each parked thread costs roughly 1 MB of stack, and throughput drops. The fix is async all the way.\n- Where it still hangs on modern .NET: WPF/WinForms/MAUI UI threads, Blazor Server components (single-threaded per circuit), any custom single-threaded context.\n\n## Common misconceptions\n\n- \"ASP.NET Core has a multi-threaded `SynchronizationContext`.\" It has none.\n- \"`ConfigureAwait(false)` moves the continuation to a new thread.\" It only avoids the capture; the continuation usually runs inline on the thread that completed the task.\n- \"The context is about the thread that finishes the `HttpClient` call.\" It is captured on the awaiting thread before the call has finished.\n- \"`Task.Run(() => LoadAsync()).Result` is the fix.\" It avoids the classic deadlock because the inner `await` runs on a context-free pool thread, but it still parks the request thread for the whole call and adds a thread-pool hop; the sync-over-async cost stays.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.sync-context.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "synchronization-context",
+            "aspnet-classic",
+            "deadlock",
+            "async-await"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "This action runs in ASP.NET MVC 5 on .NET Framework 4.8 with `<httpRuntime targetFramework=\"4.8\" />` and `<compilation debug=\"false\" />`. What happens on the first request to `/report`?\n\n```csharp\npublic class ReportController : Controller\n{\n    private static readonly HttpClient Http = new HttpClient();\n\n    public ActionResult Index()\n    {\n        string body = LoadAsync().Result;\n        return Content(body);\n    }\n\n    private static async Task<string> LoadAsync()\n    {\n        string json = await Http.GetStringAsync(\"https://example.org/data\");\n        return json.Trim();\n    }\n}\n```",
+              "options": [
+                {
+                  "text": "The request completes normally but slowly: `.Result` forces `LoadAsync` to execute synchronously on the request thread, so the awaited HTTP call degrades to ordinary blocking I/O and returns as soon as the response arrives.",
+                  "correct": false
+                },
+                {
+                  "text": "`.Result` throws an `AggregateException` wrapping an `InvalidOperationException`, because the task-friendly `AspNetSynchronizationContext` detects a blocking wait on an incomplete task from a synchronous action and rejects it.",
+                  "correct": false
+                },
+                {
+                  "text": "The request never completes on its own: the request thread blocks in `.Result` while owning the exclusive `AspNetSynchronizationContext`, and the posted continuation cannot acquire that context until the execution timeout aborts the thread.",
+                  "correct": true
+                },
+                {
+                  "text": "The request stalls because the response is delivered on an I/O completion thread that cannot re-enter the controller instance, since `HttpClient` may only complete its task on the thread that started the call.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The request thread enters `Index` inside the per-request `AspNetSynchronizationContext`, which lets only one thread run in the request at a time. `LoadAsync` hits an incomplete task at `await`, captures that context (no `ConfigureAwait(false)`), and returns an incomplete `Task<string>`. `.Result` then blocks the request thread without releasing the context. When the HTTP response arrives, the continuation is `Post`ed to the context, which waits for the blocked thread: a two-party deadlock. It is not literally infinite in production: `Index` is a synchronous action, so `<httpRuntime executionTimeout>` (110 s by default when `debug=\"false\"`) eventually aborts the thread with 'Request timed out'; with `debug=\"true\"` the hang is unbounded. The 'slow but completes' option treats `await` as if it degraded to a synchronous call; the method really returns an incomplete task and the continuation really needs the context, so nothing makes progress. The `InvalidOperationException` option misplaces a real guard: `AspNetSynchronizationContext.OperationStarted` does throw 'An asynchronous operation cannot be started at this time' in synchronous stages, but it is called by `AsyncVoidMethodBuilder` (`async void`) and `RegisterAsyncTask`, never by a `Task`-returning async method, and blocking on a `Task` is never detected by the framework. The `HttpClient` option misattributes the cause: `HttpClient` is thread-safe and completes its task on whatever I/O thread it likes; that thread is free to run the continuation itself, but the awaiter routed the continuation to the request context, and that is the only reason it waits."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.sync-context.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "synchronization-context",
+            "aspnet-core",
+            "sync-over-async",
+            "thread-pool"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The same controller code (`LoadAsync().Result` with no `ConfigureAwait(false)` anywhere) is ported unchanged to an ASP.NET Core 10 MVC application on Kestrel. Why does the request return instead of hanging?",
+              "options": [
+                {
+                  "text": "ASP.NET Core's request `SynchronizationContext` is multi-threaded: another pool thread is allowed to enter the request and run the continuation while the original thread is blocked in `.Result`, so the two never wait on each other.",
+                  "correct": false
+                },
+                {
+                  "text": "ASP.NET Core installs no request `SynchronizationContext`: `SynchronizationContext.Current` is `null` on the request thread, so the awaiter captures nothing and the continuation runs on a free thread-pool thread while the request thread stays blocked.",
+                  "correct": true
+                },
+                {
+                  "text": "Since .NET Core 3.0 the compiler emits `ConfigureAwait(false)` for every `await` in projects that reference the `Microsoft.AspNetCore.App` shared framework, so no context is captured anywhere in the call chain.",
+                  "correct": false
+                },
+                {
+                  "text": "`HttpClient` on .NET Core completes its task on a dedicated I/O completion thread, and `TaskAwaiter` always runs the continuation inline on the completing thread regardless of any captured context, so the request thread is not needed.",
+                  "correct": false
+                }
+              ],
+              "explanation": "ASP.NET Core removed the request context in 1.0. With `SynchronizationContext.Current == null` and the default `TaskScheduler`, the awaiter registers a plain continuation that runs on the thread pool (usually inline on the I/O thread that completed the task), so the task completes on another thread and unblocks `.Result`. The cost is a parked pool thread for the duration of the call: sync-over-async. The old hill-climbing injection adds threads slowly; since .NET 6 the portable thread pool notices `Task.Wait`/`.Result` on a worker (`NotifyThreadBlocked`) and injects compensating threads faster, but that is bounded by the max-thread count, each parked thread costs roughly 1 MB of stack, and throughput still degrades, so the correct fix remains async end to end. The 'multi-threaded context' option is a widespread misconception: there is no context at all, multi-threaded or otherwise. The 'compiler emits ConfigureAwait' option is wrong because `ConfigureAwait` is an ordinary method call the developer writes; neither Roslyn nor the SDK injects it (and in ASP.NET Core application code it would be a no-op anyway). The `HttpClient` option gets the mechanism backwards: the continuation runs inline on the completing thread *only because nothing was captured*; had a context been captured, `TaskAwaiter` would `Post` to it regardless of which thread completed the task, which is exactly what deadlocks classic ASP.NET."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.sync-context.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "synchronization-context",
+            "wpf",
+            "configureawait",
+            "deadlock"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A WPF button handler calls `LoadAsync().Result` on the UI thread. The developer added `ConfigureAwait(false)` in the inner method, as shown. Does the click still hang, and why?\n\n```csharp\nprivate void OnClick(object sender, RoutedEventArgs e)\n{\n    Status.Text = LoadAsync().Result;\n}\n\nprivate async Task<string> LoadAsync()\n{\n    string json = await ReadJsonAsync();\n    return Parse(json);\n}\n\nprivate async Task<string> ReadJsonAsync()\n{\n    return await _http.GetStringAsync(_url).ConfigureAwait(false);\n}\n```",
+              "options": [
+                {
+                  "text": "No, it returns. `ConfigureAwait(false)` in `ReadJsonAsync` makes that method resume on a thread-pool thread, and `LoadAsync`'s continuation inherits the context of whichever thread completes `ReadJsonAsync`, which is the pool.",
+                  "correct": false
+                },
+                {
+                  "text": "No, it returns. `ConfigureAwait(false)` applies to the whole call chain below the outermost `await` that uses it, so the inner setting propagates upward and `LoadAsync` resumes on the pool as well.",
+                  "correct": false
+                },
+                {
+                  "text": "No, it returns. The WPF `Dispatcher` pumps queued continuations while a thread is blocked in `Task.Result`, so the posted continuation runs re-entrantly on the UI thread and the wait completes.",
+                  "correct": false
+                },
+                {
+                  "text": "Yes, it hangs. `LoadAsync` awaits `ReadJsonAsync()` without `ConfigureAwait(false)`, so that `await` captures the `DispatcherSynchronizationContext`; the inner task completes on a pool thread, but `LoadAsync` resumes via the blocked UI thread.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The context is captured per `await`, on the thread that performs the `await`, at the moment it sees an incomplete task. `LoadAsync` runs on the UI thread, reaches `await ReadJsonAsync()` while the task is incomplete, and captures the `DispatcherSynchronizationContext`. Later `ReadJsonAsync` finishes on a pool thread (thanks to its `ConfigureAwait(false)`), which completes the inner task and triggers `LoadAsync`'s continuation, but that continuation was registered with the Dispatcher context, so it is posted to the UI thread, which is blocked in `.Result`. The 'inherits the completing thread's context' option reverses the mechanism: the completing thread's context is irrelevant; what matters is what was captured when the `await` was executed. The 'propagates upward' option is the 'ConfigureAwait is transitive' misconception; it configures exactly one awaiter and nothing else. The 'Dispatcher pumps' option is wrong because `Task.Result` blocks on a wait handle and does not run a Dispatcher frame; nothing is pumped, which is precisely why UI-thread blocking hangs."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.sync-context.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "synchronization-context",
+            "blazor-server",
+            "aspnet-core",
+            "deadlock"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "On ASP.NET Core 10, in which of these hosting models does the framework still install a `SynchronizationContext` on the code path that runs your handler, so that a blocking `.Result` on an incomplete task inside that handler can hang exactly like classic ASP.NET did?",
+              "options": [
+                {
+                  "text": "An MVC controller action: ASP.NET Core wraps each request in an `AspNetCoreSynchronizationContext` that serialises access to `HttpContext`, which is why `HttpContext` is documented as unsafe to touch from outside it.",
+                  "correct": false
+                },
+                {
+                  "text": "A Minimal API endpoint delegate: because it runs as a lambda inside the routing middleware, the endpoint middleware installs a per-request context so that `HttpContext` and `IHttpContextAccessor` stay consistent across awaits.",
+                  "correct": false
+                },
+                {
+                  "text": "A Blazor Server (interactive server) component: each circuit runs on a `RendererSynchronizationContext` that enforces a single logical thread, so blocking inside `OnInitializedAsync` or an event handler deadlocks the circuit.",
+                  "correct": true
+                },
+                {
+                  "text": "A SignalR hub method: the hub dispatcher installs a per-connection `SynchronizationContext` so that invocations from one client are processed one at a time, in the order in which they were sent.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Blazor Server is the one place in ASP.NET Core that reintroduced a context: since ASP.NET Core 3.0 a circuit's rendering and event handling are serialised through a `RendererSynchronizationContext`, which is why the Blazor documentation forbids `.Result`, `.Wait()` and `GetAwaiter().GetResult()` in components. Blocking the logical thread while a captured continuation waits to be posted to it recreates the classic deadlock. The MVC and Minimal API options are wrong because controllers and endpoint delegates run with `SynchronizationContext.Current == null`; there is no `AspNetCoreSynchronizationContext` type, the middleware pipeline is a chain of plain async delegates on thread-pool threads, and `HttpContext` consistency across awaits comes from `AsyncLocal<T>`/`ExecutionContext`, not from a context (`HttpContext` is documented as not thread-safe precisely because nothing serialises access to it). The SignalR option is wrong because SignalR Core hubs do not install a context either; per-connection ordering comes from the connection's processing loop awaiting hub invocations sequentially (unless `MaximumParallelInvocationsPerClient` is raised), not from a `SynchronizationContext`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.sync-context.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "synchronization-context",
+            "deadlock",
+            "aspnet-core",
+            "async-await"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A teammate is migrating an ASP.NET MVC 5 application that has several `.Result` and `.Wait()` calls to ASP.NET Core 10. They say: 'Those calls deadlocked on .NET Framework even after we sprinkled `ConfigureAwait(false)` in a few methods, but I tested on Core and they work, so we can leave them.' Explain, at the mechanism level, why the calls deadlocked in classic ASP.NET, why the partial `ConfigureAwait(false)` did not fix it there, why they no longer deadlock in ASP.NET Core, and what you would tell the teammate about leaving them in place. Mention any modern .NET hosting model where the original deadlock can still occur.",
+              "rubric": [
+                "Explains the classic deadlock as a cycle: the request thread blocks in `.Result`/`.Wait()` while holding the exclusive `AspNetSynchronizationContext`, and the `await` continuation is posted to that same context, so neither side can proceed.",
+                "States that the context is captured at each `await` on the awaiting thread when the task is incomplete, and that `ConfigureAwait(false)` prevents the capture only for the specific `await` it is applied to, so one undecorated `await` in the chain is enough to keep the deadlock.",
+                "States that ASP.NET Core (since 1.0) installs no request `SynchronizationContext` (`SynchronizationContext.Current` is `null`), so continuations run on thread-pool threads and the blocked thread is eventually released.",
+                "Argues against leaving the calls: sync-over-async parks a thread-pool thread per call, degrades throughput and can starve the pool under load (compensating injection since .NET 6 is bounded), and the correct fix is to make the call chain `async` end to end, not `Task.Run(...).Result`.",
+                "Names at least one modern context where the deadlock still happens: Blazor Server's `RendererSynchronizationContext`, or a UI framework such as WPF/WinForms/MAUI with a single UI thread."
+              ],
+              "explanation": "Model answer: in classic ASP.NET every request runs inside an exclusive `AspNetSynchronizationContext` (one thread at a time per request). An `await` on an incomplete task captures that context on the awaiting thread; `.Result` then blocks the request thread without releasing the context; when the I/O completes, the continuation is `Post`ed to the context and waits for the blocked thread, so both sides wait until `executionTimeout` aborts the thread. `ConfigureAwait(false)` avoids the capture only for the single `await` it decorates, so one undecorated `await` anywhere in the blocked chain reintroduces the hang; that is why sprinkling it in a few methods changed nothing. ASP.NET Core removed the request context in 1.0: `SynchronizationContext.Current` is `null`, continuations run on any free thread-pool thread (usually inline on the completing I/O thread), and the blocked thread is released. The calls should still be removed: each one parks a pool thread for the duration of the I/O (sync-over-async); the old hill-climbing injection is slow, and although the .NET 6+ thread pool compensates for `Task.Wait`-style blocking faster, that compensation is bounded, every parked thread costs roughly 1 MB of stack, and throughput drops under load. `Task.Run(...).Result` avoids the deadlock but still parks the request thread for the whole call and adds a pool hop. The deadlock is still reproducible today on any single-threaded context: WPF/WinForms/MAUI UI threads and Blazor Server circuits (`RendererSynchronizationContext`)."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "task-vs-thread",
+      "title": "Task vs Thread and the Thread Pool",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Task vs Thread and the Thread Pool",
+          "note": "## What it is\n\nA `Thread` is an OS-level execution unit: a kernel object with its own stack (about 1 MB reserved by default; .NET uses 1.5 MB on Linux), scheduled pre-emptively by the operating system. A `Task` is not a thread. It is a promise: a handle to work that may complete in the future, carrying its result, exception and completion callbacks. Some tasks are backed by a thread pool thread executing a delegate (`Task.Run`); many are not backed by any thread at all (a pending socket read, a `TaskCompletionSource`, a `Task.Delay` timer).\n\n## How the thread pool works underneath\n\nSince .NET 6 the worker pool is the *portable* (managed) thread pool in `System.Private.CoreLib`; .NET 7 moved Windows I/O completion handling into it as well, so from .NET 7 the implementation is the same on every OS. It has a global FIFO queue plus one local queue per worker thread. Work queued from a non-pool thread goes to the global queue; work queued *from a pool thread* (`Task.Run` inside a task, continuations, `Parallel` sub-ranges) lands in that worker's local queue. The owner pops its local queue LIFO (hot cache, likely-related work); idle workers *steal* from the opposite end (FIFO) of other workers' queues before falling back to the global queue. That is work stealing, and it is why fan-out from inside a task is cheap.\n\nThread count is governed by three mechanisms:\n\n- **Minimum threads** default to `Environment.ProcessorCount`. Up to that number, a new worker is created immediately when a work item arrives and no thread is idle.\n- **Starvation-driven injection**: above the minimum, if the queue is non-empty and no work item completed since the last check, the pool adds a thread, but only about one every 500 ms (roughly 1 to 2 threads per second). When some items still complete, starvation detection stays quiet and growth is left to hill climbing, which is equally slow (a few threads per second at best); either way a blocked pool recovers gradually rather than instantly.\n- **Hill climbing**: a feedback controller that periodically varies the thread count, measures throughput (completions per interval) and moves toward the count that maximises it. It also retires threads when fewer produce the same throughput.\n\n.NET 6 added *blocking-aware* injection: when a pool thread blocks on an incomplete `Task` (`.Wait()`, `.Result`, `GetAwaiter().GetResult()`) the pool notices and injects faster than the 500 ms cadence. Blocking on a `lock`, a synchronous socket or `Thread.Sleep` is invisible to it and still hits the slow path.\n\nI/O-bound `await` uses none of this capacity while waiting: the request is handed to the OS (I/O completion ports on Windows, `epoll`/`kqueue` on Linux/macOS), the thread returns to the pool, and the completion enqueues the continuation as ordinary work.\n\n## `Task.Run` in ASP.NET Core: why not\n\nEvery request already runs on a thread pool thread. `Task.Run(() => DoWork())` inside a request handler takes work off one pool thread and puts it on another: zero extra capacity, one extra queue hop and context switch, and `HttpContext` (not thread-safe, recycled at the end of the request) now touched from a thread that may outlive the response. Wrapping a *synchronous* call in `Task.Run` does not make it asynchronous; it just blocks a different pool thread. Only a truly asynchronous API awaited to completion frees a thread.\n\nLegitimate patterns instead:\n\n- I/O: `await` the async API (`ReadAsync`, `ToListAsync`, `SendAsync`).\n- CPU-heavy work that must not stall a UI thread: `Task.Run` is right in desktop and Blazor Hybrid apps, where the caller is a single dedicated thread.\n- Work that should outlive the request: a `Channel<T>` consumed by a `BackgroundService`, not a fire-and-forget `Task.Run` capturing scoped services.\n- A long-lived loop (message pump, queue consumer): `TaskCreationOptions.LongRunning` or `new Thread`, so the pool's hill-climbing does not count it as a busy worker.\n\n## What an interviewer probes\n\n- \"Does `await` create a thread?\" (No. It releases one for I/O and reuses one for the continuation.)\n- \"Why did p99 latency spike for 30 seconds after a burst of blocking calls?\" (Injection at ~2 threads/s above `ProcessorCount`.)\n- \"Why does `ThreadPool.SetMinThreads(500, 500)` mask the problem but not fix it?\" (It only raises the fast-creation ceiling; the blocking is still there.)\n\n## Common misconceptions\n\n- \"`Task.Run` starts a new thread.\" It queues to the pool; a thread is created only if the pool decides to grow.\n- \"More tasks means more parallelism.\" Parallelism is bounded by worker threads; more queued tasks only means a longer queue.\n- \"Wrapping a sync call in `Task.Run` makes an endpoint scalable.\" It moves the block; it does not remove it.\n\n```csharp\n// ReportDb, PdfRenderer, Job and PumpQueueForever are elided helpers.\n// Request handler on ASP.NET Core: all three run on pool threads.\napp.MapGet(\"/report/{id}\", async (int id, ReportDb db, CancellationToken ct) =>\n{\n    // BAD: a pool thread is still blocked for the whole query; Task.Run only added a hop.\n    // var rows = await Task.Run(() => db.LoadRowsSync(id));\n\n    // GOOD: the socket read is handed to the OS; no thread is held while waiting.\n    var rows = await db.LoadRowsAsync(id, ct);\n\n    // ACCEPTABLE only if genuinely CPU-heavy; it still competes with other requests.\n    var pdf = await Task.Run(() => PdfRenderer.Render(rows), ct);\n    return Results.File(pdf, \"application/pdf\");\n});\n\n// Long-lived consumer: not pool work, so give it its own thread.\nChannel<Job> channel = Channel.CreateBounded<Job>(1_000);\nTask consumer = Task.Factory.StartNew(\n    () => PumpQueueForever(channel.Reader),\n    CancellationToken.None,\n    TaskCreationOptions.LongRunning,\n    TaskScheduler.Default);\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.task-vs-thread.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "task",
+            "thread-pool",
+            "async-await"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `Task` and `Thread` in modern .NET (6 and later) is correct?",
+              "options": [
+                {
+                  "text": "A `Task` may complete on any thread, but the pool reserves one worker per pending task so the continuation always has somewhere to run.",
+                  "correct": false
+                },
+                {
+                  "text": "`Task.Run` usually creates a fresh OS thread; the pool mostly recycles stack memory and only reuses a thread when one happens to be idle.",
+                  "correct": false
+                },
+                {
+                  "text": "A `Task` is a promise of a future result; it may be backed by a pool thread or by no thread at all while it is pending.",
+                  "correct": true
+                },
+                {
+                  "text": "`await` on an incomplete task may yield to the caller, but it still parks the current thread at kernel level until the awaited work signals.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A `Task` is a handle to work that completes later; whether a thread is involved depends on what produced it. `Task.Run` queues a delegate to the pool, but an I/O task from `Stream.ReadAsync`, a timer task from `Task.Delay` or a `TaskCompletionSource` holds no thread while pending; the OS or a timer thread completes it and the continuation is queued as pool work. Option 1 is the classic conflation: nothing is reserved per pending task; awaiting 10,000 socket reads does not tie up 10,000 workers, and a continuation is queued only when the task actually completes. Option 2 is wrong because `Task.Run` enqueues a work item; the pool creates a thread only when it decides to grow (immediately below `ProcessorCount`, then slowly). Option 4 describes `.Wait()`/`.Result`, not `await`: `await` registers a continuation and returns control to the caller; the thread goes back to the pool and is not parked anywhere."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.task-vs-thread.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "task-run",
+            "thread-pool"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core endpoint calls a legacy SDK whose only API is synchronous and takes about 300 ms on a socket. A colleague changes the handler to `var r = await Task.Run(() => sdk.GetQuote(id));` and expects better throughput under load. What actually happens?",
+              "options": [
+                {
+                  "text": "Throughput improves because the blocking call now runs on a background thread while the request thread returns to the pool and serves other requests.",
+                  "correct": false
+                },
+                {
+                  "text": "Throughput improves because `Task.Run` uses the I/O completion thread pool, which is sized separately from the worker pool and grows faster under load.",
+                  "correct": false
+                },
+                {
+                  "text": "The call becomes non-blocking: `Task.Run` converts synchronous work into an awaitable I/O operation, so no thread is held during the socket wait.",
+                  "correct": false
+                },
+                {
+                  "text": "Throughput does not improve: the handler was already on a pool thread, so `Task.Run` blocks a different worker from the same pool for 300 ms and adds a hop.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Kestrel already dispatches each request onto a thread pool worker. `Task.Run` moves the synchronous call to another worker from the same pool, so the number of blocked pool threads under load is identical, plus an extra enqueue and context switch, and `HttpContext` is now reachable from a thread that may outlive the response. Option 1 is true only when the caller is a dedicated thread (a WPF/WinForms UI thread, a Blazor Hybrid render thread); on a server the 'request thread' returning to the pool gains nothing because the offloaded thread came from the same pool. Option 2 is wrong: `Task.Run` uses the worker threads; the I/O completion threads serve the OS completion path, and `Task.Run` never targets them. Option 3 is the core misconception: only a genuinely asynchronous API (one that hands the wait to the OS and completes via callback) frees a thread. Wrapping sync code in a task changes nothing about where the wait happens."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.task-vs-thread.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "thread-pool",
+            "hill-climbing",
+            "thread-injection",
+            "starvation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A .NET 8 API runs on an 8-core container. A burst of 2,000 concurrent requests arrives; each one calls a legacy SDK that performs a synchronous socket call taking about 500 ms (no shared lock, the calls are independent). The default `ThreadPool.MinThreads` is unchanged. What does the thread pool do during the burst?",
+              "options": [
+                {
+                  "text": "It creates 8 workers immediately and then stops growing: the pool never exceeds `ProcessorCount` unless `ThreadPool.SetMinThreads` is called, so the remaining requests wait for a free worker.",
+                  "correct": false
+                },
+                {
+                  "text": "It creates workers up to `ProcessorCount` at once, then injects about one thread per 500 ms while the queue stays non-empty and throughput does not improve; p99 latency spikes for tens of seconds.",
+                  "correct": true
+                },
+                {
+                  "text": "It creates one thread per queued request up to the default maximum (32,767) within a few milliseconds, because the maximum is the target the pool grows toward, so latency is only briefly affected while the threads start.",
+                  "correct": false
+                },
+                {
+                  "text": "Hill climbing detects the drop in throughput and immediately doubles the worker count; the .NET 6+ blocking-aware injection then sees the blocked socket calls and covers the rest of the burst almost instantly.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Below `ProcessorCount` (8 here) the pool creates a worker as soon as work arrives and nobody is idle. Above that, growth is slow: the starvation heuristic adds a thread at most about once per 500 ms, and when items are still trickling through, hill climbing takes over and is no faster. With 8 threads the pool drains about 16 requests per second, and each injected thread adds only two more per second, so a queue of 2,000 blocking calls takes tens of seconds to clear and p99 latency balloons; this is the textbook thread pool starvation signature in `dotnet-counters` (`threadpool-queue-length` climbing, `threadpool-thread-count` creeping up). Option 1 confuses the minimum with a maximum: `MinThreads` is the count the pool creates without hesitation, not a cap; growth continues slowly beyond it. Option 3 describes a hypothetical unbounded pool; the maximum is a ceiling, not a growth rate, and the pool never bursts thousands of threads in milliseconds. Option 4 is wrong on both counts: hill climbing is a slow feedback loop that moves the count by small steps based on measured throughput, and the .NET 6+ blocking-aware adjustment only triggers when a pool thread blocks on an incomplete `Task` (`.Wait()`, `.Result`, `GetAwaiter().GetResult()`); a `lock`, `Thread.Sleep` or a synchronous socket call is invisible to it, so the slow path applies."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.task-vs-thread.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "thread-pool",
+            "work-stealing",
+            "task-scheduler"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Consider this code running in a console app. Where do the inner tasks go, and how are they picked up?\n\n```csharp\nawait Task.Run(async () =>\n{\n    var children = new List<Task>();\n    for (int i = 0; i < 4; i++)\n    {\n        var n = i;\n        children.Add(Task.Run(() => Crunch(n)));\n    }\n    await Task.WhenAll(children);\n});\n```",
+              "options": [
+                {
+                  "text": "Each inner `Task.Run` goes to the *local* queue of the pool thread running the outer delegate; that thread and any idle worker that steals from it share the work.",
+                  "correct": true
+                },
+                {
+                  "text": "All four inner tasks go to the single global FIFO queue, exactly as if queued from the main thread, because `TaskScheduler.Default` applies `PreferFairness` to nested tasks.",
+                  "correct": false
+                },
+                {
+                  "text": "The inner tasks are executed inline on the current thread because they were created from within a running task, so `Crunch(0..3)` run sequentially on that one worker.",
+                  "correct": false
+                },
+                {
+                  "text": "Each inner task gets its own dedicated OS thread because a `Task.Run` issued from inside another task is treated as `TaskCreationOptions.LongRunning`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Task.Run` uses `TaskScheduler.Default`, which queues to the thread pool with `preferLocal` semantics: when the caller is a pool thread the item goes to that thread's local work-stealing queue. The owner pops its local queue LIFO (most recent item first, for cache locality), while idle workers steal from the opposite end (FIFO), so with several free cores the four `Crunch` calls typically run in parallel, some on the originating thread and some on stealers. (The `var n = i;` copy matters: a `for` variable is shared across iterations, so capturing `i` directly would make every call `Crunch(4)`.) Option 2 is what happens for the *outer* `Task.Run`, queued from the main (non-pool) thread; `PreferFairness` does route to the global queue, but it is an explicit `Task.Factory.StartNew` option that `Task.Run` never sets. Option 3 confuses this with task inlining, which the scheduler does only when a thread *blocks waiting* on a not-yet-started task (`Task.Wait`), never at creation time. Option 4 is wrong: `LongRunning` must be requested explicitly through `Task.Factory.StartNew`, and it bypasses the pool entirely by creating a dedicated thread; `Task.Run` has no such overload and nesting changes nothing."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.task-vs-thread.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "task-run",
+            "thread-pool",
+            "background-work"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A teammate opens a pull request that wraps every EF Core query in an ASP.NET Core API in `Task.Run(...)`, with the description 'makes the endpoints more parallel and frees the request thread'. Explain to them what actually happens on the thread pool, what the correct approach is, and in which situations `Task.Run` (or a dedicated thread) *is* the right tool.",
+              "explanation": "A strong answer explains that a request handler already executes on a thread pool worker, so `Task.Run` merely relocates the work to another worker from the same pool: no extra capacity, one extra queue hop and context switch, and new hazards because `DbContext` and `HttpContext` are not thread-safe and are scoped to the request. Only a genuinely asynchronous API (`ToListAsync`, `SaveChangesAsync`) frees the thread, because the wait is handed to the OS and the continuation is queued when the I/O completes. The answer should place `Task.Run` where a dedicated caller thread must stay responsive (desktop UI, Blazor Hybrid) or for bounded CPU-heavy work whose competition with other requests is accepted, and route work that should outlive the request through a `Channel<T>` plus `BackgroundService`, or a long-lived loop through `TaskCreationOptions.LongRunning`/`new Thread`.",
+              "rubric": [
+                "States that ASP.NET Core request handlers already run on thread pool threads, so `Task.Run` only moves the work to another worker of the same pool and adds no capacity (extra queue hop/context switch).",
+                "Explains that only a truly asynchronous API (`await db.Users.ToListAsync(ct)` etc.) releases the thread during I/O, because the wait is handled by the OS and the continuation is queued on completion.",
+                "Identifies the thread-safety hazard: `DbContext` and `HttpContext` are request-scoped and not thread-safe, so touching them from a `Task.Run` thread (especially one that outlives the response) is a bug.",
+                "Names legitimate uses of `Task.Run`: keeping a dedicated UI/render thread responsive (WPF, MAUI, Blazor Hybrid), or bounded CPU-heavy work where competing with other requests is accepted.",
+                "Proposes the right tool for work that must outlive the request or run continuously: `Channel<T>` + `BackgroundService`, or `TaskCreationOptions.LongRunning`/`new Thread` for a long-lived loop, rather than fire-and-forget `Task.Run`."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "cancellation",
+      "title": "Cancellation: tokens, linking, timeouts",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Cancellation: tokens, linking, timeouts",
+          "note": "# Cancellation\n\n**What it is.** .NET has no way to stop running code from the outside: cancellation is *cooperative*. A `CancellationTokenSource` (CTS) is the producer, its `Token` is a readonly struct that consumers poll or register callbacks on, and `Cancel()` merely flips a flag and runs the callbacks. Nothing stops unless the callee looks at the token and decides to stop. `default(CancellationToken)` equals `CancellationToken.None`: `CanBeCanceled` is `false`, so it never signals.\n\n## How it works underneath\n\n- **Observing.** `ct.IsCancellationRequested` is a cheap volatile read; `ct.ThrowIfCancellationRequested()` throws `OperationCanceledException` (OCE) with `CancellationToken` set to that token. The token is how a catcher tells *whose* cancellation fired, so always throw `new OperationCanceledException(ct)` rather than the parameterless constructor.\n- **Registering.** `ct.Register(cb, state)` appends to the source's callback list and returns a `CancellationTokenRegistration`. By default `Cancel()` runs all callbacks **synchronously on the calling thread**, most-recent first (a registration made with `useSynchronizationContext: true` is marshalled through the captured context instead); a throwing callback does not stop the others, and after the loop `Cancel()` throws `AggregateException` (default `throwOnFirstException: false`). Since .NET 8 `CancelAsync()` returns a `Task` that completes when the callbacks have run, so a hot path is not blocked by slow callbacks. `Register` on an already-cancelled token runs the callback inline before returning. `UnsafeRegister` skips `ExecutionContext` capture and is the cheaper choice in library code.\n- **Timeouts.** `new CancellationTokenSource(TimeSpan)` and `CancelAfter(TimeSpan)` arm a timer (an `ITimer` obtained from the `TimeProvider`, the internal `TimerQueueTimer` by default); calling `CancelAfter` again *reschedules* the same timer, and it is a no-op once cancelled. .NET 8 added a `TimeProvider` overload so timeouts are testable with `FakeTimeProvider`. `Dispose()` disposes the timer, which is why a CTS created with a timeout must be disposed.\n- **Linking.** `CreateLinkedTokenSource(a, b)` returns a *new* CTS that cancels when any input cancels, implemented as registrations on the input sources. Those registrations live until the linked CTS is **disposed**. A per-request linked source hanging off a process-lifetime token (`IHostApplicationLifetime.ApplicationStopping`) that is never disposed is a leak: the long-lived source roots every linked CTS through its callback list. `using var linked = ...` is not optional. A single-token overload exists since .NET 7 and a `ReadOnlySpan<CancellationToken>` params overload since .NET 9.\n- **Task status.** A `Task` ends up `Canceled` (not `Faulted`) when an `async` method throws *any* OCE: `AsyncTaskMethodBuilder.SetException` turns OCE into `TrySetCanceled`. For a synchronous delegate given to `Task.Run(Action)` / `Task.Run(Func<TResult>)` / `StartNew`, the task is `Canceled` only if the OCE's token equals the token passed to `Task.Run` *and* that token is cancelled; otherwise it is `Faulted`. The `Task.Run(Func<Task>)` overloads are different again: their unwrap promise treats a synchronously thrown OCE as cancellation, so `Task.Run(() => { throw new OperationCanceledException(); })`, which binds to `Func<Task>`, ends `Canceled`. `await` throws the OCE in every case, so the difference surfaces only in `Status`, `ContinueWith` and `Task.WhenAll` (a faulted sibling wins over a cancelled one). Passing a token to `Task.Run(work, ct)` prevents the delegate from *starting* after cancellation; it does nothing to a delegate already running.\n- **Waiting.** `task.WaitAsync(ct)` and `WaitAsync(TimeSpan)` (.NET 6) make the *wait* cancellable; the underlying operation keeps running, and the timeout overload throws `TimeoutException` rather than OCE. `Task.Delay(Timeout.Infinite, ct)` is the idiom for \"sleep until cancelled\".\n\n## What an interviewer probes\n\nPropagation discipline: accept `CancellationToken` as the last parameter, pass it to every awaited call, never plug the hole with `default`. In ASP.NET Core the token bound to a handler parameter is `HttpContext.RequestAborted`, cancelled when the client disconnects; in a `BackgroundService` it is `stoppingToken`, and the host treats an OCE thrown after `StopAsync` as a clean exit rather than a fault. Then the boundary question: distinguish *caller cancelled* (rethrow, let the task be `Canceled`) from *timed out* (a failure: wrap in `TimeoutException`), and identify the point of no return, such as after a payment call or a transaction commit, where you switch to `CancellationToken.None` and finish.\n\n## Common misconceptions\n\n- \"Cancelling the source stops the task.\" It requests; the code must respond.\n- \"Catch `TaskCanceledException`.\" Catch the base `OperationCanceledException`; `Task.Delay` and `HttpClient` throw the derived type, `ThrowIfCancellationRequested` throws the base.\n- \"`ex.CancellationToken == timeoutCts.Token` tells me it was the timeout.\" The callee received the *linked* token, so the OCE carries that one; check `callerToken.IsCancellationRequested` instead.\n- \"`HttpClient` timeout is an OCE, so it is a cancellation.\" Since .NET 5 it is a `TaskCanceledException` whose `InnerException` is `TimeoutException`; treat it as a failure.\n\n```csharp\npublic sealed class ReportService(IReportGateway gateway, IHostApplicationLifetime lifetime)\n{\n    public async Task<Report> BuildAsync(int id, CancellationToken requestAborted)\n    {\n        // Caller + host shutdown + per-call budget, one token for everything below. Always dispose.\n        using var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted, lifetime.ApplicationStopping);\n        cts.CancelAfter(TimeSpan.FromSeconds(10));\n        var ct = cts.Token;\n\n        try\n        {\n            var rows = await gateway.FetchRowsAsync(id, ct);\n            var report = new Report();\n            foreach (var row in rows)\n            {\n                ct.ThrowIfCancellationRequested();   // cooperative checkpoint in CPU-bound loop\n                report.Add(row);\n            }\n\n            // Point of no return: the archive write must complete once started.\n            await gateway.ArchiveAsync(report, CancellationToken.None);\n            return report;\n        }\n        catch (OperationCanceledException) when (requestAborted.IsCancellationRequested)\n        {\n            throw;                                    // client left: not an error, task ends Canceled\n        }\n        catch (OperationCanceledException oce) when (cts.IsCancellationRequested)\n        {\n            throw new TimeoutException(\"Report build exceeded 10 s.\", oce); // or host stopping: a failure\n        }\n    }\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.cancellation.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async",
+            "cancellation",
+            "task-status",
+            "operation-canceled-exception"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Both methods throw an `OperationCanceledException` that is not tied to any cancelled token. After both tasks have completed, what does the program print?\n\n```csharp\nstatic void Work()            { Thread.Sleep(10); throw new OperationCanceledException(); }\nstatic async Task WorkAsync() { await Task.Delay(10); throw new OperationCanceledException(); }\n\nTask a = Task.Run(Work);\nTask b = WorkAsync();\nawait Task.WhenAll(a, b).ContinueWith(_ => { });\nConsole.WriteLine($\"{a.Status} {b.Status}\");\n```",
+              "options": [
+                {
+                  "text": "`Faulted Canceled`: only the async state machine turns an `OperationCanceledException` into a cancelled task; `Task.Run` does so only when the exception's token equals the token passed to `Task.Run` and that token is cancelled.",
+                  "correct": true
+                },
+                {
+                  "text": "`Canceled Canceled`: throwing `OperationCanceledException` always transitions the task to `Canceled`; that is what the exception type is for.",
+                  "correct": false
+                },
+                {
+                  "text": "`Faulted Faulted`: neither exception carries a cancelled token, so the runtime has no evidence of a real cancellation and both tasks fault.",
+                  "correct": false
+                },
+                {
+                  "text": "`Canceled Faulted`: `Task.Run` recognises `OperationCanceledException`, but an `async` method needs `Task.FromCanceled` to end up cancelled; a thrown exception always faults it.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`AsyncTaskMethodBuilder.SetException` special-cases *any* `OperationCanceledException` and completes the async method's task with `TrySetCanceled(oce.CancellationToken, oce)`, so `b` is `Canceled` even though its token is `CancellationToken.None`. A plain `Action` delegate run by `Task.Run`/`Task.Factory.StartNew` goes through `Task.HandleException`, which marks the task cancelled only when the exception's `CancellationToken` equals the token that was passed to `Task.Run` *and* that token has cancellation requested; here no token was passed, so `a` is `Faulted`. Option 2 is the async-only rule generalised to all tasks. Option 3 is the delegate-only rule generalised to async methods. Option 4 has both halves backwards; `Task.FromCanceled` is for hand-built tasks, not needed inside an `async` method. Note that `await a` and `await b` both throw `OperationCanceledException`, so the difference is visible only through `Status`, `ContinueWith` options and `Task.WhenAll`, where a faulted sibling takes precedence over a cancelled one. Be aware that `Task.Run(() => { throw ...; })` with a block lambda that never reaches its end binds to the `Func<Task>` overload, whose unwrap promise treats a synchronous OCE as cancellation, so it behaves like the async case; that is why the sample uses method groups."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.cancellation.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async",
+            "cancellation",
+            "linked-tokens",
+            "timeouts"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service links the caller's token with a per-call timeout and wants to report timeouts as failures while letting real cancellations propagate. Which exception filter correctly identifies \"only the timeout fired\"?\n\n```csharp\nusing var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));\nusing var linked = CancellationTokenSource.CreateLinkedTokenSource(callerToken, timeoutCts.Token);\ntry\n{\n    return await client.GetDataAsync(id, linked.Token);\n}\ncatch (OperationCanceledException ex) when ( /* ??? */ )\n{\n    throw new TimeoutException(\"GetData exceeded 5 s\", ex);\n}\n```",
+              "options": [
+                {
+                  "text": "`when (ex.CancellationToken == timeoutCts.Token)`: the exception carries the token that caused it, and only the timeout source owns that token.",
+                  "correct": false
+                },
+                {
+                  "text": "`when (!callerToken.IsCancellationRequested)`: if the caller did not ask to stop, the only remaining reason for a cancellation coming out of this block is the timeout.",
+                  "correct": true
+                },
+                {
+                  "text": "`when (ex is TaskCanceledException)`: timeouts inside `HttpClient` and `Task.Delay` surface as `TaskCanceledException`, while explicit cancellation throws the base `OperationCanceledException`.",
+                  "correct": false
+                },
+                {
+                  "text": "`when (ex.CancellationToken == linked.Token)`: the callee received `linked.Token`, so an exception carrying it proves the linked source fired rather than the caller's.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The callee only ever sees `linked.Token`, so the `OperationCanceledException` it throws carries the *linked* token (or, for some libraries, a token of their own). Which upstream source fired is not recorded in the exception; you have to ask the sources. Option 2 asks the right one: if `callerToken` is cancelled, this is a genuine cancellation and must propagate as `Canceled`; if it is not, the cancellation could only have come from the timer. (Checking `timeoutCts.IsCancellationRequested` as well guards against an OCE that arrived for an unrelated token.) Option 1 never matches, because nobody throws with `timeoutCts.Token`; it is the linked token that is handed down. Option 4 is true whichever source fired, since the linked source cancels for both, so it turns every caller cancellation into a `TimeoutException`. Option 3 confuses exception *type* with *reason*: `Task.Delay`, `HttpClient` and `WaitAsync` throw `TaskCanceledException` for ordinary cancellation too, and since .NET 5 an `HttpClient` timeout is a `TaskCanceledException` with a `TimeoutException` inner exception, so the derived type is not a timeout marker."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.cancellation.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async",
+            "cancellation",
+            "cancellation-token-source",
+            "callbacks"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `CancellationTokenSource.Cancel()` and registered callbacks is true?",
+              "options": [
+                {
+                  "text": "By default `Cancel()` runs the registered callbacks synchronously on the calling thread; a callback that throws does not stop the others, and after the loop `Cancel()` throws an `AggregateException`.",
+                  "correct": true
+                },
+                {
+                  "text": "Since .NET 8 `Cancel()` queues the callbacks to the thread pool and returns immediately; a callback that throws is reported through `TaskScheduler.UnobservedTaskException`, never to the code that called `Cancel()`.",
+                  "correct": false
+                },
+                {
+                  "text": "`Cancel()` runs the callbacks synchronously but stops at the first one that throws and rethrows that exception unchanged, because `throwOnFirstException` defaults to `true`.",
+                  "correct": false
+                },
+                {
+                  "text": "A callback registered after the token was cancelled is stored and invoked on the next `Cancel()`; since .NET 6 `TryReset()` lets an already-cancelled source be rearmed and cancelled again.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Cancel()` (which is `Cancel(throwOnFirstException: false)`) flips the state, then invokes the registrations inline on the thread that called it, most recently registered first; the only exception is a registration made with `Register(..., useSynchronizationContext: true)`, which is marshalled through the captured `SynchronizationContext`. Exceptions thrown by callbacks are collected and thrown together as an `AggregateException` after the loop. Because heavy or blocking callbacks therefore make `Cancel()` slow for the caller, .NET 8 added `CancelAsync()`, which returns a task that completes once the callbacks have run. Option 2 describes a design .NET does not use in any version: callbacks are not queued to the pool, and exceptions reach the caller of `Cancel()`, not `UnobservedTaskException`. Option 3 has the default backwards: `throwOnFirstException` defaults to `false`; passing `true` gives the stop-at-first behaviour. Option 4 is wrong twice: registering on an already-cancelled token runs the callback immediately and synchronously inside `Register`, and cancellation is one-way. `TryReset()` (.NET 6) can rearm a source only if it has *not* been cancelled yet, returning `false` otherwise, which is what makes pooling sources possible."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.cancellation.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "async",
+            "cancellation",
+            "cooperative-cancellation",
+            "task-run"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A developer expects the following CPU-bound work to stop when the caller cancels, but it runs to completion every time. Which change makes it stop promptly?\n\n```csharp\npublic Task<long> ChecksumAsync(byte[] data, CancellationToken ct) =>\n    Task.Run(() => Checksum(data), ct);\n\nprivate static long Checksum(byte[] data)\n{\n    long sum = 0;\n    for (int i = 0; i < data.Length; i++) sum += Mix(data[i], i);\n    return sum;\n}\n```",
+              "options": [
+                {
+                  "text": "Replace the return with `Task.Run(() => Checksum(data), ct).WaitAsync(ct)` so the awaiting caller is released as soon as the token fires.",
+                  "correct": false
+                },
+                {
+                  "text": "Pass `ct` into `Checksum` and call `ct.ThrowIfCancellationRequested()` inside the loop (every N iterations if `Mix` is very cheap); a running delegate is stopped only by code that observes the token.",
+                  "correct": true
+                },
+                {
+                  "text": "Call `cts.Cancel(true)` instead of `cts.Cancel()`; the `true` argument tells the runtime to interrupt the thread that is running the delegate.",
+                  "correct": false
+                },
+                {
+                  "text": "Use `Task.Factory.StartNew(() => Checksum(data), ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)` so the work gets a dedicated thread that the token can abort.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The token passed to `Task.Run` is consulted once, before the delegate starts: if cancellation is already requested the task completes as `Canceled` without running. Once the loop is executing, nothing outside it can stop it, so the loop itself must poll the token; `ThrowIfCancellationRequested` throws an `OperationCanceledException` carrying `ct`, which matches the token given to `Task.Run`, so the task ends `Canceled` rather than `Faulted`. Option 1 only cancels the *wait*: the caller gets an `OperationCanceledException` while the loop keeps burning a thread-pool thread to the end, which is the sync-over-async cousin of leaking work. Option 3 misreads the parameter: it is `throwOnFirstException`, controlling how callback exceptions are reported, and there is no thread interruption in cancellation at all. Option 4 changes only where the delegate runs; `Thread.Abort` is unsupported on .NET Core and later (it throws `PlatformNotSupportedException`), and a `LongRunning` thread is no more abortable than a pool thread."
+            }
+          }
+        },
+        {
+          "id": "dotnet.async.cancellation.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "async",
+            "cancellation",
+            "aspnet-core",
+            "linked-tokens"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core endpoint calls a downstream HTTP API, then writes the result to the database inside a transaction, then publishes an event. Design the cancellation story end to end: which tokens exist, how they are combined, what each layer does with `OperationCanceledException`, and where cancellation must stop being honoured. Name the .NET APIs you would use.",
+              "rubric": [
+                "Identifies the sources: `HttpContext.RequestAborted` (bound to the handler's `CancellationToken` parameter, fires on client disconnect), a per-call timeout (`CancellationTokenSource(TimeSpan)` / `CancelAfter`), and host shutdown (`IHostApplicationLifetime.ApplicationStopping`), combined with `CancellationTokenSource.CreateLinkedTokenSource` that is disposed (`using`) so registrations on long-lived tokens do not leak.",
+                "Propagates the token through every async call (HttpClient, EF Core/ADO.NET, message publisher) rather than passing `default`/`CancellationToken.None`, and treats CPU-bound loops as needing explicit `ThrowIfCancellationRequested()` checkpoints because cancellation is cooperative.",
+                "Distinguishes caller cancellation from timeout at the boundary: an OCE when `RequestAborted` is cancelled is not an error (let it propagate / map to a 499-style response, log at low level), while a timeout is a failure surfaced as `TimeoutException` or a 504, using `catch (OperationCanceledException) when (...)` filters on the source tokens (`RequestAborted.IsCancellationRequested`, the timeout source's `IsCancellationRequested`) rather than on the exception's type.",
+                "Defines a point of no return: once the transaction is committed (or the external side effect such as a payment is made) the remaining steps run with `CancellationToken.None` or a separate shutdown-only token so the system is not left half-done; optionally mentions outbox/idempotency for the event publish.",
+                "Explains how status flows: an `async` method that throws OCE yields a `Canceled` task, catching `OperationCanceledException` (the base type) rather than only `TaskCanceledException`, and throwing `new OperationCanceledException(ct)` so the token identifies the origin."
+              ],
+              "explanation": "Model answer outline: the handler receives `RequestAborted` as its `CancellationToken` parameter; the service creates `using var timeoutCts = new CancellationTokenSource(budget)` and `using var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted, timeoutCts.Token, lifetime.ApplicationStopping)`, passing `cts.Token` to `HttpClient`, EF Core (`BeginTransactionAsync(ct)`, `SaveChangesAsync(ct)`) and the publisher. At the boundary it uses `catch (OperationCanceledException) when (requestAborted.IsCancellationRequested)` to let client disconnects propagate as a cancelled task (typically logged at debug and mapped to a 499-style response by middleware), `catch (OperationCanceledException oce) when (timeoutCts.IsCancellationRequested)` to convert timeouts into `TimeoutException`/504, and treats the remaining case, host shutdown via `ApplicationStopping`, as a failure too (503 or a rethrow that the host handles), never as a timeout. After the transaction commits, publishing the event uses `CancellationToken.None` (or an outbox row written inside the same transaction) so a disconnect cannot leave a committed write without its event. Throughout, OCE is thrown with the token that fired and the base `OperationCanceledException` type is caught, never only `TaskCanceledException`."
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "dotnet.async.cancellation.kata.1",
+          "title": "Timeout and cancellation helpers",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 45,
+          "translations": {
+            "en": {
+              "task": "Implement a static class `Coop` with two operations and one diagnostic counter:\n\n```csharp\npublic static Task<T> WithTimeoutAsync<T>(Func<CancellationToken, Task<T>> operation, TimeSpan timeout, CancellationToken cancellationToken = default);\npublic static Task<T> WithCancellationAsync<T>(this Task<T> task, CancellationToken cancellationToken);\npublic static int LiveRegistrations { get; }   // registrations Coop currently holds on caller-supplied tokens\n```\n\n**`WithTimeoutAsync`** runs `operation` with a token that is cancelled when `cancellationToken` is cancelled **or** `timeout` elapses, whichever comes first, and maps the outcome:\n- `operation` completes -> its result is returned; any non-cancellation exception propagates unchanged.\n- `cancellationToken` was cancelled (whether or not the timer also fired) -> the returned task is **`Canceled`** and awaiting it throws an `OperationCanceledException` whose `CancellationToken == cancellationToken` (the caller's token, not the linked one).\n- Only the timer fired -> the returned task is **`Faulted`** with a `TimeoutException` whose `InnerException` is the original `OperationCanceledException`.\n- `timeout == Timeout.InfiniteTimeSpan` -> no timer and no linked source are created; `operation` receives `cancellationToken` itself. Any other negative `timeout` -> `ArgumentOutOfRangeException`.\n- The operation is **never abandoned**: do not race it against a delay and return while it is still running. Cancellation reaches it only through the token.\n- No resource leak: the linked source (and its timer and its registration on `cancellationToken`) is disposed on every path.\n\n**`WithCancellationAsync`** makes *waiting* on an existing task cancellable; the task itself is not affected and keeps running.\n- `task` already completed, or `cancellationToken.CanBeCanceled == false` -> return `task` itself.\n- `cancellationToken` already cancelled -> return a task that is `Canceled` for that token without touching `task`.\n- Otherwise: if `task` finishes first, propagate its result/fault/cancellation; if the token fires first, the returned task is `Canceled` with `OperationCanceledException.CancellationToken == cancellationToken`.\n- The registration on `cancellationToken` must be removed once `task` wins: after 10,000 calls against a long-lived token that never fires, `Coop.LiveRegistrations` must be `0` and `Cancel()` on that token must run no leftover `Coop` callbacks.\n- If the abandoned `task` later faults, its exception must be observed so `TaskScheduler.UnobservedTaskException` is not raised.\n\n**`LiveRegistrations`** is incremented when either operation registers on a caller-supplied token (directly or through a linked source) and decremented when that registration is disposed; it must be `0` whenever no returned task is pending. It exists so the leak requirement is observable from `Main`.\n\n**Constraints:** .NET 8 or later, no third-party packages, no `Thread.Abort`, no `Task.Wait()`/`.Result` anywhere (including `Main`). Do not use `Task.WaitAsync` inside `WithCancellationAsync` (you are implementing that idea). Write a `Main` that exercises every bullet above and prints `PASS`/`FAIL` per case.\n\n**Examples**\n- `await Coop.WithTimeoutAsync(ct => Task.FromResult(1), TimeSpan.FromSeconds(1))` -> `1`\n- `Coop.WithTimeoutAsync(async ct => { await Task.Delay(-1, ct); return 0; }, TimeSpan.FromMilliseconds(50))` -> task `Faulted`, exception `TimeoutException { InnerException: OperationCanceledException }`\n- With a caller `CancellationTokenSource` cancelled after 50 ms and a 5 s timeout -> task `Canceled`, `oce.CancellationToken == caller.Token`\n- `new TaskCompletionSource<int>().Task.WithCancellationAsync(new CancellationTokenSource(50).Token)` -> task `Canceled` after ~50 ms\n- After the 10,000-race loop: `Coop.LiveRegistrations == 0`",
+              "rubric": [
+                "`WithTimeoutAsync` creates a linked source only for a finite timeout, uses `CancelAfter` (or the `TimeSpan` constructor), and disposes it on every path (`using`), so no registration accumulates on the caller's token.",
+                "Outcome mapping is correct: caller cancellation is rethrown as an `OperationCanceledException` carrying the caller's token (task `Canceled`, checked via `callerToken.IsCancellationRequested` in an exception filter), timeout becomes a `Faulted` task with `TimeoutException` wrapping the OCE, other exceptions propagate unchanged, and the operation is awaited to completion rather than raced against `Task.Delay`.",
+                "`WithCancellationAsync` handles the fast paths (completed task, non-cancellable token, already-cancelled token via `Task.FromCanceled<T>`), completes with the caller's token when it fires, and never mutates or cancels the underlying task.",
+                "The registration returned by `Register`/`UnsafeRegister` is disposed when the task wins (a `using` or `finally`), `LiveRegistrations` is incremented after registering and decremented on the same path that disposes, and the abandoned task's fault is observed with a continuation.",
+                "`Main` demonstrates each contract bullet with observable checks (`Status`, exception type and `CancellationToken` identity, `Coop.LiveRegistrations == 0` after many races, no `UnobservedTaskException` from an abandoned task), uses no `.Wait()`/`.Result`, and the code compiles without warnings."
+              ],
+              "referenceSolution": "using System.Diagnostics;\n\npublic static class Coop\n{\n    private static int _liveRegistrations;\n\n    /// Number of registrations Coop currently holds on caller-supplied tokens (diagnostic hook\n    /// for the leak test). Must return to 0 once every returned task has completed.\n    public static int LiveRegistrations => Volatile.Read(ref _liveRegistrations);\n\n    /// Runs <paramref name=\"operation\"/> with a token that is cancelled when the caller's token is\n    /// cancelled or when <paramref name=\"timeout\"/> elapses, whichever comes first.\n    public static async Task<T> WithTimeoutAsync<T>(\n        Func<CancellationToken, Task<T>> operation,\n        TimeSpan timeout,\n        CancellationToken cancellationToken = default)\n    {\n        ArgumentNullException.ThrowIfNull(operation);\n        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)\n            throw new ArgumentOutOfRangeException(nameof(timeout));\n\n        cancellationToken.ThrowIfCancellationRequested();\n\n        // Fast path: no timer, no linked source, nothing to dispose.\n        if (timeout == Timeout.InfiniteTimeSpan)\n            return await operation(cancellationToken).ConfigureAwait(false);\n\n        // The linked source registers a callback on the caller's token; disposing it removes\n        // that registration, so a long-lived caller token does not accumulate garbage.\n        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);\n        linked.CancelAfter(timeout);\n        Interlocked.Increment(ref _liveRegistrations);\n\n        try\n        {\n            return await operation(linked.Token).ConfigureAwait(false);\n        }\n        catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)\n        {\n            // The caller asked to stop: surface it as *their* cancellation, not the linked token's.\n            throw new OperationCanceledException(oce.Message, oce, cancellationToken);\n        }\n        catch (OperationCanceledException oce) when (linked.IsCancellationRequested)\n        {\n            // Only the timer fired: this is a failure, not a cancellation.\n            throw new TimeoutException($\"The operation did not complete within {timeout}.\", oce);\n        }\n        finally\n        {\n            Interlocked.Decrement(ref _liveRegistrations); // `using` disposes `linked` right after this\n        }\n        // Any other exception (including an OCE thrown for a token we do not own) propagates unchanged.\n    }\n\n    /// Makes waiting on <paramref name=\"task\"/> cancellable. The task itself keeps running.\n    public static Task<T> WithCancellationAsync<T>(this Task<T> task, CancellationToken cancellationToken)\n    {\n        ArgumentNullException.ThrowIfNull(task);\n\n        if (task.IsCompleted || !cancellationToken.CanBeCanceled)\n            return task;\n\n        if (cancellationToken.IsCancellationRequested)\n        {\n            ObserveFault(task);\n            return Task.FromCanceled<T>(cancellationToken);\n        }\n\n        return Race(task, cancellationToken);\n\n        static async Task<T> Race(Task<T> task, CancellationToken ct)\n        {\n            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);\n\n            // Static lambda + state object: no closure allocation. The registration is removed in the\n            // implicit finally of `using` whichever branch wins, so the token's callback list never grows.\n            using CancellationTokenRegistration reg = ct.UnsafeRegister(\n                static (state, token) => ((TaskCompletionSource<bool>)state!).TrySetCanceled(token), tcs);\n            Interlocked.Increment(ref _liveRegistrations);\n\n            try\n            {\n                Task completed = await Task.WhenAny(task, tcs.Task).ConfigureAwait(false);\n                if (ReferenceEquals(completed, task))\n                    return await task.ConfigureAwait(false); // propagates result, fault, or cancellation\n\n                ObserveFault(task);\n                throw new OperationCanceledException(ct);\n            }\n            finally\n            {\n                Interlocked.Decrement(ref _liveRegistrations);\n            }\n        }\n    }\n\n    // A task we walk away from must not raise TaskScheduler.UnobservedTaskException later.\n    private static void ObserveFault(Task task) =>\n        task.ContinueWith(static t => _ = t.Exception,\n            CancellationToken.None,\n            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,\n            TaskScheduler.Default);\n}\n\npublic static class Program\n{\n    private static int _failures;\n\n    public static async Task Main()\n    {\n        // Cooperative worker: works in slices and honours the token between slices.\n        static async Task<int> Work(int slices, CancellationToken ct)\n        {\n            int done = 0;\n            for (int i = 0; i < slices; i++)\n            {\n                ct.ThrowIfCancellationRequested();\n                await Task.Delay(20, ct);\n                done++;\n            }\n            return done;\n        }\n\n        // Completes after a yield / a delay without ever touching .Result.\n        static async Task<int> Later(int value) { await Task.Yield(); return value; }\n        static async Task<int> After(int ms, int value) { await Task.Delay(ms); return value; }\n\n        // 1. Completes before the timeout.\n        Check(\"completes\", await Coop.WithTimeoutAsync(ct => Work(3, ct), TimeSpan.FromSeconds(5)) == 3);\n\n        // 2. Timeout only -> TimeoutException wrapping the OCE, returned task is Faulted.\n        var t2 = Coop.WithTimeoutAsync(ct => Work(100, ct), TimeSpan.FromMilliseconds(100));\n        await Swallow(t2);\n        Check(\"timeout faults\", t2.IsFaulted && t2.Exception!.InnerException is TimeoutException { InnerException: OperationCanceledException });\n\n        // 3. Caller cancels -> task is Canceled and the OCE carries the caller's token.\n        using var callerCts = new CancellationTokenSource(100);\n        var t3 = Coop.WithTimeoutAsync(ct => Work(100, ct), TimeSpan.FromSeconds(5), callerCts.Token);\n        var oce3 = await Swallow(t3) as OperationCanceledException;\n        Check(\"caller cancel is Canceled\", t3.IsCanceled && oce3 is not null && oce3.CancellationToken == callerCts.Token);\n\n        // 4. Caller cancels *and* the timer has fired -> still the caller's cancellation.\n        using var both = new CancellationTokenSource();\n        var t4 = Coop.WithTimeoutAsync(async ct =>\n        {\n            try { await Task.Delay(-1, ct); } catch (OperationCanceledException) { }\n            both.Cancel();                 // caller cancels while we are already timed out\n            ct.ThrowIfCancellationRequested();\n            return 0;\n        }, TimeSpan.FromMilliseconds(50), both.Token);\n        await Swallow(t4);\n        Check(\"caller wins over timeout\", t4.IsCanceled);\n\n        // 5. Non-cancellation failures propagate unchanged.\n        var t5 = Coop.WithTimeoutAsync<int>(_ => throw new InvalidOperationException(\"boom\"), TimeSpan.FromSeconds(1));\n        Check(\"other exceptions propagate\", await Swallow(t5) is InvalidOperationException);\n\n        // 6. Infinite timeout allocates no timer and passes the caller's token straight through.\n        using var passThrough = new CancellationTokenSource();\n        var t6 = Coop.WithTimeoutAsync(ct => Task.FromResult(ct == passThrough.Token), Timeout.InfiniteTimeSpan, passThrough.Token);\n        Check(\"infinite timeout passes token through\", await t6);\n\n        // 7. Negative timeout other than Timeout.InfiniteTimeSpan is rejected (surfaces through the task because the method is async).\n        var t7 = Coop.WithTimeoutAsync(ct => Task.FromResult(0), TimeSpan.FromSeconds(-2));\n        Check(\"negative timeout rejected\", await Swallow(t7) is ArgumentOutOfRangeException);\n\n        // 8. WithCancellationAsync: task wins.\n        using var c8 = new CancellationTokenSource(5000);\n        Check(\"task wins\", await After(10, 42).WithCancellationAsync(c8.Token) == 42);\n\n        // 9. WithCancellationAsync: token wins; the underlying task is untouched and keeps running.\n        var never = new TaskCompletionSource<int>();\n        using var c9 = new CancellationTokenSource(50);\n        var t9 = never.Task.WithCancellationAsync(c9.Token);\n        var oce9 = await Swallow(t9) as OperationCanceledException;\n        Check(\"token wins\", t9.IsCanceled && oce9?.CancellationToken == c9.Token && !never.Task.IsCompleted);\n\n        // 10. Already-cancelled token short-circuits without touching the task.\n        using var pre = new CancellationTokenSource();\n        pre.Cancel();\n        var t10 = never.Task.WithCancellationAsync(pre.Token);\n        Check(\"pre-cancelled token\", t10.IsCanceled && !never.Task.IsCompleted);\n\n        // 11. No registration leak: after 10k races the task wins, and 1k timeout-guarded calls,\n        //     Coop holds no registration on the long-lived token.\n        using var longLived = new CancellationTokenSource();\n        for (int i = 0; i < 10_000; i++)\n            await Later(i).WithCancellationAsync(longLived.Token);\n        for (int i = 0; i < 1_000; i++)\n            await Coop.WithTimeoutAsync(_ => Later(i), TimeSpan.FromSeconds(5), longLived.Token);\n        Check(\"no registration leak\", Coop.LiveRegistrations == 0);\n        longLived.Cancel(); // must run no leftover Coop callbacks\n\n        // 12. An abandoned task that later faults must not raise UnobservedTaskException.\n        int unobserved = 0;\n        TaskScheduler.UnobservedTaskException += (_, e) => { Interlocked.Increment(ref unobserved); e.SetObserved(); };\n        var lateFault = new TaskCompletionSource<int>();\n        using var c12 = new CancellationTokenSource(10);\n        await Swallow(lateFault.Task.WithCancellationAsync(c12.Token));\n        lateFault.SetException(new InvalidOperationException(\"late\"));\n        lateFault = null!;\n        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();\n        Check(\"abandoned fault observed\", unobserved == 0);\n\n        Console.WriteLine(_failures == 0 ? \"ALL PASSED\" : $\"{_failures} FAILED\");\n    }\n\n    private static void Check(string name, bool ok)\n    {\n        if (!ok) _failures++;\n        Console.WriteLine($\"{(ok ? \"PASS\" : \"FAIL\")} {name}\");\n    }\n\n    private static async Task<Exception?> Swallow(Task task)\n    {\n        try { await task; return null; }\n        catch (Exception e) { return e; }\n    }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "concurrency-primitives",
+      "title": "Concurrency primitives: lock, Lock, SemaphoreSlim, Interlocked, ReaderWriterLockSlim, Channel<T>",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Concurrency primitives: lock, Lock, SemaphoreSlim, Interlocked, ReaderWriterLockSlim, Channel<T>",
+          "note": "## What they are\n\n.NET ships a small toolbox of synchronization primitives, and a senior candidate is expected to know which one fits which shape of problem, not just that `lock` exists.\n\n- **`lock` / `Monitor`** — the classic mutual-exclusion lock. `lock (obj) { ... }` compiles to `Monitor.Enter(obj, ref lockTaken)` plus `Monitor.Exit` in a `finally`. It is **reentrant** (the owning thread can re-enter), **thread-affine** (only the thread that entered may exit), and it **blocks the thread**. `Monitor.Wait`/`Pulse` turn it into a condition variable; `Monitor.TryEnter` adds timeouts. Because a continuation after `await` may resume on a different thread, the compiler refuses `await` inside a `lock` body (error CS1996).\n- **`System.Threading.Lock` (C# 13 / .NET 9)** — a dedicated lock type. When the locked expression is statically typed as `Lock`, `lock (x)` compiles to `using (x.EnterScope()) { ... }` — a `ref struct` scope, no `Monitor`, no object-header sync block. It is still reentrant, still thread-affine, still not awaitable. Beware of casting a `Lock` to `object`: `lock ((object)myLock)` silently falls back to `Monitor` on the same object and does **not** synchronize with `EnterScope` callers (the compiler warns with CS9216 when it can see the conversion).\n- **`SemaphoreSlim`** — a counting semaphore with `Wait` **and** `WaitAsync`. It has no thread affinity: whoever holds a slot may `Release()` from any thread, which is exactly why `new SemaphoreSlim(1, 1)` is the idiomatic *async mutex*. It is **not reentrant** — a method that awaits `WaitAsync` and then calls itself will deadlock on itself. `Release()` past `maxCount` throws `SemaphoreFullException`.\n- **`Interlocked`** — hardware atomic operations: `Increment`, `Add`, `Exchange`, `CompareExchange`, `Or`/`And` (.NET 5+). All `Interlocked` read-modify-write operations have full-fence semantics per the .NET memory model. `count++` is a read-modify-write and is not atomic even for `int`; `volatile` gives acquire/release ordering and visibility, not atomicity of a read-modify-write. `CompareExchange` in a loop is the building block of lock-free algorithms and of the \"copy-on-write + swap an immutable snapshot\" pattern. .NET 9 extended `Exchange`/`CompareExchange` to `byte`, `short`, `bool` and enum types.\n- **`ReaderWriterLockSlim`** — many concurrent readers, one exclusive writer, plus an *upgradeable read* mode (only one holder at a time). Default `LockRecursionPolicy.NoRecursion` throws `LockRecursionException` on re-entry. Thread-affine, not awaitable, `IDisposable`. It only pays off when critical sections are long and read-mostly; for short sections a plain `lock` is usually faster because RWLS bookkeeping costs more than the contention it removes.\n- **`Channel<T>`** (`System.Threading.Channels`) — an async producer/consumer queue. `Channel.CreateUnbounded<T>()` never blocks writers (memory can grow without limit); `Channel.CreateBounded<T>(capacity)` applies **backpressure**: `WriteAsync` awaits until a slot frees, `TryWrite` returns `false`, and `BoundedChannelFullMode` can instead `DropOldest`/`DropNewest`/`DropWrite`. `SingleReader`/`SingleWriter` options unlock faster implementations. `Writer.Complete()` lets `ReadAllAsync()` (an `IAsyncEnumerable<T>`) finish and `Reader.Completion` observe the terminal exception.\n\n## What an interviewer probes\n\n1. **Why can't I `await` inside `lock`?** Monitor ownership is per thread; after an `await` you may be on another thread, so `Exit` would throw `SynchronizationLockException`. The fix is `SemaphoreSlim.WaitAsync` — or restructure so the awaited I/O happens outside the critical section.\n2. **Which of these are reentrant?** `Monitor`/`lock` and `Lock`: yes. `SemaphoreSlim`: no. `ReaderWriterLockSlim`: only with `SupportsRecursion`, which is discouraged.\n3. **When is `Interlocked` enough?** A single word updated atomically (counters, flags, a reference to an immutable snapshot). The moment an invariant spans two fields you need a lock.\n4. **Bounded or unbounded channel?** Bounded almost always in a server: an unbounded channel converts a slow consumer into an out-of-memory incident.\n\n## Common misconceptions\n\n- \"`lock (this)` / `lock (typeof(T))` / `lock (\"str\")` are fine.\" They expose the lock object to code you do not control; interned strings are shared process-wide. Use a private `Lock` (or a private `readonly object`).\n- \"`SemaphoreSlim(1,1)` is just an async `lock`.\" It is not reentrant and it does not enforce that the releaser is the acquirer, so a missing `finally` leaks a slot forever.\n- \"`volatile` makes `++` thread-safe.\" It does not; use `Interlocked.Increment`.\n- \"`ReaderWriterLockSlim` is always faster for reads.\" Measure; for small sections `lock` or an `Interlocked`-swapped immutable snapshot typically wins.\n\n## Sample: `Lock`, `SemaphoreSlim` and `Interlocked` together\n\n```csharp\npublic sealed class TokenCache\n{\n    private readonly Lock _gate = new();                 // C# 13 / .NET 9\n    private readonly SemaphoreSlim _refresh = new(1, 1); // async mutex, not reentrant\n    private string? _token;\n    private int _hits;\n\n    public string? Peek()\n    {\n        Interlocked.Increment(ref _hits);                // atomic counter\n        lock (_gate) { return _token; }                  // EnterScope, not Monitor\n    }\n\n    public async Task<string> GetAsync(CancellationToken ct)\n    {\n        await _refresh.WaitAsync(ct);                    // may resume on another thread\n        try\n        {\n            string? cached;\n            lock (_gate) { cached = _token; }            // every _token access goes through _gate\n            if (cached is not null) return cached;\n\n            var fetched = await FetchAsync(ct);          // awaiting inside lock(...) would be CS1996\n            lock (_gate) { _token = fetched; }\n            return fetched;\n        }\n        finally { _refresh.Release(); }                  // release from whichever thread we are on\n    }\n\n    private static Task<string> FetchAsync(CancellationToken ct) => Task.FromResult(\"tok\");\n}\n```\n\n## Sample: bounded `Channel<T>` with backpressure (separate top-level program)\n\n```csharp\nusing System.Threading.Channels;\n\nvar channel = Channel.CreateBounded<int>(new BoundedChannelOptions(100)\n{\n    FullMode = BoundedChannelFullMode.Wait,              // WriteAsync waits when the buffer is full\n    SingleReader = true\n});\n\n_ = Task.Run(async () =>\n{\n    for (var i = 0; i < 1_000; i++) await channel.Writer.WriteAsync(i);\n    channel.Writer.Complete();                           // lets ReadAllAsync finish\n});\n\nawait foreach (var item in channel.Reader.ReadAllAsync()) Console.WriteLine(item);\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.concurrency-primitives.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Consider this method:\n\n```csharp\nprivate readonly object _sync = new();\nprivate readonly Dictionary<string, string> _cache = new();\n\npublic async Task<string> GetAsync(string key, HttpClient http)\n{\n    lock (_sync)\n    {\n        if (_cache.TryGetValue(key, out var v)) return v;\n        var fetched = await http.GetStringAsync(key);\n        _cache[key] = fetched;\n        return fetched;\n    }\n}\n```\n\nWhat happens?",
+              "options": [
+                {
+                  "text": "It compiles; the lock is released at the `await` and re-acquired when the continuation resumes, so the cache stays consistent.",
+                  "correct": false
+                },
+                {
+                  "text": "It compiles but deadlocks at runtime, because the continuation tries to re-enter a Monitor that its own thread already holds.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: the C# compiler rejects `await` inside the body of a `lock` statement (CS1996).",
+                  "correct": true
+                },
+                {
+                  "text": "It compiles and runs, but throws `SynchronizationLockException` at the closing brace whenever the continuation resumes on a different thread.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`lock` expands to `Monitor.Enter`/`Monitor.Exit` and Monitor ownership is thread-affine; a continuation after `await` may run on any thread pool thread, so the compiler refuses to emit code that could `Exit` from the wrong thread and reports CS1996 instead. The 'released at the await and re-acquired' option describes something the language never does: `lock` has no release-and-reacquire semantics around `await`. The 'deadlocks re-entering its own Monitor' option is wrong twice over: Monitor is reentrant (the same thread can re-enter freely), and the code never runs because it does not compile. The `SynchronizationLockException` option is the behaviour you would get if you wrote `Monitor.Enter`/`Exit` by hand around an `await`, but the `lock` statement never gets that far because it is a compile-time error. The idiomatic fix is a `SemaphoreSlim(1,1)` with `WaitAsync`, or moving the `await` outside the critical section."
+            }
+          },
+          "tags": [
+            "csharp",
+            "lock",
+            "monitor",
+            "async-await"
+          ]
+        },
+        {
+          "id": "dotnet.async.concurrency-primitives.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Which statement about the `System.Threading.Lock` type introduced with C# 13 / .NET 9 is correct?",
+              "options": [
+                {
+                  "text": "`Lock` is a thin wrapper over `Monitor`: `lock (myLock)` still emits `Monitor.Enter`/`Exit` on the object-header sync block, and the only gain is that analyzers can flag `lock (this)` and `lock (typeof(T))`.",
+                  "correct": false
+                },
+                {
+                  "text": "When the operand is statically typed as `Lock`, `lock (x)` compiles to `using (x.EnterScope())`; locking the same instance through an `object` reference uses `Monitor` and does not exclude `EnterScope` callers.",
+                  "correct": true
+                },
+                {
+                  "text": "`Lock` is awaitable: because `EnterScope()` returns a disposable scope instead of relying on thread ownership, `await` inside `lock (myLock) { ... }` is legal and the scope is released while the continuation is pending.",
+                  "correct": false
+                },
+                {
+                  "text": "Unlike `Monitor`, `Lock` is non-reentrant: like `ReaderWriterLockSlim` with `NoRecursion`, a second `Enter` from the owning thread throws `LockRecursionException` instead of counting the recursion.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The compiler special-cases `Lock`: it emits `EnterScope()` returning a `ref struct` `Scope` whose `Dispose` exits the lock, bypassing the object-header sync block entirely. If the same `Lock` is boxed or passed as `object` and locked, that code uses `Monitor` on the object, a completely separate mechanism, so the two paths do not exclude each other; the compiler warns with CS9216 when it can see the conversion. The 'thin wrapper over Monitor' option is wrong because the code generation is different and the sync-block-free implementation is the whole point. The 'awaitable' option is wrong: `Lock` remains a blocking, thread-affine primitive and `await` inside its body is still rejected with CS1996; an awaitable mutex is still `SemaphoreSlim.WaitAsync`. The 'non-reentrant' option is wrong because `Lock` supports recursion just like `Monitor`; the non-reentrant primitives in the toolbox are `SemaphoreSlim` and `ReaderWriterLockSlim` (by default)."
+            }
+          },
+          "tags": [
+            "csharp",
+            "lock",
+            "dotnet-9",
+            "csharp-13"
+          ]
+        },
+        {
+          "id": "dotnet.async.concurrency-primitives.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A service uses `private readonly SemaphoreSlim _gate = new(1, 1);` around an `await`-ing critical section as an async mutex. Which statement is true?",
+              "options": [
+                {
+                  "text": "Like `Monitor`, `SemaphoreSlim` records the owning thread, so nested `Wait` calls from that thread pass through and `Release()` throws if it runs on a thread other than the acquirer.",
+                  "correct": false
+                },
+                {
+                  "text": "`WaitAsync()` parks a thread pool thread until a slot is free, so under contention it exhausts the pool exactly as `Wait()` would; its only advantage is cancellation support.",
+                  "correct": false
+                },
+                {
+                  "text": "Calling `Release()` more times than `Wait()` is harmless: the count is clamped at `maxCount`, which is why releasing from a `finally` is safe even when `WaitAsync` was cancelled before acquiring.",
+                  "correct": false
+                },
+                {
+                  "text": "No thread affinity: `Release()` may run on whatever thread the continuation resumed on; but not reentrant, so re-entering on the same logical flow deadlocks.",
+                  "correct": true
+                }
+              ],
+              "explanation": "A semaphore counts slots, it does not know who owns them: that is what makes it usable across `await` (the continuation may be on a different thread) and what makes it non-reentrant (a second `WaitAsync` on the same flow sees zero slots and waits forever). The 'records the owning thread' option describes Monitor/`Lock` semantics, not `SemaphoreSlim`, which is precisely why `SemaphoreSlim` works where `lock` cannot. The 'parks a thread pool thread' option is wrong: `WaitAsync` returns an incomplete `Task` and the caller yields; no thread is blocked, which is the entire reason to prefer it in async code. The 'clamped at maxCount' option is wrong because releasing past `maxCount` throws `SemaphoreFullException`; a cancelled `WaitAsync` never acquired a slot, so releasing in a `finally` for it is a bug, and a missing `Release` (no `try`/`finally` around code that did acquire) leaks the slot permanently."
+            }
+          },
+          "tags": [
+            "csharp",
+            "semaphoreslim",
+            "async-await"
+          ]
+        },
+        {
+          "id": "dotnet.async.concurrency-primitives.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A producer writes into `Channel.CreateBounded<Job>(new BoundedChannelOptions(100) { FullMode = BoundedChannelFullMode.Wait })` and the single consumer stalls for a minute. What happens to producers once 100 items are queued?",
+              "options": [
+                {
+                  "text": "`WriteAsync` returns an incomplete `ValueTask` and the producer awaits until the consumer frees a slot (backpressure); `TryWrite` returns `false` without blocking.",
+                  "correct": true
+                },
+                {
+                  "text": "`WriteAsync` throws `ChannelClosedException`, because a bounded channel treats a full buffer as a terminal state and the writer has to be recreated.",
+                  "correct": false
+                },
+                {
+                  "text": "The channel switches to unbounded mode and keeps buffering in a linked list, so the producer never observes the slow consumer.",
+                  "correct": false
+                },
+                {
+                  "text": "The oldest queued item is discarded to make room, because dropping the oldest item is the default behaviour of a bounded channel.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`BoundedChannelFullMode.Wait` (the default) is exactly how a bounded channel propagates backpressure: writers asynchronously wait for capacity, and `TryWrite` reports `false` so a caller can shed load itself. `ChannelClosedException` is raised only after `Writer.Complete()` or `TryComplete()` has been called, never because the buffer is full, so the 'terminal state' option is wrong. A bounded channel never grows past its capacity; unbounded growth is the failure mode of `CreateUnbounded<T>()`, which is why bounded channels are preferred in servers, so the 'switches to unbounded mode' option is wrong. Dropping is available but must be opted into with `DropOldest`, `DropNewest` or `DropWrite`; it is not the default, so the 'oldest item is discarded' option is wrong."
+            }
+          },
+          "tags": [
+            "csharp",
+            "channels",
+            "producer-consumer",
+            "backpressure"
+          ]
+        },
+        {
+          "id": "dotnet.async.concurrency-primitives.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You maintain an in-process configuration cache: thousands of reads per second from request threads, and a refresh every few minutes that fetches new values over HTTP. Compare implementing it with `lock`/`Lock`, `ReaderWriterLockSlim`, and an immutable snapshot swapped with `Interlocked`/`Volatile`. Which would you choose and why, and how do you keep the asynchronous refresh from running concurrently with itself?",
+              "explanation": "Model answer: the read path should be lock-free. Keep the whole configuration in one immutable object and read it through a single field (`Volatile.Read` or a plain reference read; reference assignment is atomic, so readers never see torn state). The refresher builds a new snapshot off-line and publishes it with `Interlocked.Exchange` or `Volatile.Write`. `ReaderWriterLockSlim` would let readers run concurrently but is thread-affine, not awaitable and adds bookkeeping that only pays off for long read-mostly critical sections; here the critical section is a single reference read, so `lock`/`Lock` would already be as fast and the snapshot swap is faster still. The refresh awaits an HTTP call, so it cannot sit inside `lock`, `Lock` (CS1996) or `ReaderWriterLockSlim` (thread-affine); guard it with `SemaphoreSlim(1,1).WaitAsync` in `try`/`finally` so a second trigger waits or skips instead of fetching twice, remembering that the semaphore is not reentrant and that an exception must still release it. If the invariant ever spans several independently updated fields, `Interlocked` on one word no longer suffices: either bundle them in the immutable snapshot or fall back to a lock.",
+              "rubric": [
+                "States that `ReaderWriterLockSlim` allows concurrent readers but is thread-affine, not awaitable and carries bookkeeping overhead, so it only pays off for long read-mostly critical sections; for a short 'read a reference' section a plain `lock` or `Lock` is usually as fast or faster.",
+                "Proposes the immutable-snapshot pattern: readers read a single reference (`Volatile.Read` or a plain read of a reference), the refresher builds a new object and publishes it with `Interlocked.Exchange`/`Volatile.Write`, giving lock-free reads and no torn state because a reference assignment is atomic.",
+                "Explains that the refresh cannot hold `lock`/`Lock`/`ReaderWriterLockSlim` across the HTTP `await` (compile error or thread-affinity violation) and guards it with `SemaphoreSlim(1,1).WaitAsync` in a `try`/`finally`, or an equivalent non-reentrant async gate, so overlapping refreshes coalesce rather than run twice.",
+                "Notes that `Interlocked` only covers a single word: if the cache invariant spans several fields, either bundle them in one immutable object that is swapped atomically or fall back to a lock.",
+                "Mentions at least one concrete pitfall: `ReaderWriterLockSlim` defaults to `NoRecursion` and throws `LockRecursionException` on re-entry, `SemaphoreSlim` is not reentrant, or an exception inside the refresh must still release the gate."
+              ]
+            }
+          },
+          "tags": [
+            "csharp",
+            "readerwriterlockslim",
+            "interlocked",
+            "semaphoreslim"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "parallel-vs-async",
+      "title": "Parallel vs async: CPU-bound vs IO-bound",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Parallel vs async: CPU-bound vs IO-bound",
+          "note": "**Parallelism** and **asynchrony** solve different problems. Parallelism spends *more threads* to finish CPU work sooner; asynchrony spends *fewer threads* to wait for IO without blocking. Classic mistakes: `Parallel.ForEach` around HTTP calls, or `Task.WhenAll` over ten thousand unthrottled requests.\n\n### CPU-bound vs IO-bound\n\n- **CPU-bound** work (hashing, compression, image resize, in-memory joins) is limited by cores. The right tools are `Parallel.For`/`Parallel.ForEach` and PLINQ (`AsParallel()`), which partition the input (range partitioning for arrays/lists, chunk partitioning for arbitrary `IEnumerable<T>`) across thread-pool workers. More workers than cores only adds context switches.\n- **IO-bound** work (HTTP, database, file, queue) is limited by the *remote* side. A thread that awaits IO is returned to the pool; the OS completes the operation via IOCP/epoll and a continuation is queued. Here the correct primitive is `async`/`await`, and the interesting knob is **concurrency** (how many operations are in flight), not thread count.\n\nThe classic anti-pattern is `Parallel.ForEach(items, async item => await ...)`. The `(source, body)` overloads take `Action<T>`/`Action<T, ParallelLoopState>`, so an async lambda binds as `async void`: `ForEach` returns as soon as every lambda hits its first `await`, exceptions bypass the caller and can crash the process, and nothing is throttled. The other anti-pattern is `Parallel.ForEach` with *synchronous* IO inside: it blocks pool threads, and the pool injects new threads slowly, roughly one to two per second above `MinThreads`; since .NET 6 the pool injects faster only when it detects blocking on a `Task` (`.Wait()`, `.Result`, `GetAwaiter().GetResult()`), while plain synchronous IO gets no such help, so throughput collapses under load.\n\n### `Parallel.ForEachAsync` (.NET 6+)\n\nAdded in .NET 6 precisely for the IO-bound case. It accepts `IEnumerable<T>` or `IAsyncEnumerable<T>`, the body is `Func<T, CancellationToken, ValueTask>`, and it returns a `Task` that completes when every iteration has finished. Key behaviours:\n\n- **Degree of parallelism.** `ParallelOptions.MaxDegreeOfParallelism` defaults to `-1`, which `ForEachAsync` interprets as `Environment.ProcessorCount` (the synchronous `Parallel.ForEach` treats `-1` as \"unlimited, let the scheduler decide\"). For IO the correct number is a function of downstream capacity (connection pool size, rate limit, SLA of the dependency) and usually has nothing to do with cores, so set it explicitly.\n- **Cancellation.** `ParallelOptions.CancellationToken` stops new iterations being dequeued and the returned task completes as *Canceled*, not Faulted: `await` throws `TaskCanceledException` (an `OperationCanceledException`), `Task.IsFaulted` is false and `Task.Exception` is null. Only exceptions thrown by bodies fault the task. The token handed to the body is a *linked* token that also fires when another iteration throws, so in-flight work can bail out early.\n- **Failure.** When one body throws, no further items are dequeued, in-flight iterations are awaited, and the exceptions surface on the returned task: `await` rethrows the first one, and `Task.Exception` holds an `AggregateException` whose first entry is the original failure; later entries are usually `OperationCanceledException`s from in-flight iterations that observed the linked body token.\n- **Ordering.** Enumeration of the source is serialised (a `lock` for `IEnumerable<T>`, an async lock for `IAsyncEnumerable<T>`), items are handed out one at a time, and there is no guarantee about the order in which bodies complete.\n\nThe pre-.NET 6 equivalents are `SemaphoreSlim` as a throttle around `Task.WhenAll`, or a `Channel<T>` consumed by N reader tasks. Both remain valid when you need per-item results or back-pressure.\n\n### `IAsyncEnumerable<T>` (C# 8 / .NET Core 3.0)\n\n`IAsyncEnumerable<T>` is **streaming, not parallelism**. `await foreach` is a pull model: one `MoveNextAsync()` at a time, so the consumer processes items sequentially as they arrive instead of waiting for a complete `List<T>`. That saves memory and time-to-first-item for paged APIs, `DbDataReader`, SignalR streams and ASP.NET Core responses (serialised incrementally since .NET 6). Compose cancellation with `WithCancellation(token)` and `[EnumeratorCancellation]` in the iterator, and use `ConfigureAwait(false)` on the enumerable in library code. Since .NET 10, LINQ over async sequences (`System.Linq.AsyncEnumerable`: `Where`, `Select`, `ToListAsync`, ...) ships in the shared framework rather than as a separate package.\n\nTo *parallelise* an async stream, feed it into `Parallel.ForEachAsync`, which enumerates it under the async lock and fans out the bodies.\n\n```csharp\n// IO-bound: throttle by downstream capacity, not by cores.\nasync IAsyncEnumerable<Order> ReadOrdersAsync(\n    [EnumeratorCancellation] CancellationToken ct = default)\n{\n    await using var reader = await cmd.ExecuteReaderAsync(ct);\n    while (await reader.ReadAsync(ct))\n        yield return Map(reader);          // streamed, never fully buffered\n}\n\nvar options = new ParallelOptions\n{\n    MaxDegreeOfParallelism = 16,           // e.g. the enrichment API's rate limit\n    CancellationToken = ct\n};\n\nawait Parallel.ForEachAsync(ReadOrdersAsync(ct), options, async (order, token) =>\n{\n    var enriched = await enrichClient.EnrichAsync(order, token);\n    await sink.WriteAsync(enriched, token);\n});\n\n// CPU-bound: partition across cores, no async needed.\nParallel.ForEach(images, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },\n    img => Resize(img));\n```\n\n### What interviewers probe\n\n- Why `Parallel.ForEach` with an async lambda is wrong (async void, no waiting, no throttling) and why `Parallel.ForEach` with blocking IO starves the pool.\n- The difference between \"degree of parallelism\" for CPU work (approximately cores) and \"concurrency\" for IO work (approximately downstream capacity).\n- That `IAsyncEnumerable<T>` is sequential and lazy; `ToListAsync()` throws away the streaming benefit.\n- What `ForEachAsync` does on the first exception, how the body's token differs from `ParallelOptions.CancellationToken`, and that external cancellation yields a Canceled task rather than a Faulted one.\n\n### Misconceptions\n\n- \"Async makes CPU work faster.\" It does not; it only frees the calling thread. A CPU-bound loop needs `Parallel`/PLINQ (or a dedicated thread), not `await`.\n- \"`Task.WhenAll` is the async `Parallel.ForEach`.\" `WhenAll` starts everything at once; with thousands of items it exhausts sockets, connection pools or rate limits. Throttle it.\n- \"`MaxDegreeOfParallelism` caps threads.\" For `ForEachAsync` it caps *in-flight operations*; while they await, few or no threads are in use."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.parallel-vs-async.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A service downloads 200 URLs with the following code:\n\n```csharp\nParallel.ForEach(urls, async url =>\n{\n    var body = await http.GetStringAsync(url);\n    await store.SaveAsync(url, body);\n});\nlogger.LogInformation(\"All downloads finished\");\n```\n\nWhat actually happens at runtime?",
+              "options": [
+                {
+                  "text": "The downloads run in parallel and `Parallel.ForEach` waits for all of them; the log line is accurate but the calling thread is blocked for the whole duration.",
+                  "correct": false
+                },
+                {
+                  "text": "`ForEach` returns once every lambda hits its first `await`; the log line is written early and download exceptions are unobserved `async void` faults that can crash the process.",
+                  "correct": true
+                },
+                {
+                  "text": "The code does not compile because `Parallel.ForEach` has no overload that accepts an async lambda.",
+                  "correct": false
+                },
+                {
+                  "text": "`Parallel.ForEach` recognises the returned `Task` objects and awaits them internally, so behaviour is equivalent to `Task.WhenAll` without a degree-of-parallelism limit.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The `(source, body)` overloads of `Parallel.ForEach` take `Action<T>`, so the async lambda is compiled as `async void`. The method returns when every lambda has *started* and hit its first incomplete `await`; the remaining work continues on thread-pool threads with nobody observing it. Exceptions from an `async void` method are posted to the `SynchronizationContext` or, in ASP.NET Core / console apps, thrown on the pool and terminate the process. The first option is wrong because `ForEach` does not wait; it has no `Task` to wait on. The third option is wrong because an async lambda converts to `Action<T>` (as `async void`) without error, which is exactly the trap. The fourth option is wrong because nothing is returned to `ForEach`: the lambda's return type is `void`, so there are no tasks to await. The correct replacement is `Parallel.ForEachAsync` (.NET 6+) with an explicit `MaxDegreeOfParallelism`."
+            }
+          },
+          "tags": [
+            "async",
+            "parallel",
+            "async-void",
+            "thread-pool"
+          ]
+        },
+        {
+          "id": "dotnet.async.parallel-vs-async.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You call `Parallel.ForEachAsync(items, async (item, ct) => await client.SendAsync(item, ct))` on a 32-core server without passing `ParallelOptions`. Which statement about the degree of parallelism is true?",
+              "options": [
+                {
+                  "text": "There is no limit: like `Parallel.ForEach` with default options, `ForEachAsync` lets the scheduler decide, so all items are started immediately.",
+                  "correct": false
+                },
+                {
+                  "text": "Items are processed one at a time because an async body cannot be safely overlapped without an explicit `MaxDegreeOfParallelism`.",
+                  "correct": false
+                },
+                {
+                  "text": "At most `Environment.ProcessorCount` (32) operations are in flight at once; `ForEachAsync` maps the default `-1` to the processor count, and awaiting operations hold no pool thread.",
+                  "correct": true
+                },
+                {
+                  "text": "The limit equals `ThreadPool.GetMinThreads()`, because each in-flight operation permanently occupies one pool thread until it completes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ParallelOptions.MaxDegreeOfParallelism` defaults to `-1`; `Parallel.ForEachAsync` maps that to `Environment.ProcessorCount`, so 32 bodies are started and a new one is dequeued each time one completes. Because the bodies await, the threads are returned to the pool during the IO wait; the limit caps *operations*, not threads. The first option is wrong: it describes the synchronous `Parallel.ForEach`, where `-1` means unlimited; `ForEachAsync` deliberately defaults to the core count so that unthrottled fan-out is opt-in. The second option is wrong: the whole point of `ForEachAsync` is overlapping async bodies; sequential processing would be a plain `foreach` with `await`. The fourth option is wrong: an awaiting operation holds no thread, so pool size is unrelated to the concurrency limit. Note that for IO-bound work `ProcessorCount` is an arbitrary default; you should set the limit from the downstream dependency's capacity."
+            }
+          },
+          "tags": [
+            "async",
+            "parallel",
+            "degree-of-parallelism"
+          ]
+        },
+        {
+          "id": "dotnet.async.parallel-vs-async.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A repository exposes `IAsyncEnumerable<Order> GetOrdersAsync(CancellationToken ct)` implemented with `await reader.ReadAsync(ct)` and `yield return`. Which statement about consuming it with `await foreach` is correct?",
+              "options": [
+                {
+                  "text": "The compiler-generated iterator runs all `ReadAsync` calls concurrently and buffers the results, so `await foreach` is a faster drop-in for `ToListAsync()`.",
+                  "correct": false
+                },
+                {
+                  "text": "`await foreach` executes the loop body for several items at once, up to `Environment.ProcessorCount`, which is why it is preferred over `Task<List<T>>` for large result sets.",
+                  "correct": false
+                },
+                {
+                  "text": "Calling `.ToListAsync()` on the enumerable keeps the streaming behaviour because the list is populated incrementally as the caller enumerates it.",
+                  "correct": false
+                },
+                {
+                  "text": "Items are pulled one at a time: each `MoveNextAsync()` is awaited before the body runs, so the first order arrives before the query finishes and memory stays bounded, but nothing runs in parallel.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`IAsyncEnumerable<T>` is a pull-based, lazy, sequential protocol: the consumer awaits `MoveNextAsync()`, gets one item, runs the body, and only then asks for the next. Its benefits are early first item and bounded memory, not parallelism. The first option is wrong because the iterator state machine executes strictly one step at a time; there is no concurrent prefetch. The second option is wrong because `await foreach` never runs the body concurrently; that is what `Parallel.ForEachAsync` (which accepts an `IAsyncEnumerable<T>`) or a `Channel<T>` with multiple readers is for. The third option is wrong because `ToListAsync()` materialises the whole sequence before returning, so the caller waits for the last row and holds everything in memory, discarding exactly the advantage of streaming."
+            }
+          },
+          "tags": [
+            "async",
+            "iasyncenumerable",
+            "streaming"
+          ]
+        },
+        {
+          "id": "dotnet.async.parallel-vs-async.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "A batch job runs `await Task.WhenAll(ids.Select(id => enrichApi.FetchAsync(id)))` over 50,000 ids. The external API allows 20 concurrent requests per client and starts returning HTTP 429 within seconds. Which fix is correct?",
+              "options": [
+                {
+                  "text": "Replace it with `Parallel.ForEachAsync(ids, new ParallelOptions { MaxDegreeOfParallelism = 20 }, ...)` or a `SemaphoreSlim(20)` gate, so at most 20 requests are in flight regardless of core count.",
+                  "correct": true
+                },
+                {
+                  "text": "Replace it with `Parallel.ForEach(ids, id => enrichApi.FetchAsync(id).GetAwaiter().GetResult())`, which limits concurrency to the number of cores and keeps the code synchronous.",
+                  "correct": false
+                },
+                {
+                  "text": "Keep `Task.WhenAll` and call `ThreadPool.SetMinThreads(20, 20)` so the runtime schedules only 20 requests at a time.",
+                  "correct": false
+                },
+                {
+                  "text": "Use `ids.AsParallel().WithDegreeOfParallelism(20).Select(id => enrichApi.FetchAsync(id))` and await the resulting tasks; PLINQ enforces the limit on the async calls.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Task.WhenAll` over a `Select` starts every request immediately; nothing throttles it. The problem is *concurrency* against an IO dependency, so the fix is a concurrency limit set from the dependency's capacity: `Parallel.ForEachAsync` with `MaxDegreeOfParallelism = 20` or a `SemaphoreSlim` gate. The second option is wrong on two counts: it turns async IO into sync-over-async that blocks one thread-pool thread per in-flight request (the .NET 6+ pool detects Task-blocking and injects threads faster, but that only adds more blocked threads, not a limit), and the default degree for `Parallel.ForEach` is unlimited, not the core count, so it does not even guarantee 20. The third option is wrong because `SetMinThreads` controls how many threads the pool creates without delay; it has no effect on how many already-started tasks are in flight, and awaiting requests do not hold threads anyway. The fourth option is wrong because PLINQ limits how many *`Select` invocations* run concurrently, and each invocation returns instantly with a hot `Task`; the HTTP calls themselves are still all started at once."
+            }
+          },
+          "tags": [
+            "async",
+            "parallel",
+            "throttling",
+            "task-whenall"
+          ]
+        },
+        {
+          "id": "dotnet.async.parallel-vs-async.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You must process 2 million rows from PostgreSQL: for each row call an external enrichment API (rate-limited to 50 concurrent requests), compute a SHA-256 over the merged payload, and write the result to blob storage. Memory is capped at 512 MB and the job must be cancellable. Describe how you would structure this in .NET 10, which parts are CPU-bound versus IO-bound, how you would choose and set degree of parallelism, and what happens when one API call throws.",
+              "explanation": "A strong answer separates the IO-bound stages (DB read, API call, blob write) from the CPU-bound hash, streams the rows instead of loading them, bounds concurrency by the API's capacity rather than by cores, propagates one `CancellationToken` through every stage, and explains the failure semantics of the chosen fan-out primitive. Reading rows through `IAsyncEnumerable<T>` (`ReadAsync` + `yield return`) keeps memory bounded; `Parallel.ForEachAsync` over that stream with `MaxDegreeOfParallelism = 50` throttles the API; the hash is cheap enough to run inline on the continuation, or, if it were heavy, would be a separate CPU-bound stage bounded by `ProcessorCount`; on the first exception `ForEachAsync` stops dequeuing, cancels the body token for in-flight items, and faults, so the answer should decide whether to catch per item (log and continue) or let the job fail.",
+              "rubric": [
+                "Reads rows as a stream (`IAsyncEnumerable<T>` / `DbDataReader.ReadAsync` with `yield return`, or a bounded `Channel<T>`) rather than materialising 2 million rows into a list, and ties that to the 512 MB limit.",
+                "Correctly classifies the DB read, API call and blob write as IO-bound (async, no thread held while waiting) and the SHA-256 as CPU-bound, and explains that CPU-bound work does not benefit from `await`.",
+                "Uses `Parallel.ForEachAsync` (or `SemaphoreSlim`/`Channel<T>` workers) with the degree of parallelism set to the API's limit (50), stating explicitly that for IO the limit comes from downstream capacity, not `Environment.ProcessorCount`.",
+                "Ensures the same token reaches the row enumerator (as a plain parameter, via `[EnumeratorCancellation]`/`WithCancellation`, or via `ParallelOptions.CancellationToken`, which `ForEachAsync` forwards to `GetAsyncEnumerator`), every API/blob call, and `ParallelOptions`.",
+                "Describes failure semantics: `Parallel.ForEachAsync` stops dequeuing and cancels the body token when an iteration throws, then the returned task faults; states whether errors are caught per item (retry/skip and log) or allowed to fail the job, and does not rely on `Parallel.ForEach` with an async lambda or sync-over-async."
+              ]
+            }
+          },
+          "tags": [
+            "async",
+            "parallel",
+            "iasyncenumerable",
+            "degree-of-parallelism"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "async-pitfalls",
+      "title": "Async pitfalls: async void, sync-over-async, WhenAll and fire-and-forget",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Async pitfalls: async void, sync-over-async, WhenAll and fire-and-forget",
+          "note": "## What it is\n\nFour `async`/`await` failure modes account for most production incidents: `async void` methods, blocking on tasks (sync-over-async), misunderstanding how `Task.WhenAll` reports failures, and fire-and-forget work that outlives the request that started it.\n\n## async void\n\nAn `async void` method has no `Task` to hand back, so nothing can await it, time it, or catch its exceptions — not even a `try/catch` around the call. The compiled state machine catches everything thrown inside `MoveNext`, before or after the first `await`, and routes it through `AsyncVoidMethodBuilder.SetException`. That posts the exception to the `SynchronizationContext` that was current when the method started, or — when there is none, as in ASP.NET Core MVC/minimal APIs, console apps and workers — rethrows it on a thread-pool thread, where it is an unhandled exception and terminates the process. Only UI event handlers justify it. The sneaky variant is the `async` lambda: any `Action`-typed parameter (`List<T>.ForEach`, `Parallel.ForEach`, event subscriptions, `new Thread(...)`) silently turns an `async` lambda into `async void`. `Task.Run` is safe because overload resolution prefers its `Func<Task>` overload.\n\n## Sync-over-async\n\n`.Result`, `.Wait()` and `.GetAwaiter().GetResult()` all block the calling thread until the task completes. On a `SynchronizationContext` that serialises onto one thread (WPF, WinForms, classic ASP.NET — and Blazor Server, whose `RendererSynchronizationContext` serialises onto the circuit) the blocked thread is the one the continuation needs — the deadlock covered under `sync-context`. ASP.NET Core MVC and minimal APIs have no such context, so they do not deadlock; they starve. Each blocked request pins a thread-pool thread while its continuation waits for another one. Hill-climbing tunes the pool for throughput and is not what rescues a starving pool; that is the separate starvation-avoidance path, which adds roughly one thread per 500 ms once demand exceeds `MinThreads`, so latency climbs in steps until requests time out. Since .NET 6 the pool detects threads blocked specifically inside `Task.Wait`/`.Result` and injects faster, which softens but does not remove the problem. The three calls differ only in exception shape: `.Result`/`.Wait()` throw `AggregateException`, `GetAwaiter().GetResult()` rethrows the first inner exception unwrapped. `Task.Run(() => X()).Result` is not a fix: it still blocks the request thread for the whole call and merely adds a thread-pool hop (the extra thread is held only until `X()`'s first `await`) — nothing is gained.\n\n## Task.WhenAll\n\n`Task.WhenAll` returns a task that completes only when every input has completed; it neither cancels nor stops waiting for the others when one faults. If any input faulted, the combined task is `Faulted` and its `Exception` is an `AggregateException` holding every input's exception, in input order. But `await` unwraps and throws only the first one. Losing the others is the pitfall: keep a reference to the combined task and inspect `whenAll.Exception.InnerExceptions` when you need all of them. If nothing faulted but something was cancelled, `await` throws `TaskCanceledException`. To fail fast instead, pass a linked `CancellationToken` into each operation and cancel it in the `catch`, or use `Task.WhenEach` (.NET 9) to react as each task finishes.\n\n## Fire-and-forget\n\n`_ = DoWorkAsync();` silences warning CS4014 and nothing else. The task still runs, but nothing awaits it: an exception goes nowhere until the task is garbage-collected, when the finalizer raises `TaskScheduler.UnobservedTaskException` — which since .NET Framework 4.5 (and always in .NET Core) does not crash the process by default, so the failure is silent. In ASP.NET Core the work also outlives its request: the scoped `DbContext`, `HttpContext` and logger scope are disposed or recycled when the response completes, so the forgotten work typically dies with `ObjectDisposedException`. The correct shape is to enqueue a message into a `Channel<T>` (or an external queue) and let a `BackgroundService` process it with its own DI scope, host-shutdown cancellation and logging.\n\n## Async lambdas in LINQ\n\n`items.Select(async i => await LoadAsync(i))` compiles to `IEnumerable<Task<T>>`. That is fine only if you then `await Task.WhenAll(...)` it — and `Select` is lazy, so enumerating it twice starts the work twice. `Where(async ...)` does not compile (`Task<bool>` is not `bool`), and `ForEach(async ...)` is `async void` as above. Materialise once, bound concurrency (`SemaphoreSlim`, `Parallel.ForEachAsync`), and await the result.\n\n```csharp\n// Bad: async void via Action<T>; exceptions crash the process, nothing waits.\norders.ForEach(async o => await _mailer.SendAsync(o, ct));\n\n// Bad: starves the pool under load; exceptions arrive wrapped in AggregateException.\nvar report = _reports.BuildAsync(id).Result;\n\n// Bad: work outlives the request; failures vanish or hit a disposed DbContext.\n_ = _indexer.ReindexAsync(order, _db);\n\n// Good: every failure visible, work started exactly once, nothing forgotten.\nvar tasks = orders.Select(o => _mailer.SendAsync(o, ct)).ToList();\nvar all = Task.WhenAll(tasks);\ntry\n{\n    await all;\n}\ncatch when (all.Exception is { } agg)\n{\n    foreach (var ex in agg.InnerExceptions) _log.LogError(ex, \"Send failed\");\n    throw;\n}\n```\n\n## What interviewers probe\n\n- Where does an `async void` exception surface, and why does ASP.NET Core crash rather than return 500?\n- What does `await Task.WhenAll(...)` throw when two tasks fail, and where did the second exception go?\n- What happens to a discarded task's exception, and what replaces `_ = ...` in a web app?\n\n## Common misconceptions\n\n- \"`GetAwaiter().GetResult()` is the non-blocking version\" — it blocks identically; only exception unwrapping differs.\n- \"Unobserved task exceptions crash the process\" — that was .NET Framework 4.0; since 4.5 they go to `UnobservedTaskException` and are swallowed unless the opt-in `ThrowUnobservedTaskExceptions` switch is on.\n- \"`WhenAll` stops when the first task fails\" — it waits for all of them.\n- \"`ThreadPool.SetMinThreads` fixes sync-over-async\" — it postpones starvation; only removing the block fixes it."
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.async-pitfalls.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "In an ASP.NET Core minimal API endpoint you find:\n\n```csharp\nvar orders = await _db.Orders.Where(o => o.Pending).ToListAsync(ct);\norders.ForEach(async o => await _mailer.SendAsync(o, ct));\nreturn Results.Accepted();\n```\n\n`SendAsync` throws `HttpRequestException` for one of the orders after its first `await`. What happens?",
+              "options": [
+                {
+                  "text": "`ForEach` awaits each `SendAsync` in turn before returning, so the exception propagates out of `ForEach`, through the endpoint and the exception-handling middleware, and the client receives a 500 instead of 202.",
+                  "correct": false
+                },
+                {
+                  "text": "The compiler-generated state machine catches the exception, wraps it in an `AggregateException` and rethrows it at the `ForEach` call site, where the exception-handling middleware turns it into a 500 response.",
+                  "correct": false
+                },
+                {
+                  "text": "The lambda is compiled as `async void` because `ForEach` takes `Action<T>`; the endpoint returns 202, and the exception is rethrown on a thread-pool thread as an unhandled exception that terminates the process.",
+                  "correct": true
+                },
+                {
+                  "text": "The lambda's task is created but never awaited, so the exception is held inside it and raised later through `TaskScheduler.UnobservedTaskException` when the task is finalized; the process keeps running.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option 3 is correct. `List<T>.ForEach(Action<T>)` forces the async lambda into an `async void` delegate: there is no `Task` to fault, and `ForEach` returns as soon as each lambda yields at its first `await`, so the 202 is sent long before any send completes. When the exception occurs, `AsyncVoidMethodBuilder.SetException` posts it to the `SynchronizationContext` captured when the lambda started — and ASP.NET Core MVC/minimal APIs have none — so it is rethrown on a thread-pool thread, where an unhandled exception terminates the process. Option 1 is wrong because nothing awaits the lambdas: all sends start concurrently and `ForEach` returns after each one yields. Option 2 is wrong because `ForEach` returns `void`; there is no task whose fault could be wrapped in `AggregateException` or observed by middleware, and by the time the exception occurs the request has usually already completed. Option 4 is wrong because `UnobservedTaskException` applies only to `Task`-returning fire-and-forget calls such as `_ = SendAsync(...)`; an `async void` method produces no `Task` to be finalized, so the exception has nowhere to hide."
+            }
+          },
+          "tags": [
+            "async-void",
+            "async-lambda",
+            "linq",
+            "aspnet-core"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-pitfalls.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Consider:\n\n```csharp\nvar t1 = FetchAsync(\"a\");   // throws InvalidOperationException after 50 ms\nvar t2 = FetchAsync(\"b\");   // throws TimeoutException after 10 ms\nvar t3 = FetchAsync(\"c\");   // completes successfully after 2 s\ntry\n{\n    await Task.WhenAll(t1, t2, t3);\n}\ncatch (Exception ex)\n{\n    _log.LogError(ex, \"batch failed\");\n}\n```\n\nWhich statement is true?",
+              "options": [
+                {
+                  "text": "`ex` is an `AggregateException` whose `InnerExceptions` holds both the `InvalidOperationException` and the `TimeoutException`, because `Task.WhenAll` aggregates every faulted input and `await` rethrows that aggregate unchanged to the caller.",
+                  "correct": false
+                },
+                {
+                  "text": "The `catch` block runs after roughly 10 ms with the `TimeoutException`, because `Task.WhenAll` faults as soon as its first input faults and stops waiting for the remaining tasks, which keep running unobserved.",
+                  "correct": false
+                },
+                {
+                  "text": "The `catch` block runs only after `t3` completes (about 2 s), and `ex` is the unwrapped `InvalidOperationException` — first in input order; the `TimeoutException` is reachable only via `t2.Exception` or the combined task.",
+                  "correct": true
+                },
+                {
+                  "text": "After all three complete, `ex` is the `InvalidOperationException`, and the `TimeoutException` from `t2` is left unobserved and later raised through `TaskScheduler.UnobservedTaskException` once `t2` is garbage-collected and finalized.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option 3 is correct on both counts. `Task.WhenAll` completes only when every input has completed, so the `catch` cannot run before `t3` finishes. Its combined task is `Faulted` with an `AggregateException` holding both exceptions in input order, but `await` (via `TaskAwaiter.GetResult()`) rethrows only the first inner exception, unwrapped; to see the second you must keep a reference to the `WhenAll` task and read `Exception.InnerExceptions`, or inspect `t2.Exception`. Option 1 is the most common misconception: the combined task's `Exception` property is indeed an `AggregateException`, but `await` never surfaces it as such. Option 2 is wrong because `WhenAll` never short-circuits — it neither cancels nor abandons the remaining tasks; fail-fast requires cancelling them yourself or using `Task.WhenEach` (.NET 9). Option 4 is wrong because `WhenAll` reads each faulted input's exceptions while building the aggregate, which marks them as observed; nothing reaches `UnobservedTaskException`."
+            }
+          },
+          "tags": [
+            "task-whenall",
+            "exceptions",
+            "aggregate-exception"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-pitfalls.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core Web API calls a downstream service with `_client.GetFromJsonAsync<Quote>(url).Result` inside a controller action. In production, under load, p99 latency climbs steadily and requests start timing out; CPU stays low and there is no deadlock. Which explanation and fix are correct?",
+              "options": [
+                {
+                  "text": "The request thread is blocked; wrap the call as `Task.Run(() => _client.GetFromJsonAsync<Quote>(url)).Result` so the wait happens on a background pool thread and the request thread is released while the HTTP call is in flight.",
+                  "correct": false
+                },
+                {
+                  "text": "No `SynchronizationContext`, so no deadlock; each blocked request pins a pool thread while its continuation needs another, and the pool injects replacement threads slowly. Fix: make the call chain `async` end to end and `await`.",
+                  "correct": true
+                },
+                {
+                  "text": "`.Result` blocks because it goes through `Task.Wait`, whereas `.GetAwaiter().GetResult()` registers a continuation and yields the thread; switching every `.Result` to `GetAwaiter().GetResult()` removes the latency growth without changing signatures.",
+                  "correct": false
+                },
+                {
+                  "text": "The pool starts at `MinThreads` = processor count and only grows on demand; raising `ThreadPool.SetMinThreads` to a few hundred at startup removes the starvation permanently and is the recommended fix when the code cannot be made `async`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Option 2 is correct. Without a `SynchronizationContext` (true for MVC and minimal APIs; Blazor Server is the exception) the continuation can run on any pool thread, so no deadlock occurs, but every blocked request consumes a thread for the whole downstream round-trip. Once demand exceeds `MinThreads`, the pool's starvation-avoidance path adds roughly one thread per 500 ms — hill-climbing is the throughput tuner and does not rescue a starving pool — which is exactly the slow staircase in p99. The only real fix is to remove the block. Option 1 gains nothing: `Task.Run(...).Result` still blocks the request thread for the entire call and merely adds a thread-pool hop; the extra thread is held only until the delegate's first `await`, so it is not a second long-held thread, but the original one is still stuck. Option 3 is wrong because `GetAwaiter().GetResult()` blocks exactly like `.Result`; the only difference is that it rethrows the first exception unwrapped instead of inside an `AggregateException`. Option 4 is a band-aid, not a fix: a higher minimum lets the pool skip the slow injection phase up to that limit, but each blocked request still burns a thread and starvation returns once load exceeds the new floor. Note that since .NET 6 the pool detects threads blocked in `Task.Wait`/`.Result` and injects faster, which is why the symptom is milder than on .NET Core 3.1 — but still present."
+            }
+          },
+          "tags": [
+            "sync-over-async",
+            "thread-pool",
+            "starvation",
+            "aspnet-core"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-pitfalls.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "An endpoint does the following, where `_db` is a scoped `DbContext` injected into the controller:\n\n```csharp\n_ = _indexer.ReindexAsync(order.Id, _db);\nreturn Accepted();\n```\n\n`ReindexAsync` awaits an HTTP call and then queries `_db`. Which description of the behaviour is accurate?",
+              "options": [
+                {
+                  "text": "The unobserved exception escalates when the task's finalizer runs and terminates the process, so the outage appears as a crash a few seconds after the request; wrapping the body of `ReindexAsync` in `try/catch` is enough to prevent it.",
+                  "correct": false
+                },
+                {
+                  "text": "The discard keeps the task rooted and marks its exception as observed, so failures are logged by the hosting layer; `_db` stays alive because the container keeps the request scope open until every task started inside it completes.",
+                  "correct": false
+                },
+                {
+                  "text": "The task inherits `HttpContext.RequestAborted` and is cancelled when the response completes, so no `ObjectDisposedException` can occur; the only issue is that the client never learns whether reindexing succeeded.",
+                  "correct": false
+                },
+                {
+                  "text": "`_ =` only suppresses warning CS4014; the request's DI scope is disposed when the response completes, so the continuation typically fails with `ObjectDisposedException` on `_db`, and that exception surfaces at most through `TaskScheduler.UnobservedTaskException`.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Option 4 is correct. The discard is purely a compile-time silencer; the task runs unobserved, the request scope (and with it `_db`) is disposed when the response ends, and the continuation lands on a disposed context. Because nothing awaits the task, the exception stays inside it until the `TaskExceptionHolder` finalizer raises `UnobservedTaskException` — a silent failure unless you subscribe to that event. The robust replacement is to enqueue the work (a `Channel<T>` or an external queue) and process it in a `BackgroundService` that creates its own `IServiceScope` and links cancellation to `IHostApplicationLifetime`. Option 1 describes .NET Framework 4.0 behaviour; since 4.5, and in .NET Core/.NET 5+, unobserved task exceptions are raised on the event and swallowed by default (the opt-in `ThrowUnobservedTaskExceptions` runtime switch restores the crash, but it is off unless you set it); a `try/catch` inside `ReindexAsync` would also not stop `_db` from being disposed underneath it. Option 2 is wrong on every claim: the discard does not root, observe or log anything, and DI scopes are tied to the request, not to outstanding tasks. Option 3 is wrong because cancellation never flows implicitly — nothing links the task to `RequestAborted` unless you pass that token — and even if it did, cancellation would not prevent the scope-disposal race."
+            }
+          },
+          "tags": [
+            "fire-and-forget",
+            "unobserved-exception",
+            "aspnet-core",
+            "background-service"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-pitfalls.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "You inherit an ASP.NET Core Web API that contains four recurring patterns: `async void` helper methods; several `.Result` calls on `HttpClient` responses; a handful of `_ = DoSomethingAsync();` fire-and-forget calls; and a batch handler written as `try { await Task.WhenAll(tasks); } catch (Exception ex) { _log.LogError(ex.Message); }`. For each of the four patterns, explain what actually goes wrong at runtime in ASP.NET Core (including where the exception ends up) and what you would replace it with.",
+              "explanation": "A strong answer treats the four patterns as four different exception sinks. `async void` has no task, so its exception — thrown before or after the first `await` — is routed through `AsyncVoidMethodBuilder.SetException` to the captured `SynchronizationContext`, absent in ASP.NET Core MVC/minimal APIs, and ends up as an unhandled exception on a thread-pool thread that terminates the process; return `Task` instead and audit `Action`-typed parameters (`List<T>.ForEach`, `Parallel.ForEach`, event handlers) that turn async lambdas into `async void`. `.Result`/`.Wait()` cannot deadlock in ASP.NET Core because there is no context to fight over, but they pin a pool thread per request while the continuation needs another; the pool's starvation-avoidance injection adds roughly one thread per 500 ms (faster since .NET 6 for `Task.Wait`-style blocks, but still not free), so the symptom is rising latency and time-outs rather than a hang; exceptions come wrapped in `AggregateException` (or unwrapped via `GetAwaiter().GetResult()`); the fix is async end to end, not `Task.Run(...).Result` or `SetMinThreads`. `_ = DoSomethingAsync()` only silences CS4014: the task runs unobserved, its exception surfaces only via `TaskScheduler.UnobservedTaskException` when finalized (no crash by default since .NET Framework 4.5 / in .NET Core), and request-scoped services such as `DbContext` are disposed when the response completes, so the work usually dies with `ObjectDisposedException`; replace it with a `Channel<T>`-fed `BackgroundService` that owns its scope, cancellation and logging. The `WhenAll` handler loses data twice: `await` rethrows only the first faulted task's exception, so every other failure is invisible, and logging `ex.Message` discards the stack trace; keep a reference to the combined task and log each entry of `Exception.InnerExceptions` (or inspect the input tasks), passing the exception object to the logger.",
+              "rubric": [
+                "async void: explains that no Task is returned so nothing can await or catch it; the exception is posted to the current SynchronizationContext, and in ASP.NET Core (no context) it is rethrown on the thread pool and crashes the process; fix is to return Task (and to watch for Action-typed parameters such as List<T>.ForEach that create async void lambdas implicitly).",
+                "Sync-over-async: explains that ASP.NET Core does not deadlock (no SynchronizationContext) but suffers thread-pool starvation because each blocked request pins a thread while the continuation needs another, with slow thread injection; mentions AggregateException wrapping from .Result/.Wait() versus unwrapped rethrow from GetAwaiter().GetResult(); fix is async all the way, not Task.Run(...).Result or SetMinThreads.",
+                "Fire-and-forget: explains that `_ =` only suppresses CS4014, that the exception is unobserved and surfaces only via TaskScheduler.UnobservedTaskException without crashing by default (since .NET Framework 4.5 / in .NET Core), and that request-scoped resources (DbContext, HttpContext) are disposed when the response completes.",
+                "Proposes a correct replacement for fire-and-forget: enqueue into a Channel<T> or queue and process in a BackgroundService/IHostedService with its own DI scope, cancellation tied to host shutdown, and logging around failures.",
+                "WhenAll handler: explains that Task.WhenAll aggregates all exceptions but await rethrows only the first, so the other failures are lost; fix is to keep the combined task and log every entry of Exception.InnerExceptions (or each input task's Exception), passing the exception object rather than ex.Message so the stack trace is kept."
+              ]
+            }
+          },
+          "tags": [
+            "async-void",
+            "sync-over-async",
+            "fire-and-forget",
+            "task-whenall",
+            "aspnet-core"
+          ]
+        }
+      ]
+    }
+  ]
+}
