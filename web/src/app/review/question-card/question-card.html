@@ -1,0 +1,33 @@
+@let q = question();
+<header class="flex flex-wrap items-center gap-2 text-xs">
+  <span
+    class="inline-flex h-6 min-w-6 items-center justify-center rounded border border-line bg-surface-2 px-1.5 font-mono font-semibold text-text"
+    [attr.title]="levelName()"
+    [attr.aria-label]="'Level: ' + levelName()"
+    >{{ q.level }}</span
+  >
+  <nav aria-label="Question scope" class="flex min-w-0 items-center gap-1 text-muted">
+    <span class="truncate">{{ q.domain.title }}</span>
+    <span aria-hidden="true">›</span>
+    <span class="truncate">{{ q.topic.title }}</span>
+    <span aria-hidden="true">›</span>
+    <span class="truncate font-medium text-text">{{ q.concept.title }}</span>
+  </nav>
+  <span class="ml-auto flex items-center gap-1.5">
+    @if (q.isNew) {
+      <span class="rounded-full border border-line bg-surface-2 px-2 py-0.5 font-medium text-muted"
+        >new</span
+      >
+    }
+    @if (!q.reviewed) {
+      <span
+        class="rounded-full border border-bad bg-surface px-2 py-0.5 font-medium text-bad"
+        title="This question has not been human-reviewed yet"
+        >unreviewed</span
+      >
+    }
+  </span>
+</header>
+<div class="mt-4 text-base text-text">
+  <app-prompt-markdown [source]="q.prompt" />
+</div>

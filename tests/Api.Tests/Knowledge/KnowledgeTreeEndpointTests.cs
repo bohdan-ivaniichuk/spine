@@ -86,7 +86,7 @@ public sealed class KnowledgeTreeEndpointTests(ApiFixture fixture) : IAsyncLifet
     {
         var tree = await GetTreeAsync();
 
-        tree.Domains[0].Topics[1].Concepts.ShouldBeEmpty();
+        tree.Domains[0].Topics.Single(t => t.Slug == "csharp-lang").Concepts.ShouldBeEmpty();
         tree.Domains[1].Topics.ShouldAllBe(t => t.Concepts.Count == 0);
     }
 

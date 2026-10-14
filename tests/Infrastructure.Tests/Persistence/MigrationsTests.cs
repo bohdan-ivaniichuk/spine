@@ -19,7 +19,7 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task MigrateAsync_on_an_empty_database_applies_the_initial_migration()
+    public async Task MigrateAsync_on_an_empty_database_applies_every_migration()
     {
         await using var db = fixture.CreateContext();
         (await db.Database.GetPendingMigrationsAsync()).ShouldNotBeEmpty();
@@ -27,7 +27,7 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
         await Migrate(db);
 
         (await db.Database.GetPendingMigrationsAsync()).ShouldBeEmpty();
-        (await db.Database.GetAppliedMigrationsAsync()).Count().ShouldBe(1);
+        (await db.Database.GetAppliedMigrationsAsync()).Count().ShouldBe(2);
     }
 
     [Fact]
@@ -68,6 +68,31 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
         unique.ShouldContain("ix_topics_domain_id_slug");
         unique.ShouldContain("ix_concepts_topic_id_slug");
         unique.ShouldContain("ix_review_states_user_id_item_id");
+        unique.ShouldContain("ix_attempts_session_id_item_id");
+    }
+
+    [Fact]
+    public async Task Attempts_session_item_index_is_partial_on_session_id()
+    {
+        await using var db = fixture.CreateContext();
+        await Migrate(db);
+
+        var definition = await Scalars(db,
+            "SELECT indexdef AS \"Value\" FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ix_attempts_session_id_item_id'");
+
+        definition.ShouldHaveSingleItem().ShouldEndWith("WHERE (session_id IS NOT NULL)");
+    }
+
+    [Fact]
+    public async Task Sessions_membership_columns_have_defaults()
+    {
+        await using var db = fixture.CreateContext();
+        await Migrate(db);
+
+        var columns = await Scalars(db,
+            "SELECT column_name || ':' || data_type || ':' || column_default AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name IN ('question_ids','total_limit','new_limit') ORDER BY column_name");
+
+        columns.ShouldBe(["new_limit:integer:10", "question_ids:ARRAY:'{}'::text[]", "total_limit:integer:20"]);
     }
 
     [Fact]

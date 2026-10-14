@@ -1,3 +1,5 @@
+using InterviewPrep.Domain.Scheduling;
+
 namespace InterviewPrep.Domain.Progress;
 
 /// <summary>
@@ -23,4 +25,23 @@ public sealed class ReviewState
     public string? AlgorithmState { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>The scheduling-relevant fields as an immutable snapshot for <see cref="ISchedulingAlgorithm.Next"/>.</summary>
+    public ReviewSnapshot ToSnapshot() => new(IntervalDays, Ease, Repetitions, LastReviewedAt, DueAt, AlgorithmState);
+
+    /// <summary>Writes a scheduling decision back; the only place the six scheduling columns are set together.</summary>
+    public void Apply(SchedulingResult result, string algorithm)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentException.ThrowIfNullOrWhiteSpace(algorithm);
+
+        Algorithm = algorithm;
+        IntervalDays = result.IntervalDays;
+        Ease = result.Ease;
+        Repetitions = result.Repetitions;
+        LastReviewedAt = result.LastReviewedAt;
+        DueAt = result.DueAt;
+        AlgorithmState = result.AlgorithmState;
+        UpdatedAt = result.LastReviewedAt;
+    }
 }

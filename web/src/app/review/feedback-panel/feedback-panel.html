@@ -1,0 +1,20 @@
+@if (feedback(); as fb) {
+  <section
+    class="rounded-card border p-4 text-sm text-text"
+    [class]="fb.isCorrect ? 'border-ok bg-ok-soft' : 'border-bad bg-bad-soft'"
+    [attr.data-result]="fb.isCorrect ? 'correct' : 'incorrect'"
+  >
+    <p
+      class="border-l-4 pl-3 text-base font-semibold text-text"
+      [class]="fb.isCorrect ? 'border-ok' : 'border-bad'"
+    >
+      {{ fb.isCorrect ? 'Correct' : 'Incorrect' }}
+    </p>
+    <div class="mt-1">
+      <app-prompt-markdown [source]="fb.explanation" />
+    </div>
+    <p class="mt-2 text-xs text-muted">
+      Next review in {{ fb.intervalDays }} {{ fb.intervalDays === 1 ? 'day' : 'days' }}
+    </p>
+  </section>
+}

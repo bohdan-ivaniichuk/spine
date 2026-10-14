@@ -1,11 +1,17 @@
 <div class="flex min-h-screen flex-col bg-bg text-text">
   <header class="flex h-14 items-center justify-between border-b border-line bg-surface px-8">
     <div class="flex items-center gap-6">
-      <a href="/" class="text-base font-bold tracking-tight text-text">InterviewPrep</a>
+      <a routerLink="/" class="text-base font-bold tracking-tight text-text">InterviewPrep</a>
       <nav class="flex gap-4 text-sm text-muted" aria-label="Main">
-        <a href="/review" class="hover:text-text">Review</a>
-        <a href="/knowledge" class="hover:text-text">Knowledge</a>
-        <a href="/katas" class="hover:text-text">Katas</a>
+        <a routerLink="/review" routerLinkActive="text-text font-medium" class="hover:text-text"
+          >Review</a
+        >
+        <a routerLink="/knowledge" routerLinkActive="text-text font-medium" class="hover:text-text"
+          >Knowledge</a
+        >
+        <a routerLink="/katas" routerLinkActive="text-text font-medium" class="hover:text-text"
+          >Katas</a
+        >
       </nav>
     </div>
     <div class="flex items-center gap-4">

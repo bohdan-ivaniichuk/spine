@@ -76,6 +76,9 @@ public class ApiFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>Empties the progress tables so every review test class starts with no sessions, attempts or review states.</summary>
+    public Task ResetProgressAsync() => ExecuteSqlAsync("TRUNCATE attempts, review_states, sessions");
+
     public async Task<int> ExecuteSqlAsync(string sql, params NpgsqlParameter[] parameters)
     {
         await using var connection = new NpgsqlConnection(_db.GetConnectionString());

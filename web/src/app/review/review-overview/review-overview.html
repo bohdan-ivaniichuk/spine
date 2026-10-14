@@ -1,0 +1,172 @@
+<section class="mx-auto max-w-2xl">
+  <h1 class="text-2xl font-bold tracking-tight text-text">Daily review</h1>
+  <p class="mt-1 text-sm text-muted">
+    Due questions first, then new ones, one card at a time. Answers update the spaced-repetition
+    schedule.
+  </p>
+
+  @if (store.session(); as open) {
+    <div
+      class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-card border border-accent bg-accent-soft p-4 text-sm text-text"
+    >
+      <div>
+        <p class="font-semibold">Unfinished session</p>
+        <p class="text-muted">
+          {{ store.scopeLabel() }} · {{ store.answeredCount() }} / {{ store.total() }} answered
+        </p>
+      </div>
+      <button
+        type="button"
+        class="rounded-card bg-accent px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        (click)="resume()"
+      >
+        Resume
+      </button>
+    </div>
+  }
+
+  <form
+    class="mt-6 rounded-card border border-line bg-surface p-6 shadow-card"
+    [formGroup]="form"
+    (ngSubmit)="start()"
+  >
+    <fieldset class="grid gap-4 sm:grid-cols-3">
+      <legend class="sr-only">Scope</legend>
+      <label class="block text-sm">
+        <span class="mb-1 block font-medium text-text">Scope</span>
+        <select
+          formControlName="scopeType"
+          class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <option value="all">All domains</option>
+          <option value="domain">One domain</option>
+          <option value="topic">One topic</option>
+        </select>
+      </label>
+
+      @if (form.controls.scopeType.value !== 'all') {
+        <label class="block text-sm">
+          <span class="mb-1 block font-medium text-text">Domain</span>
+          <select
+            formControlName="domain"
+            class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <option value="">Choose a domain…</option>
+            @for (domain of domains(); track domain.slug) {
+              <option [value]="domain.slug">{{ domain.title }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      @if (form.controls.scopeType.value === 'topic') {
+        <label class="block text-sm">
+          <span class="mb-1 block font-medium text-text">Topic</span>
+          <select
+            formControlName="topic"
+            class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <option value="">Choose a topic…</option>
+            @for (topic of topics(); track topic.slug) {
+              <option [value]="topic.slug">{{ topic.title }}</option>
+            }
+          </select>
+        </label>
+      }
+    </fieldset>
+
+    <div
+      class="mt-5 min-h-12 rounded-card border border-line bg-surface-2 p-4 text-sm"
+      aria-live="polite"
+    >
+      @if (apiUnreachable()) {
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="font-medium text-bad">API unreachable — counts could not be loaded.</p>
+          <button
+            type="button"
+            class="rounded border border-line bg-surface px-3 py-1.5 text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            (click)="retry()"
+          >
+            Retry
+          </button>
+        </div>
+      } @else if (scopeQuery() === undefined) {
+        <p class="text-muted">
+          {{
+            form.controls.scopeType.value === 'topic'
+              ? 'Pick a domain and a topic'
+              : 'Pick a domain'
+          }}
+          to see what is due.
+        </p>
+      } @else if (overview.isLoading()) {
+        <p class="text-muted">Loading counts…</p>
+      } @else if (overview.hasValue()) {
+        @let o = overview.value();
+        @if (o.totalEligible === 0) {
+          <p class="text-text">No questions in this scope yet.</p>
+          <p class="mt-1 text-muted">
+            Import content first:
+            <code class="rounded bg-surface px-1 font-mono text-xs"
+              >docker compose run --rm api import-content</code
+            >
+          </p>
+        } @else if (nothingToReview()) {
+          <p class="font-medium text-text">Nothing to review right now.</p>
+          @if (o.nextDueAt) {
+            <p class="mt-1 text-muted">Next question due {{ o.nextDueAt | date: 'medium' }}.</p>
+          }
+        } @else {
+          <p class="text-text">
+            <span class="font-mono text-lg font-semibold">{{ o.dueCount }}</span> due ·
+            <span class="font-mono text-lg font-semibold">{{ o.newCount }}</span> new
+            <span class="text-muted">· {{ o.totalEligible }} eligible in scope</span>
+          </p>
+        }
+      }
+    </div>
+
+    <div class="mt-5 grid gap-4 sm:grid-cols-2">
+      <label class="block text-sm">
+        <span class="mb-1 block font-medium text-text">Questions per session</span>
+        <input
+          type="number"
+          formControlName="totalLimit"
+          [min]="minLimit"
+          [max]="maxLimit"
+          class="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        />
+        @if (form.controls.totalLimit.invalid) {
+          <span class="mt-1 block text-xs text-bad">Enter a number from 1 to 100.</span>
+        }
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block font-medium text-text">Of which new (max)</span>
+        <input
+          type="number"
+          formControlName="newLimit"
+          [min]="minLimit"
+          [max]="maxLimit"
+          class="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        />
+        @if (form.controls.newLimit.invalid) {
+          <span class="mt-1 block text-xs text-bad">Enter a number from 1 to 100.</span>
+        }
+      </label>
+    </div>
+
+    @if (store.error() && !store.session()) {
+      <p class="mt-4 text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
+    }
+
+    <div class="mt-6 flex items-center justify-end gap-3">
+      <button
+        type="submit"
+        class="rounded-card bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50"
+        [disabled]="!canStart() || form.invalid"
+      >
+        {{ starting() ? 'Starting…' : 'Start session' }}
+      </button>
+    </div>
+  </form>
+</section>

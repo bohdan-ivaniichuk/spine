@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FastEndpoints.Swagger;
 using InterviewPrep.Api.Cli;
+using InterviewPrep.Api.Errors;
 using InterviewPrep.Api.Health;
 using InterviewPrep.Infrastructure;
 using InterviewPrep.Infrastructure.Persistence;
@@ -29,6 +30,7 @@ builder.Host.UseSerilog((context, configuration) =>
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ReviewExceptionHandler>();
 builder.Services.AddFastEndpoints();
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("db", tags: ["ready"]);
 if (builder.Environment.IsDevelopment())
@@ -62,6 +64,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 app.UseSerilogRequestLogging();
+app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.MapHealth();
 app.UseFastEndpoints(c =>

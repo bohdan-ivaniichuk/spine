@@ -1,6 +1,9 @@
 namespace InterviewPrep.Domain.Progress;
 
-/// <summary>A review sitting: scope (all / one domain / one topic) and summary counts filled at finish.</summary>
+/// <summary>
+/// A review sitting: scope (all / one domain / one topic), the ordered membership frozen at start, the limits used,
+/// and summary counts filled at finish.
+/// </summary>
 public sealed class Session
 {
     public Guid Id { get; set; }
@@ -12,5 +15,9 @@ public sealed class Session
     public string? ScopeTopicSlug { get; set; }
     public int? AnsweredCount { get; set; }
     public int? CorrectCount { get; set; }
+    /// <summary>Ordered question ids chosen at start (due first, then new); never changes afterwards.</summary>
+    public string[] QuestionIds { get; set; } = [];
+    public int TotalLimit { get; set; }
+    public int NewLimit { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }

@@ -80,6 +80,8 @@ internal sealed class AttemptConfiguration : IEntityTypeConfiguration<Attempt>
         e.Property(x => x.Grading).HasColumnType("jsonb");
         e.HasIndex(x => new { x.UserId, x.ItemId, x.AnsweredAt }).IsDescending(false, false, true);
         e.HasIndex(x => x.SessionId);
+        // One answer per item per session (FR-005); partial so session-less attempts (feature 004) stay unconstrained.
+        e.HasIndex(x => new { x.SessionId, x.ItemId }).IsUnique().HasFilter("session_id IS NOT NULL");
         e.Timestamps(withUpdated: false);
     }
 }
@@ -102,6 +104,9 @@ internal sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         e.Property(x => x.ScopeType)
             .HasConversion(v => v.ToDbValue(), v => SessionScopeTypeExtensions.ParseSessionScopeType(v))
             .HasColumnType("text").IsRequired();
+        e.Property(x => x.QuestionIds).TextArray().HasDefaultValueSql("'{}'");
+        e.Property(x => x.TotalLimit).HasDefaultValue(20);
+        e.Property(x => x.NewLimit).HasDefaultValue(10);
         e.HasIndex(x => new { x.UserId, x.StartedAt }).IsDescending(false, true);
         e.Timestamps(withUpdated: false);
     }

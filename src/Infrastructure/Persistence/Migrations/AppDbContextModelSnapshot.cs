@@ -541,6 +541,11 @@ namespace InterviewPrep.Infrastructure.Persistence.Migrations
                     b.HasIndex("SessionId")
                         .HasDatabaseName("ix_attempts_session_id");
 
+                    b.HasIndex("SessionId", "ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attempts_session_id_item_id")
+                        .HasFilter("session_id IS NOT NULL");
+
                     b.HasIndex("UserId", "ItemId", "AnsweredAt")
                         .IsDescending(false, false, true)
                         .HasDatabaseName("ix_attempts_user_id_item_id_answered_at");
@@ -705,6 +710,19 @@ namespace InterviewPrep.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("finished_at");
 
+                    b.Property<int>("NewLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(10)
+                        .HasColumnName("new_limit");
+
+                    b.PrimitiveCollection<string[]>("QuestionIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("question_ids")
+                        .HasDefaultValueSql("'{}'");
+
                     b.Property<string>("ScopeDomainSlug")
                         .HasColumnType("text")
                         .HasColumnName("scope_domain_slug");
@@ -721,6 +739,12 @@ namespace InterviewPrep.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
+
+                    b.Property<int>("TotalLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(20)
+                        .HasColumnName("total_limit");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")

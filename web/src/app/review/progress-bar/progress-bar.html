@@ -1,0 +1,19 @@
+<div class="flex items-center gap-4">
+  @if (label()) {
+    <span
+      class="inline-flex max-w-[50%] truncate rounded-full border border-line bg-surface-2 px-3 py-0.5 text-xs font-medium text-muted"
+      >{{ label() }}</span
+    >
+  }
+  <div
+    class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2"
+    role="progressbar"
+    aria-label="Session progress"
+    [attr.aria-valuemin]="0"
+    [attr.aria-valuemax]="total()"
+    [attr.aria-valuenow]="position()"
+  >
+    <div class="h-full rounded-full bg-accent transition-[width]" [style.width.%]="percent()"></div>
+  </div>
+  <span class="shrink-0 font-mono text-sm text-muted">{{ position() }} / {{ total() }}</span>
+</div>
