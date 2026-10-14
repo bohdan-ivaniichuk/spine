@@ -1,0 +1,962 @@
+{
+  "domain": "architecture",
+  "topic": "lead",
+  "concepts": [
+    {
+      "slug": "code-review-culture",
+      "title": "Code Review Culture: What to Review, PR Size, Automation vs Human Review",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Code Review Culture: What to Review, PR Size, Automation vs Human Review",
+          "note": "## What it is\n\nCode review is the team's main mechanism for **shared ownership** of a codebase: a second engineer reads a change before it merges and either approves it or asks for changes. For a tech lead it is less about catching bugs personally and more about designing a review *system*: what humans look at, what machines enforce, how big a change may be, how fast reviews happen and how disagreements end.\n\n## How it works underneath\n\n**What review actually delivers.** Microsoft's study of modern code review (Bacchelli & Bird, ICSE 2013) found that developers *expect* review to find defects, but the outcomes are dominated by knowledge transfer, team awareness, better solutions and maintainability; defect comments are a minority. So optimise for understanding: a reviewer who cannot explain the change afterwards has not reviewed it.\n\n**Split the work between machines and humans.**\n\n- *Automate*: formatting, lint rules, analyzers (`TreatWarningsAsErrors`, Roslyn/ESLint), tests and coverage gates, dependency and secret scanning, build of every PR. A human comment about whitespace is a process bug.\n- *Human review*: design and boundaries (is this the right place for the code?), correctness of non-obvious logic, concurrency and failure modes, security of inputs, naming and readability, whether tests prove the behaviour rather than the implementation, and operability (logs, metrics, migrations, rollback). AI reviewers sit in between: useful first pass, never the approver.\n\n**PR size.** The widely cited SmartBear/Cisco study found defect detection falls sharply once a review exceeds a few hundred lines or an hour of attention. Large PRs get rubber-stamped (\"LGTM\" on 2,000 lines is the classic smell). The lead's levers: split refactors from behaviour changes, stack PRs, hide incomplete work behind feature flags so main stays releasable, and make \"small PR\" an explicit team norm rather than a reviewer's plea.\n\n**Standard of approval.** Google's engineering practices state it well: approve once the change *definitely improves the overall health of the codebase*, even if it is not perfect. Prefix non-blocking remarks with `Nit:`; separate \"must fix\" from \"consider\". Perfectionism in review slows the team and teaches people to batch work into bigger, scarier PRs.\n\n**Latency.** Review wait time is usually the biggest component of PR cycle time. Google's guideline is a first response within one business day at most; many teams aim for same-day. Track time-to-first-review, not number of comments.\n\n**Ownership.** `CODEOWNERS` routes PRs to the right people and, with branch protection, makes their approval mandatory. In GitHub's `CODEOWNERS`, the **last** matching pattern wins, so put broad rules first and specific ones later.\n\n## What an interviewer probes\n\n- \"What do you look for in a review?\" — expect a prioritised list (design → correctness → tests → readability), not \"everything\".\n- \"What do you automate?\" — anything objective and mechanical.\n- \"A 2,000-line PR lands on Friday. What do you do?\" — split it, or walk through it synchronously, never silent approval.\n- \"How do you handle a reviewer and author who disagree?\" — style guide or data first; if neither decides it, the author's choice stands for preference matters; escalate genuine design disputes to a short synchronous discussion and record it (ADR if significant).\n- \"How do juniors review seniors?\" — everyone reviews; it is a learning channel both ways.\n\n## Common misconceptions\n\n- \"Review exists to find bugs.\" Tests and static analysis find most bugs; review mainly spreads knowledge and guards design.\n- \"More approvers means more quality.\" Two required approvals often means two half-reviews and double latency.\n- \"Tone doesn't matter if the point is right.\" Comments are about the code, phrased as questions or suggestions; harsh review drives people to hide work in huge PRs.\n\n## Example: routing and a PR template\n\n```text\n# .github/CODEOWNERS  (last matching pattern wins)\n*                         @team/backend @team/frontend\n/web/                     @team/frontend\n/src/Infrastructure/Persistence/Migrations/  @team/db-owners\n```\n\n```markdown\n<!-- .github/pull_request_template.md -->\n## Why\n## What changed (and what deliberately did not)\n## How it was tested\n## Risk / rollback\n- [ ] Migration is backwards compatible\n- [ ] Feature flag: ___\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.code-review-culture.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "code-review",
+            "automation",
+            "team-process"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"What should a human reviewer spend their attention on in a pull request?\" Which answer reflects a mature review culture?",
+              "options": [
+                {
+                  "text": "Formatting, naming conventions and import order first, because consistency is the foundation that every other quality attribute builds on.",
+                  "correct": false
+                },
+                {
+                  "text": "Design and boundaries, correctness of non-obvious logic and failure modes, whether tests prove the behaviour, and readability; formatting and lint-level rules are enforced by tooling in CI.",
+                  "correct": true
+                },
+                {
+                  "text": "Primarily hunting for bugs line by line, since finding defects is the main measurable outcome of code review.",
+                  "correct": false
+                },
+                {
+                  "text": "Only whether CI is green, because if the automated gates pass, a human reading the code adds little beyond delay.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Mature teams push every objective, mechanical rule (formatting, lint, analyzers, tests, secret scanning) into CI and spend scarce human attention on what tools cannot judge: design, non-obvious correctness, failure modes, test quality and readability. Starting with formatting is the classic anti-pattern: it is exactly what a formatter enforces for free, and human comments on it are noise. Line-by-line bug hunting is a common belief, but research on modern code review (Bacchelli & Bird, Microsoft, 2013) shows defects are a minority of review outcomes; knowledge transfer and design improvement dominate, and tests find most bugs. 'Green CI is enough' ignores design and maintainability, which no gate measures, and removes the knowledge-sharing that is review's main benefit."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.code-review-culture.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "code-review",
+            "pr-size",
+            "feature-flags"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A developer opens a 1,800-line PR that mixes a large refactor of the order module with a new discount feature. It has good tests and CI is green. As the lead, what is the best response?",
+              "options": [
+                {
+                  "text": "Approve it: the tests are green, and asking for a split now wastes the work already done.",
+                  "correct": false
+                },
+                {
+                  "text": "Review a representative sample of the files thoroughly and approve if the sample is clean.",
+                  "correct": false
+                },
+                {
+                  "text": "Ask for it to be split into a behaviour-preserving refactor PR and a feature PR (stacked if needed), offer to walk through it together, and agree on a team norm for PR size going forward.",
+                  "correct": true
+                },
+                {
+                  "text": "Reject it and ask the developer to re-implement the feature from scratch in small increments.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Review effectiveness collapses on very large diffs (the SmartBear/Cisco study is the usual citation: detection drops sharply beyond a few hundred lines), and mixing a refactor with a behaviour change makes it impossible to see which diffs change behaviour. Splitting into a pure refactor (reviewable quickly as 'no behaviour change') plus a focused feature PR keeps the work, restores reviewability, and the team norm prevents a repeat. Approving because tests are green is the rubber-stamp failure: tests prove what they test, not the design or the unintended behaviour changes inside the refactor. Sampling gives false confidence; defects and design problems are not uniformly distributed. Rejecting and redoing from scratch throws away good work and punishes the developer for a process gap the lead should fix."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.code-review-culture.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "code-review",
+            "approval-standard",
+            "team-process"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A senior reviewer repeatedly blocks PRs over choices that are matters of taste (e.g. `foreach` vs LINQ where both are clear, method ordering). PR cycle time is growing. Which approval standard should the lead establish?",
+              "options": [
+                {
+                  "text": "Approve when the change definitely improves the overall health of the codebase even if it is not perfect; mark preference remarks as non-blocking (`Nit:`), and settle recurring style debates once in the style guide or an analyzer rule.",
+                  "correct": true
+                },
+                {
+                  "text": "Require every comment to be resolved before merge, so the codebase converges on the most experienced reviewer's preferences.",
+                  "correct": false
+                },
+                {
+                  "text": "Remove that reviewer from the review rotation, since blocking slows delivery.",
+                  "correct": false
+                },
+                {
+                  "text": "Require two approvals on every PR so a single reviewer's preferences can be outvoted.",
+                  "correct": false
+                }
+              ],
+              "explanation": "This is Google's published standard for reviewers: favour approving a change once it improves code health, even if it isn't perfect, and use `Nit:` for optional polish. Recurring taste debates should be decided once (style guide, `.editorconfig`, analyzer) so they stop consuming review time. Resolving every comment toward the senior's taste is the cause of the problem: it inflates cycle time and teaches authors to batch work into larger PRs. Removing the reviewer treats a calibration issue as a people issue and loses their real design insight. Two mandatory approvals doubles latency and does not change the standard each reviewer applies."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.code-review-culture.mcq.4",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "code-review",
+            "codeowners",
+            "github"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given this GitHub `.github/CODEOWNERS` file, who is requested as code owner for a change to `src/Infrastructure/Persistence/Migrations/20261001_AddIndex.cs`?\n\n```text\n/src/Infrastructure/Persistence/Migrations/  @db-owners\n/src/                                        @backend\n*                                            @everyone\n```",
+              "options": [
+                {
+                  "text": "`@db-owners`, because the most specific matching path always takes precedence.",
+                  "correct": false
+                },
+                {
+                  "text": "`@db-owners`, `@backend` and `@everyone`, because all matching rules are combined.",
+                  "correct": false
+                },
+                {
+                  "text": "`@everyone`, because `*` matches every file and therefore overrides the others.",
+                  "correct": false
+                },
+                {
+                  "text": "`@everyone`, because in `CODEOWNERS` the last matching pattern wins, regardless of specificity.",
+                  "correct": true
+                }
+              ],
+              "explanation": "GitHub evaluates `CODEOWNERS` so that the last matching pattern in the file takes precedence; specificity does not matter. Here `*` is last and matches everything, so it wins and `@everyone` owns every file, silently disabling the migration and backend rules. The fix is to order rules from broad to specific (`*` first, migrations last). 'Most specific wins' is the intuitive misconception borrowed from routing tables or CSS specificity. Rules are not combined: only one pattern's owners apply per file. The third option picks the right owner but for the wrong reason: `*` wins because it is last, not because it is a wildcard; moved to the top, it would lose."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.code-review-culture.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "code-review",
+            "team-process",
+            "automation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"How do you run code review on your team?\" Describe what reviewers focus on, what you automate, how you keep PRs small and reviews fast, and how disagreements in review get resolved.",
+              "explanation": "Model answer: review exists mainly for shared ownership and design quality, not as the primary bug filter. Everything objective is automated in CI (formatter, analyzers as errors, tests, coverage on changed code, dependency/secret scanning, maybe an AI first pass), so humans focus on design and boundaries, non-obvious correctness and failure modes, test quality, readability and operability. PRs are kept small by norm (a few hundred lines, refactors separate from behaviour changes, stacked PRs, feature flags so incomplete work can merge) and reviews are fast by agreement (first response same day, at most one business day, tracked as time-to-first-review). The approval bar is 'improves code health', with `Nit:` for non-blocking remarks; preference disputes are settled once in the style guide, genuine design disagreements move to a short call and, if significant, an ADR. Everyone reviews, including juniors reviewing seniors, because it spreads knowledge.",
+              "rubric": [
+                "Distinguishes what is automated (formatting, lint/analyzers, tests, security scanning) from what humans review (design, non-obvious correctness, failure modes, test quality, readability).",
+                "Gives a concrete approach to PR size: small PRs as a norm, separating refactors from behaviour changes, and at least one technique such as stacked PRs or feature flags.",
+                "Addresses review latency with a concrete expectation (e.g. first response within a business day) or metric (time-to-first-review / cycle time).",
+                "Defines an approval standard that avoids perfectionism (approve when it improves code health; non-blocking nits) and a path for resolving disagreements (style guide, synchronous discussion, ADR or escalation).",
+                "Mentions knowledge sharing / shared ownership as a primary purpose of review (e.g. juniors reviewing seniors, rotating reviewers)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "tech-debt-management",
+      "title": "Tech Debt Management: Classification, Prioritisation, Negotiating with Product",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Tech Debt Management: Classification, Prioritisation, Negotiating with Product",
+          "note": "## What it is\n\nTechnical debt is the gap between the code you have and the code that would make the *next* change cheap. Ward Cunningham's original metaphor (1992) was about shipping with an incomplete understanding and paying it back by refactoring as understanding grows; it was never a licence for sloppy code. The debt has **principal** (cost to fix) and **interest** (the extra cost every change, incident or onboarding pays while it stays). A lead's job is to make that interest visible and to spend repayment where interest is highest.\n\n## How it works underneath\n\n**Classification.** Martin Fowler's *technical debt quadrant* crosses *deliberate / inadvertent* with *reckless / prudent*:\n\n| | Reckless | Prudent |\n|---|---|---|\n| **Deliberate** | \"We don't have time for design.\" | \"Ship now, consciously, and repay after the launch.\" |\n| **Inadvertent** | \"What's layering?\" | \"Now we know how we should have built it.\" |\n\nPrudent-inadvertent debt is unavoidable: learning the domain reveals a better design. Reckless debt is a skills or process problem, fixed with review and mentoring, not with a refactoring backlog. Practical categories a lead tracks alongside: code/design debt, architecture debt (wrong boundaries, shared database), test debt, dependency debt (EOL frameworks, CVEs), infrastructure/ops debt, and documentation/knowledge debt (bus factor of one).\n\n**Prioritisation = interest, not ugliness.** Code that is ugly but rarely touched has almost zero interest. Adam Tornhill's *hotspot* analysis multiplies change frequency (from git history) by complexity: the files that are both complex and changed every sprint are where debt costs real money. Other interest signals: incidents and their root causes, lead time for changes in an area, flaky tests, onboarding friction, security exposure. Rank by (interest × risk) / effort, and tie each item to an upcoming roadmap item that will touch that area.\n\n**Repayment strategies.**\n\n- *Continuous*: boy-scout rule, refactor in the same area as the feature (separate PR), a standing capacity share (many teams use 15–25%).\n- *Targeted*: a scoped item with a measurable outcome (\"move order pricing behind an interface; cut pricing-change lead time from 5 days to 1\").\n- *Incremental replacement*: the strangler fig pattern (route traffic piece by piece to new components) instead of a big-bang rewrite, which loses years of embedded bug fixes and stalls feature delivery.\n- *Deliberate debt with an exit*: when you take debt on purpose, write it down with the trigger for repayment (ADR or a ticket linked from a `TODO`).\n\n**Negotiating with product.** Product owners do not buy \"refactoring\"; they buy speed, reliability and risk reduction. Translate: \"every pricing change takes a week and caused two incidents this quarter; three weeks of work brings that to a day\". Show the data (lead time, incident counts, hotspot chart), offer options with trade-offs, and prefer a sustained allocation over periodic \"tech debt sprints\", which are the first thing cut when a deadline appears.\n\n## What an interviewer probes\n\n- \"How do you decide which tech debt to fix first?\" — interest and risk, not aesthetics.\n- \"How do you get product buy-in?\" — business language, data, options, a standing budget.\n- \"Rewrite or refactor?\" — strangler fig almost always; full rewrite only for small, well-understood systems.\n- \"Is all debt bad?\" — no; deliberate, prudent debt with a repayment plan is a legitimate business decision.\n\n## Common misconceptions\n\n- \"Tech debt = bad code.\" Much of it is prudent learning; and bad code nobody touches is not worth paying down.\n- \"We will fix it in a dedicated cleanup sprint.\" It gets cancelled; continuous allocation survives.\n- \"Hide refactoring inside estimates.\" Silent padding erodes trust and hides the cost the business needs to see; refactoring needed to deliver a feature is legitimately part of the estimate, but the debt itself should be visible in the backlog.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.tech-debt-management.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "tech-debt",
+            "classification",
+            "fowler-quadrant"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"How do you classify technical debt?\" After a year in production, the team says: \"We didn't know the outbox pattern when we built order events; now that we understand the failure modes, we can see how it should have been built.\" Where does this sit in Fowler's technical debt quadrant?",
+              "options": [
+                {
+                  "text": "Reckless and deliberate: the team shipped without doing the necessary design research.",
+                  "correct": false
+                },
+                {
+                  "text": "Prudent and inadvertent: the team made reasonable decisions and only learned the better design by building and running the system.",
+                  "correct": true
+                },
+                {
+                  "text": "Prudent and deliberate: the team consciously chose to ship first and repay later.",
+                  "correct": false
+                },
+                {
+                  "text": "It is not technical debt at all, because the original code had no bugs when it was written.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Fowler's quadrant crosses deliberate/inadvertent with reckless/prudent. 'Now we know how we should have done it' is his own example of prudent-inadvertent debt: it is the normal by-product of learning a domain, not a failure. Reckless-deliberate would be knowingly skipping design ('no time for design'), which the statement does not describe. Prudent-deliberate requires a conscious decision at the time to take a shortcut and repay later; here the team did not know. 'Not debt because there were no bugs' misreads the metaphor: debt is the extra cost future changes pay, which is independent of whether the code was defect-free when written."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.tech-debt-management.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "tech-debt",
+            "prioritisation",
+            "hotspots"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You have budget to pay down one area this quarter. Module A is a 3,000-line legacy reporting class with poor naming and no tests, changed twice in the last year. Module B is a moderately messy pricing service changed in 70% of sprints, with two incidents last quarter traced to it. Which is the strongest choice and reasoning?",
+              "options": [
+                {
+                  "text": "Module A, because it has the worst code quality metrics and the lowest test coverage.",
+                  "correct": false
+                },
+                {
+                  "text": "Module A, because untested code is the highest risk regardless of how often it changes.",
+                  "correct": false
+                },
+                {
+                  "text": "Module B, because debt should be prioritised by the interest it charges (change frequency × complexity, incidents, lead time), and B pays that interest almost every sprint.",
+                  "correct": true
+                },
+                {
+                  "text": "Neither; split the budget evenly so both improve and no stakeholder feels ignored.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Debt costs money when work passes through it. Hotspot analysis (Adam Tornhill) multiplies change frequency by complexity; B is touched constantly and is causing incidents, so every improvement there pays back immediately. A is ugly but almost never changed, so its interest is close to zero; poor metrics alone are an aesthetic argument. Untested code is a risk only when it changes or when its behaviour matters in an incident; A changed twice in a year, and characterisation tests can be added if and when it is touched. Splitting the budget evenly spreads effort too thin to finish either and ignores the interest data; it optimises for stakeholder optics, not outcomes."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.tech-debt-management.mcq.3",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "tech-debt",
+            "stakeholders",
+            "negotiation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Product says there is no room on the roadmap for tech debt. Which approach is most likely to get sustained investment?",
+              "options": [
+                {
+                  "text": "Quietly pad every feature estimate by 30% and use the slack for refactoring, so product never has to approve it.",
+                  "correct": false
+                },
+                {
+                  "text": "Translate the debt into business impact with data (lead time in the affected area, incident count, onboarding time), propose options with costs and expected outcomes, and agree a standing capacity share tied to roadmap areas.",
+                  "correct": true
+                },
+                {
+                  "text": "Request a dedicated two-sprint tech-debt phase after the next release, when pressure is lower.",
+                  "correct": false
+                },
+                {
+                  "text": "Escalate to the CTO that the codebase is unsustainable and request a feature freeze until it is cleaned up.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Product owners fund outcomes, so the debt must be expressed as speed, reliability and risk, backed by numbers, with options rather than ultimatums; a standing allocation (often 15–25%) survives deadlines far better than one-off efforts. Silent padding is a common habit but erodes trust when discovered and hides the true cost from the people deciding priorities (refactoring a feature genuinely requires belongs in its estimate openly, which is different). A dedicated cleanup phase 'after the release' is the first thing cut when the next deadline appears. Escalating for a freeze is adversarial, rarely granted, and without data it reads as engineers wanting to polish."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.tech-debt-management.mcq.4",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "tech-debt",
+            "strangler-fig",
+            "legacy"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A 10-year-old monolith handles billing and is the main source of delivery friction. The team proposes a full rewrite in a new stack, running in parallel until feature parity. Which response reflects lowest-risk practice?",
+              "options": [
+                {
+                  "text": "Approve the rewrite: a clean architecture designed from today's requirements will avoid all the accumulated debt.",
+                  "correct": false
+                },
+                {
+                  "text": "Freeze all feature work on the monolith until the rewrite reaches parity, so the target does not move.",
+                  "correct": false
+                },
+                {
+                  "text": "Reject any structural change and limit work to the boy-scout rule inside the existing monolith.",
+                  "correct": false
+                },
+                {
+                  "text": "Use the strangler fig pattern: put a routing seam in front, extract one capability at a time behind it, prove each in production, and retire the old code path as each piece migrates.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The strangler fig (Fowler) replaces a system incrementally: each extracted capability delivers value and is validated in production, risk is bounded, and you can stop at any point with a working system. Big-bang rewrites chase a moving target, lose the years of edge-case fixes embedded in the old code, and deliver nothing until parity; 'avoid all accumulated debt' ignores that much of the old complexity is real business logic. Freezing features makes the business pay the full cost upfront and is rarely sustainable. Boy-scout refactoring alone is useful but cannot fix architectural debt such as wrong boundaries or a shared database; a structural problem needs a structural (but incremental) plan."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.tech-debt-management.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "tech-debt",
+            "prioritisation",
+            "stakeholders"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"How do you manage technical debt on your team, and how do you convince product to spend time on it?\" Use a concrete example if you have one.",
+              "explanation": "Model answer: debt is made visible (a debt register or labelled backlog items, each with the area, the symptom and the cost), classified (prudent vs reckless, deliberate vs inadvertent; code, architecture, test, dependency, ops debt), and prioritised by interest: hotspots from git history (change frequency × complexity), incidents, lead time, security exposure, ranked against effort and linked to upcoming roadmap work. Repayment is continuous (boy-scout rule, refactor-first PRs in the feature area, a standing 15–25% capacity share) plus targeted items with measurable outcomes; structural problems use strangler-fig migration rather than rewrites. Product is convinced with business language and data ('pricing changes take five days and caused two incidents; three weeks brings that to one day'), options with trade-offs, and reporting the outcome afterwards to build credibility. Deliberate debt is recorded with a repayment trigger.",
+              "rubric": [
+                "Explains how debt is made visible and classified (e.g. Fowler quadrant or categories such as code, architecture, test, dependency, ops debt).",
+                "Prioritises by interest/impact (change frequency, incidents, lead time, risk) rather than code aesthetics, ideally mentioning hotspots or a cost/benefit ranking.",
+                "Describes a repayment strategy that is sustainable (continuous allocation, boy-scout rule, refactor alongside related features) and prefers incremental replacement (strangler fig) over big-bang rewrites.",
+                "Frames the conversation with product in business terms backed by data and offers options/trade-offs rather than ultimatums or hidden padding.",
+                "Mentions closing the loop: measuring or reporting the outcome after repayment, or recording deliberate debt with a repayment trigger."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "adr-and-decision-making",
+      "title": "ADRs and Decision-Making: Recording Decisions, Reversible vs Irreversible",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "ADRs and Decision-Making: Recording Decisions, Reversible vs Irreversible",
+          "note": "## What it is\n\nAn **Architecture Decision Record (ADR)** is a short document that captures one architecturally significant decision: the context that forced it, the decision itself, and its consequences. Michael Nygard popularised the format in 2011 (\"Documenting Architecture Decisions\"). ADRs live in the repository (`docs/architecture/decisions/0007-use-outbox-for-order-events.md`), are reviewed like code and form an append-only log of *why* the system looks the way it does.\n\nDecision-making is the broader skill: knowing which decisions deserve that rigour, who makes them, how fast, and how to keep options open.\n\n## How it works underneath\n\n**The record.** Nygard's template has five parts: *Title*, *Status* (proposed, accepted, deprecated, superseded by ADR-N), *Context* (forces, constraints, facts at the time), *Decision* (active voice: \"We will…\"), *Consequences* (positive, negative and neutral — what becomes easier and what becomes harder). Variants such as MADR add *considered options* with pros and cons, which is the most valuable part for future readers: it stops the team re-litigating rejected alternatives.\n\n**Immutability.** An accepted ADR is not edited to reflect a new direction. You write a new ADR that supersedes it and update only the old one's status. The log then shows the evolution, including why the first decision made sense at the time.\n\n**What is \"architecturally significant\"?** Decisions that are expensive to reverse, affect structure or cross-cutting qualities (consistency model, security, deployment), constrain other teams, or introduce a new technology. Choosing a variable name is not; choosing PostgreSQL over a document store, introducing an outbox, adopting a modular monolith, or pinning a public API versioning scheme is.\n\n**Reversible vs irreversible.** Jeff Bezos's 2015 shareholder letter split decisions into *Type 1* (one-way doors: consequential and hard or impossible to reverse) and *Type 2* (two-way doors: you can walk back through). Type 2 decisions should be made quickly, by small groups or individuals close to the work; treating them like Type 1 is the typical large-organisation slowness. Type 1 decisions deserve deliberation, prototypes and an ADR. A lead's best move is often to **convert a one-way door into a two-way door**: put the choice behind an interface or adapter, use a feature flag, run a spike, use a parallel run, keep a data migration reversible (expand–contract).\n\n**Timing.** Lean software development's *last responsible moment*: defer a decision until the cost of not deciding exceeds the cost of deciding, so it is made with the most information. It is not \"as late as possible\"; past that moment, delay itself becomes the decision.\n\n**Who decides.** Options range from the lead deciding, through consult-then-decide, to consensus; a good lead states the mode upfront. When peers disagree: agree the decision criteria first (latency, cost, team skills, operability), time-box the debate, gather data with a spike if possible, decide, and ask everyone to *disagree and commit*. Majority votes on technical questions tend to reward popularity over evidence.\n\n## What an interviewer probes\n\n- \"What is an ADR, what goes in it, when do you write one?\"\n- \"How do you treat reversible vs irreversible decisions differently?\"\n- \"Two seniors disagree on an architecture choice — what do you do?\"\n- \"Tell me about a decision you made that turned out wrong\" — the answer should show the reasoning was recorded and the reversal was cheap or planned.\n\n## Common misconceptions\n\n- \"ADRs are design docs you keep up to date.\" They are point-in-time records; the current design is the sum of non-superseded ADRs plus the code.\n- \"Every decision needs an ADR.\" Over-documentation kills the practice; reserve it for significant ones.\n- \"Decide as late as possible.\" Late is only good until the cost of delay overtakes it.\n- \"Record only what we chose.\" Rejected options and their reasons are what save the next debate.\n\n## Template\n\n```markdown\n# 0007. Publish order events through a transactional outbox\n\nStatus: Accepted (2026-03-02). Supersedes 0003.\n\n## Context\nOrder events are published to the broker after `SaveChanges`. A crash between\nthe two loses events; two incidents last quarter. We need at-least-once delivery\nwithout distributed transactions.\n\n## Options considered\n1. Keep publish-after-commit with retries: still loses events on process crash.\n2. Transactional outbox + relay: atomic with the business write; adds a table and a worker.\n3. CDC (Debezium) on the orders table: no app changes; new infrastructure to run.\n\n## Decision\nWe will write events to an `outbox` table in the same transaction and publish\nthem with a background relay. Consumers must be idempotent.\n\n## Consequences\n+ No lost events; replay is possible from the table.\n- At-least-once delivery: duplicates possible; publish latency of up to 1 s.\n- A new worker to monitor; outbox table needs cleanup.\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.adr-and-decision-making.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "adr",
+            "documentation",
+            "architecture"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"What is an ADR and how do you maintain it?\" Which statement about Architecture Decision Records is correct?",
+              "options": [
+                {
+                  "text": "An ADR is a living design document: when the decision changes, you update the existing ADR so it always describes the current architecture.",
+                  "correct": false
+                },
+                {
+                  "text": "An ADR records one significant decision with its context, the decision and its consequences; once accepted it is not rewritten, and a later change of direction is a new ADR that supersedes it.",
+                  "correct": true
+                },
+                {
+                  "text": "An ADR should capture only the chosen option; listing rejected alternatives invites the team to reopen settled debates.",
+                  "correct": false
+                },
+                {
+                  "text": "An ADR is created after an architecture review board approves a decision, as the board's official minutes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Nygard's format (Title, Status, Context, Decision, Consequences) records a single decision at a point in time, and the log is append-only: a new ADR supersedes the old one, whose status is updated to 'Superseded by ADR-N'. That preserves why each choice made sense when it was made. The 'living design document' option describes a design doc, not an ADR; editing ADRs destroys the history that is their whole point. Omitting rejected alternatives has it backwards: recording them with reasons is what prevents re-litigation. ADRs are written by the team, usually as a PR in the repo with status 'Proposed'; they do not require a review board, and treating them as board minutes turns a lightweight practice into bureaucracy."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.adr-and-decision-making.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "decision-making",
+            "reversibility",
+            "one-way-door"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Using Bezos's one-way vs two-way door distinction, which of these is most clearly a one-way door that deserves slow, deliberate decision-making and an ADR?",
+              "options": [
+                {
+                  "text": "Choosing Serilog vs NLog behind `ILogger<T>` for a new service.",
+                  "correct": false
+                },
+                {
+                  "text": "Enabling a new checkout flow behind a feature flag for 5% of users.",
+                  "correct": false
+                },
+                {
+                  "text": "Defining the URL and payload contract of a public API that external partners will integrate against.",
+                  "correct": true
+                },
+                {
+                  "text": "Picking which of two equivalent CSS utility approaches the team uses for a new admin screen.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A public contract consumed by external partners is expensive or impossible to reverse: once partners integrate, any change requires versioning, migration windows and coordination you do not control, so it is a Type 1 decision. The logging library sits behind the `ILogger<T>` abstraction, so swapping it later is cheap: a two-way door, even though it feels 'architectural'. A feature-flagged rollout to 5% is the archetype of a two-way door: you can turn it off. The CSS choice for one internal screen is local and cheap to change. The interview insight is that abstractions, flags and staged rollouts are tools for turning one-way doors into two-way doors."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.adr-and-decision-making.mcq.3",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "decision-making",
+            "team-leadership",
+            "disagree-and-commit"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Two senior engineers on your team are deadlocked for a week over whether to use a message broker or database polling for an internal integration. Both have reasonable arguments. What should you do as lead?",
+              "options": [
+                {
+                  "text": "Hold a team vote and go with the majority, so the decision is democratic and everyone has a say.",
+                  "correct": false
+                },
+                {
+                  "text": "Agree explicit decision criteria first (e.g. latency needs, operational cost, team skills), time-box a spike if data is missing, make the call against those criteria, record it in an ADR with the rejected option, and ask both to disagree and commit.",
+                  "correct": true
+                },
+                {
+                  "text": "Let both engineers build their version in parallel and merge whichever is finished first.",
+                  "correct": false
+                },
+                {
+                  "text": "Escalate to the CTO, because a lead should not take sides between two senior peers.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Deadlocks usually persist because people argue solutions while silently weighting different criteria. Making the criteria explicit, gathering missing data through a time-boxed spike, deciding, and recording the reasoning (including the rejected option) resolves this decision and reduces the next one; disagree-and-commit keeps the team moving without demanding fake consensus. A vote rewards popularity, not evidence, and leaves the minority unconvinced. Parallel builds waste effort and decide on speed of coding rather than fitness. Escalating an ordinary team-level technical decision abdicates the lead's role; escalation is for decisions outside the team's authority."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.adr-and-decision-making.mcq.4",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "decision-making",
+            "last-responsible-moment",
+            "lean"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement best describes the \"last responsible moment\" principle from lean software development?",
+              "options": [
+                {
+                  "text": "Defer a decision until the cost of not deciding starts to exceed the benefit of waiting for more information; beyond that point delay itself becomes a (usually bad) decision.",
+                  "correct": true
+                },
+                {
+                  "text": "Make every architectural decision as late as possible, ideally during implementation, to keep maximum flexibility.",
+                  "correct": false
+                },
+                {
+                  "text": "Make all significant decisions upfront in a design phase so that no implementation work is wasted.",
+                  "correct": false
+                },
+                {
+                  "text": "Defer decisions until a stakeholder explicitly requests one, so engineering never decides prematurely.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The principle (Poppendieck, Lean Software Development) balances information value against the cost of delay: wait while waiting buys useful knowledge and keeps options open, decide once further delay starts to block work or close options by default. 'As late as possible' is the common misreading; past the responsible moment you are deciding by inaction, for example by letting code accumulate around an implicit choice. 'Everything upfront' is the opposite error: deciding with the least information available. Waiting for a stakeholder to ask outsources timing to people who cannot see the technical cost of delay."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.adr-and-decision-making.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "adr",
+            "decision-making",
+            "reversibility"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"How do you make and document architectural decisions on your team?\" Cover when a decision needs formal treatment, how reversibility changes your process, how you handle disagreement, and what an ADR contains.",
+              "explanation": "Model answer: most decisions are two-way doors and are made quickly by the people closest to the work; formal treatment (proposal, spike if needed, ADR) is reserved for architecturally significant ones: hard to reverse, cross-cutting, constraining other teams or introducing new technology. Reversibility drives speed: Type 1 decisions get deliberation and prototypes, and the lead tries to turn them into Type 2 with abstractions, feature flags, expand–contract migrations or parallel runs; decision timing follows the last responsible moment. An ADR (Nygard: Title, Status, Context, Decision, Consequences; often with considered options) is written as a PR in the repo, is append-only and gets superseded rather than edited. Disagreement is handled by agreeing criteria first, gathering data, time-boxing, deciding with a stated decision mode, recording rejected options and asking for disagree-and-commit.",
+              "rubric": [
+                "Distinguishes which decisions warrant formal treatment (architecturally significant: hard to reverse, cross-cutting, cross-team, new technology) from those that should be made quickly by the team.",
+                "Explains reversible vs irreversible (one-way/two-way door) and at least one technique to make a decision more reversible (abstraction, feature flag, spike, expand–contract migration, parallel run).",
+                "Describes ADR contents (context, decision, consequences; ideally status and considered options) and that ADRs are immutable/superseded rather than edited.",
+                "Describes a constructive disagreement process: explicit criteria, data or spike, time-box, a clear decision owner, disagree-and-commit."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "estimation-and-planning",
+      "title": "Estimation and Planning: Sizing, Risk, Spikes, Saying No",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Estimation and Planning: Sizing, Risk, Spikes, Saying No",
+          "note": "## What it is\n\nEstimation is producing a **forecast with stated uncertainty** that someone can make a business decision with: commit to a date, cut scope, fund a team, or kill an idea. Planning turns forecasts into a sequence that reduces risk early. A lead is judged less on the accuracy of a single number than on whether stakeholders are ever surprised.\n\n## How it works underneath\n\n**Uncertainty is the main quantity.** Steve McConnell's *cone of uncertainty* (from Barry Boehm's data) shows that at the initial-concept stage the actual effort can range from roughly 0.25× to 4× the estimate, narrowing as requirements, design and code exist. So early answers should be ranges with confidence (\"6–10 weeks, 80% confident; it narrows after the payment-provider spike\"), and estimates are re-issued as the cone narrows. A single early number becomes a commitment in the listener's head.\n\n**Why bottom-up estimates run late.** Task durations are right-skewed: a task can finish a bit early but can run very late. Engineers naturally estimate the most likely (modal) duration; for a skewed distribution the mean is above the mode, so adding up \"most likely\" values systematically underestimates the total. Add integration, review, environment problems, interruptions and the forgotten tasks, and the planning fallacy (Kahneman) follows. Countermeasures: three-point estimates (optimistic / likely / pessimistic), reference-class forecasting (\"the last three similar integrations took 5, 7 and 11 weeks\"), and Monte Carlo forecasting over the team's historical throughput.\n\n**Relative sizing.** Story points estimate size relative to reference stories, folding in complexity and uncertainty, not hours. Planning poker reveals hidden disagreement: a 2 vs 13 spread means two people understand different work. Velocity is a team-local *planning* tool; it is not comparable across teams and collapses as soon as it becomes a productivity target (Goodhart's law). Many mature teams move to counting slices of similar size and forecasting from throughput.\n\n**Spikes.** When uncertainty dominates (\"we have never integrated with this bank's API\"), run a **time-boxed spike** whose output is knowledge — a prototype, a decision, a narrowed estimate — not production code. Time-box it (one to three days), state the question it answers, and throw away or rewrite the code.\n\n**Risk-first planning.** Sequence work to retire the biggest unknowns first: walking skeleton end to end, the riskiest integration early, vertical slices that are demoable. Maintain a short risk list with owners and triggers. Buffers belong at the project level and are visible, not hidden in every task.\n\n**Saying no.** The fixed date / fixed scope / fixed quality triangle cannot all be fixed. When asked to add work without moving the date, the lead's answer is \"yes, if\": \"We can ship X by March if we drop Y, or ship X and Y by April; quality is not negotiable because cutting tests means paying it back in incidents.\" A clear, early, data-backed \"not by then\" builds more trust than a quiet yes followed by a slip. Never negotiate an estimate down under pressure without changing scope; that only changes the number, not the work.\n\n## What an interviewer probes\n\n- \"How do you estimate something you've never done?\" — spike, range, reference class, re-estimate.\n- \"Story points vs hours?\" — relative size and uncertainty; velocity is not a performance metric.\n- \"Your PM wants it two weeks earlier. What do you do?\" — trade-offs on scope, not overtime as a plan.\n- \"Your project is slipping. When do you tell people?\" — as soon as the forecast changes, with options.\n\n## Common misconceptions\n\n- \"A good estimate is a precise number.\" A good estimate is honest about its range.\n- \"Padding every task is safe.\" Hidden padding gets consumed (Parkinson's law) and destroys trust; use explicit project buffers.\n- \"Points are just hours in disguise.\" Converting points to hours at a fixed rate throws away the uncertainty they encode.\n- \"Estimates are commitments.\" An estimate is a forecast; a commitment is a separate decision made on top of it.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.estimation-and-planning.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "story-points",
+            "velocity"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"Why use story points instead of hours?\" Which statement is correct?",
+              "options": [
+                {
+                  "text": "Story points are a normalised unit (typically 1 point ≈ 4 hours), which makes velocity comparable across teams for portfolio planning.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points measure how much effort a specific developer will spend, so each developer's points can be tracked as a productivity metric.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points are just hours with a different label; their only benefit is that stakeholders are less likely to treat them as deadlines.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points express relative size, including complexity and uncertainty, against the team's own reference stories; velocity is a team-local forecasting tool and loses its value once used as a performance target.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Points are relative: a story is sized by comparison with reference stories, and the number folds in complexity and uncertainty, which hours hide. Velocity then forecasts how much this team completes per iteration. Fixed point-to-hour conversions and cross-team comparisons are common misuses: each team's scale is arbitrary, so comparison is meaningless and teams inflate points once compared (Goodhart's law). Tracking points per developer turns a team planning tool into a performance metric and corrupts both the estimates and collaboration. 'Hours with a different label' misses the point of relative sizing: people are much better at comparing sizes than at predicting absolute durations, and the planning-poker spread exposes disagreement about the work."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.estimation-and-planning.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "uncertainty",
+            "cone-of-uncertainty"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "At the very start of a project — just a one-page concept, no design yet — a director asks for \"the date\". Based on the cone of uncertainty, what is the best response?",
+              "options": [
+                {
+                  "text": "Give a single best-guess date immediately, because a confident number builds trust and can be adjusted quietly later.",
+                  "correct": false
+                },
+                {
+                  "text": "Refuse to estimate until requirements are fully specified, since any number given now would be wrong.",
+                  "correct": false
+                },
+                {
+                  "text": "Give a range with an explicit confidence level, name the biggest unknowns, and commit to a narrower re-estimate after specific risk-reducing work such as a spike or a first vertical slice.",
+                  "correct": true
+                },
+                {
+                  "text": "Estimate each feature bottom-up in detail right away; enough granularity removes most of the uncertainty.",
+                  "correct": false
+                }
+              ],
+              "explanation": "At the concept stage McConnell's cone of uncertainty puts the plausible range at roughly 0.25× to 4× of the estimate, so an honest answer is a range with confidence, the drivers of uncertainty, and a plan and date for narrowing it. A single date is heard as a commitment; 'adjusting it quietly later' is how trust is lost. Refusing to estimate is unhelpful: the business still needs to decide whether the idea is worth funding, and a wide range supports that decision. Detailed bottom-up estimation of an undefined scope adds false precision without removing the underlying unknowns (requirements, integrations, design), which is what drives the width of the cone."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.estimation-and-planning.mcq.3",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "planning-fallacy",
+            "risk"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team estimates 20 tasks by each one's \"most likely\" duration and adds them up to 40 days. All estimates are sincere and the engineers are experienced. Why will the project most likely take longer than 40 days?",
+              "options": [
+                {
+                  "text": "Task durations are right-skewed (they can overrun by far more than they can underrun), so the expected duration of each task exceeds its most likely value, and summing most-likely values systematically underestimates the total — before even counting forgotten work.",
+                  "correct": true
+                },
+                {
+                  "text": "Over- and under-estimates cancel out across 20 tasks, so 40 days is accurate; any overrun would come only from scope added later.",
+                  "correct": false
+                },
+                {
+                  "text": "Experienced engineers consistently overestimate to protect themselves, so the project will more likely finish early.",
+                  "correct": false
+                },
+                {
+                  "text": "The sum is fine; overruns happen only because of Parkinson's law, as people fill the time available.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A task can finish a little early but can run very late, so duration distributions are right-skewed and the mean lies above the mode. Errors therefore do not cancel: summing modes underestimates the sum of means, and integration, review, interruptions and forgotten tasks push further in the same direction (the planning fallacy). That is why three-point estimates, reference-class forecasting or Monte Carlo on historical throughput beat summed single-point guesses. The 'errors cancel out' option assumes a symmetric distribution, which is precisely the misconception. Systematic overestimation by experienced engineers is not what the data on software projects shows. Parkinson's law is real but explains why padded estimates get consumed, not why a sincere sum of modes is too low."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.estimation-and-planning.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "spikes",
+            "risk"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The team must integrate with a bank's payment API nobody has used before, and estimates range from 3 to 20 points. Which use of a spike is correct?",
+              "options": [
+                {
+                  "text": "Start implementing the full integration as a spike; if it goes well, merge the code as the production implementation to avoid duplicated effort.",
+                  "correct": false
+                },
+                {
+                  "text": "Time-box an investigation (e.g. two days) aimed at specific questions — authentication flow, sandbox behaviour, idempotency support — and treat its output as knowledge and a narrowed estimate, not production code.",
+                  "correct": true
+                },
+                {
+                  "text": "Assign the highest estimate (20 points) to cover the risk; spikes are unnecessary if the estimate is conservative.",
+                  "correct": false
+                },
+                {
+                  "text": "Run an open-ended spike until the team is confident, since cutting research short just moves the uncertainty into delivery.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A spike is a time-boxed experiment that answers named questions and produces knowledge: a prototype, a decision, a smaller estimate range. Its code is usually discarded or rewritten because it was written to learn, not to last. Promoting spike code straight to production smuggles untested, unreviewed shortcuts into the codebase. Taking the pessimistic number hides the risk instead of retiring it, and the 3–20 spread signals the team does not even agree on what the work is. An open-ended spike loses the time-box that makes it plannable; diminishing returns set in quickly, and residual uncertainty is managed with ranges and early slices."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.estimation-and-planning.mcq.5",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "planning",
+            "stakeholders",
+            "saying-no"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Two weeks before a committed release, the product manager asks the team to add a reporting feature \"without moving the date\". The team's forecast shows it doesn't fit. What should the lead do?",
+              "options": [
+                {
+                  "text": "Accept and plan overtime for the last two weeks, since protecting the date is the lead's top priority.",
+                  "correct": false
+                },
+                {
+                  "text": "Accept, and quietly reduce testing on the new feature to make it fit.",
+                  "correct": false
+                },
+                {
+                  "text": "Decline outright, because changing scope after commitment violates the agreed plan.",
+                  "correct": false
+                },
+                {
+                  "text": "Present the trade-off explicitly: the date holds if something of similar size is removed, or the feature ships in the next release, or the date moves; quality is not one of the variables. Let the PM choose with the data.",
+                  "correct": true
+                }
+              ],
+              "explanation": "With date, scope and quality interdependent, a lead's job is to make the trade-off visible and let the business own the choice: 'yes, if' rather than a bare yes or no. Overtime as a plan is unsustainable, increases defects and hides the true cost. Silently cutting testing transfers the cost to production incidents and to the team, and destroys trust when it surfaces. A flat refusal is rigid: scope changes are normal, and the PM may genuinely value the report more than something already planned; the lead should help find what can give."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.estimation-and-planning.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "uncertainty",
+            "planning"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"Product asks how long a feature will take, and your team has never built anything like it. How do you answer, and how do you plan the work?\"",
+              "explanation": "Model answer: do not give a single number. Clarify the outcome and constraints first (what must ship, by when it matters, what quality bar). Identify the biggest unknowns and run a short, time-boxed spike against them; meanwhile give a range with explicit confidence, ideally anchored on reference-class data from comparable past work, and state when and how the range will narrow. Break the work into thin vertical slices, sequence the riskiest integration first (walking skeleton), keep visible project-level buffer rather than padding each task, and track the forecast against actual throughput. Re-forecast as soon as something changes and communicate early with options (cut scope, move date), treating quality as non-negotiable. Distinguish the estimate (a forecast) from the commitment (a business decision built on it).",
+              "rubric": [
+                "Refuses to give a single-point number up front and instead gives a range with stated confidence or assumptions.",
+                "Uses at least one concrete technique to reduce or quantify uncertainty: a time-boxed spike, reference-class/historical data, three-point estimates or throughput-based (e.g. Monte Carlo) forecasting.",
+                "Plans risk-first: vertical slices or walking skeleton, with the riskiest unknown tackled early.",
+                "Describes ongoing re-forecasting and early communication of changes, framed as trade-offs (scope vs date vs quality, with quality protected).",
+                "Distinguishes an estimate (forecast) from a commitment, or explains why hidden padding is avoided in favour of visible buffers."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "mentoring-and-delegation",
+      "title": "Mentoring and Delegation: Growing Mids, Pairing, Feedback",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Mentoring and Delegation: Growing Mids, Pairing, Feedback",
+          "note": "## What it is\n\nA tech lead's output is the team's output. **Mentoring** grows people's capability (skills, judgement, autonomy); **delegation** hands them real ownership so the lead stops being the bottleneck and the bus factor rises above one. The two are linked: you delegate a little beyond someone's current level and mentor them through it.\n\n## How it works underneath\n\n**Match the style to the person *and the task*.** Situational Leadership (Hersey & Blanchard) describes four styles: *directing* (clear instructions, close follow-up), *coaching* (still directive, but explaining the why and asking for ideas), *supporting* (they decide, you help them think), *delegating* (they own it; you are informed). The level is per task, not per person: a mid-level Angular expert gets full delegation on a frontend feature but coaching on their first backend service design. Micromanagement is using directing where delegating fits; abandonment is the reverse.\n\n**Delegate outcomes, with the right authority level.** Good delegation states the *outcome* and the constraints (deadline, quality bar, non-negotiables), not the steps, and makes the authority level explicit. Jurgen Appelo's seven levels (Management 3.0) give vocabulary: tell, sell, consult, agree, advise, inquire, delegate. \"You decide; tell me afterwards\" (inquire) is very different from \"propose, and we agree together\" (agree). Agree checkpoints proportional to risk, and resist taking the work back at the first wobble; the slower first iteration is the investment.\n\n**Pairing as a mentoring tool.** In *strong-style pairing* (Llewellyn Falco): \"for an idea to go from your head into the computer, it must go through someone else's hands.\" When a senior pairs with a less experienced developer, the junior drives the keyboard and the senior navigates. The junior builds muscle memory and the senior must articulate their reasoning, which is the transferable part. Pair or mob deliberately on unfamiliar areas, incident debugging and design spikes; do not pair on everything.\n\n**Feedback.** Use a structured, behaviour-based format such as **SBI** (Situation–Behaviour–Impact, Center for Creative Leadership): \"In Tuesday's design review (S), you dismissed Ana's caching proposal before she finished (B); she didn't speak again and we missed her point about invalidation (I).\" Then ask, listen, and agree a next step. Feedback should be timely, private when corrective, specific, and about observable behaviour rather than traits (\"you're careless\"). The \"compliment sandwich\" tends to bury the message; frequent, genuine positive feedback in its own right works better.\n\n**Growing mids to seniors.** The jump is mostly in scope and judgement, not syntax: owning a feature end to end, writing the design/ADR, handling ambiguity, reviewing others, talking to product, being on call. A lead creates those opportunities deliberately (stretch assignments with a safety net), runs regular 1:1s focused on the person's goals, and gives visibility for their work.\n\n## What an interviewer probes\n\n- \"How have you grown a junior/mid developer?\" — a concrete story with an outcome.\n- \"How do you delegate without micromanaging or losing control?\" — outcome + authority level + checkpoints.\n- \"How do you give difficult feedback?\" — a model, timing, privacy, follow-up.\n- \"When do you take work back?\" — almost never silently; if risk demands it, explain and make it a learning moment.\n\n## Common misconceptions\n\n- \"It's faster if I do it myself.\" True this week, false this quarter; it caps the team at the lead's capacity.\n- \"Delegate the boring tasks.\" Delegating only chores teaches nothing and signals distrust; delegate meaningful ownership.\n- \"The senior should drive when pairing to show how it's done.\" Watching teaches less than doing with guidance.\n- \"Feedback is for annual reviews.\" Delayed feedback cannot be acted on.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.mentoring-and-delegation.mcq.1",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "mentoring",
+            "delegation",
+            "situational-leadership"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"How do you delegate to developers with different experience levels?\" A mid-level developer is excellent on the Angular frontend but has never designed a backend service. You want them to own the design of a new .NET notification service. Which approach fits best?",
+              "options": [
+                {
+                  "text": "Fully delegate it like their frontend work: they are a strong mid, and any guidance would be micromanagement.",
+                  "correct": false
+                },
+                {
+                  "text": "Write the design yourself and have them implement it, since design is a senior responsibility.",
+                  "correct": false
+                },
+                {
+                  "text": "Use a coaching style for this task: they own the design, you set the outcome and constraints, explore options with them, review the design early, and step back as they show competence — while keeping full delegation for their frontend work.",
+                  "correct": true
+                },
+                {
+                  "text": "Delegate only the low-risk parts (DTOs, tests) this time, and the design once they are promoted to senior.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Situational leadership is per task, not per person: high competence on the frontend warrants delegation there, but low experience in backend design calls for coaching (still directive, explaining why, inviting their ideas) with early checkpoints, moving toward supporting and delegating as competence grows. Full delegation of an unfamiliar task is abandonment, not empowerment; the likely outcome is a struggling developer and a rework. Doing the design yourself removes the growth opportunity and keeps the lead as the bottleneck. Delegating only chores teaches little and signals distrust; people grow into the senior role by doing senior work with support, not by waiting for the title."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.mentoring-and-delegation.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "feedback",
+            "mentoring",
+            "sbi"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which piece of corrective feedback best follows a behaviour-based model such as Situation–Behaviour–Impact?",
+              "options": [
+                {
+                  "text": "\"You're doing great overall! Your PRs are a bit sloppy sometimes, though. But keep up the good work!\"",
+                  "correct": false
+                },
+                {
+                  "text": "\"In yesterday's release you merged the migration PR without the second review we agreed on; the column drop broke the reporting job for two hours. Can we talk about what happened and how to avoid it?\"",
+                  "correct": true
+                },
+                {
+                  "text": "\"You need to be more careful and take more ownership of quality.\"",
+                  "correct": false
+                },
+                {
+                  "text": "\"Several people have mentioned that your reviews feel careless; please think about it before your next performance review.\"",
+                  "correct": false
+                }
+              ],
+              "explanation": "SBI names a specific situation, an observable behaviour and its concrete impact, then opens a conversation about next steps; it is timely and about actions, not character. The 'compliment sandwich' (first option) is widely taught but tends to bury the message, so the person remembers the praise and not the problem, and 'a bit sloppy sometimes' is too vague to act on. 'Be more careful and take more ownership' is a trait judgement with no example, so the person cannot tell what to change. Anonymous hearsay tied to a future performance review is unspecific, unverifiable and delayed, and frames feedback as a threat rather than help."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.mentoring-and-delegation.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "pairing",
+            "mentoring",
+            "strong-style"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You pair with a junior developer to teach them how to debug a tricky EF Core concurrency issue. In strong-style pairing, how should you split the roles?",
+              "options": [
+                {
+                  "text": "The junior drives (types) and you navigate: ideas have to go through their hands, so you must articulate your reasoning and they build the skill by doing.",
+                  "correct": true
+                },
+                {
+                  "text": "You drive while the junior watches and asks questions, since demonstrating the expert workflow is the fastest way to learn.",
+                  "correct": false
+                },
+                {
+                  "text": "You each work on the issue at your own machine and compare findings at the end.",
+                  "correct": false
+                },
+                {
+                  "text": "Alternate every five minutes regardless of experience, because strict rotation is the core rule of strong-style pairing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Strong-style pairing (Llewellyn Falco) is defined by its rule that 'for an idea to go from your head into the computer, it must go through someone else's hands'. With an experience gap, the less experienced person drives and the expert navigates at the level of abstraction the driver can handle. This forces the senior to explain reasoning, which is the transferable knowledge, while the junior gains hands-on memory. Having the senior drive feels efficient but turns the junior into a spectator who retains little. Working separately is not pairing and loses the real-time transfer. Frequent rotation is common in ping-pong or mob programming, but it is not the defining rule of strong-style; the defining rule is who holds the keyboard relative to who has the idea."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.mentoring-and-delegation.mcq.4",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "delegation",
+            "bus-factor",
+            "team-leadership"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A new tech lead keeps all production incident handling and every database migration to themselves \"because it's faster and safer\". Six months in, they are overloaded and the team cannot ship when they are on leave. What is the best corrective plan?",
+              "options": [
+                {
+                  "text": "Keep owning both areas but document them thoroughly, so others can follow the docs in an emergency.",
+                  "correct": false
+                },
+                {
+                  "text": "Hand both areas to the most senior engineer, so the bottleneck moves to someone with more time.",
+                  "correct": false
+                },
+                {
+                  "text": "Hire an additional senior engineer to take over incidents and migrations.",
+                  "correct": false
+                },
+                {
+                  "text": "Gradually transfer ownership: pair others through incidents and migrations (them driving), rotate the responsibility, agree explicit authority levels and checkpoints, and accept slower first iterations as the cost of removing the single point of failure.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The problem is a bus factor of one created by the lead. The fix is real capability transfer: shadowing then reverse-shadowing, pairing with the learner driving, a rotation so several people stay practised, and explicit authority levels (e.g. 'propose the migration, we review together' moving toward 'you decide, tell me after'). Accepting a slower first iteration is the investment. Documentation alone does not build judgement under pressure; runbooks help, but nobody has practised. Moving everything to one other senior just relocates the single point of failure. Hiring adds cost and still leaves knowledge concentrated, while doing nothing about the lead's habit of hoarding critical work."
+            }
+          }
+        },
+        {
+          "id": "architecture.lead.mentoring-and-delegation.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "mentoring",
+            "delegation",
+            "feedback"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Interview classic: \"Tell me how you have grown a mid-level developer toward senior.\" Explain how you decide what to delegate, how you support them without micromanaging, and how you give feedback along the way.",
+              "explanation": "Model answer (ideally a real story): start from the person's goals (1:1s) and the gap to senior, which is mostly scope and judgement — owning a feature end to end, design and ADRs, handling ambiguity, reviewing others, working with product. Pick a stretch assignment slightly beyond their current level, delegate the outcome and constraints rather than steps, state the authority level explicitly, and adjust style per task (coaching on unfamiliar areas, full delegation where they are strong). Support through early design review checkpoints, pairing with them driving, and being available without taking the work back. Give timely, specific, behaviour-based feedback (e.g. SBI), both corrective and positive, and make their work visible (demos, crediting them). Close with an observable outcome: they led the next design, became the go-to reviewer, or were promoted.",
+              "rubric": [
+                "Grounds the answer in a concrete example or a clear growth plan tied to the person's goals and the specific gap between mid and senior (scope, ownership, judgement, not just technical syntax).",
+                "Describes delegating outcomes with constraints and an explicit authority/autonomy level, adapted to the person's competence on that specific task (e.g. situational leadership).",
+                "Explains supporting without micromanaging: checkpoints proportional to risk, pairing (ideally with the mentee driving), not taking the work back at the first difficulty.",
+                "Describes a feedback practice that is timely, specific and behaviour-based (e.g. SBI), covering both corrective and positive feedback.",
+                "States a measurable or observable outcome of the mentoring (new responsibilities, promotion, reduced dependency on the lead)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "story-bank",
+      "title": "Story Bank: STAR Stories for Lead Interviews",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Story Bank: STAR Stories for Lead Interviews",
+          "note": "## What it is\n\nA **story bank** is a small set of prepared, true stories from your own career, each structured with **STAR** (Situation, Task, Action, Result) and mapped to the behavioural questions lead-level interviews always contain: \"tell me about a time you…\" influenced without authority, introduced a technical change, handled a hard bug, negotiated, failed. Six well-rehearsed stories can answer thirty different prompts. This concept is notes only: it is practised aloud, not quizzed. The headings below are scaffolds; fill in your own facts, numbers and names in your working notes (keep confidential employer details out of shared material).\n\n## How it works underneath\n\n**STAR, weighted correctly.** Interviewers spend most of their scoring on *Action* and *Result*. Rough budget for a 2–3 minute answer: Situation + Task 20%, Action 60%, Result 20%.\n\n- **Situation**: one or two sentences of context — team size, system, stakes.\n- **Task**: what *you* were responsible for, and why it was hard.\n- **Action**: what *you* did, in first person singular. Interviewers listen for \"I\" vs \"we\"; \"we\" hides your contribution. Include the decision points, the alternatives you rejected and why, and how you brought people along.\n- **Result**: a measurable outcome (latency, incident count, lead time, money, retention), plus what you learned or would do differently. A story with no result is an anecdote.\n\nAdd a one-line **headline** you can say first (\"I introduced a transactional outbox that took lost order events from several a month to zero\"), so the interviewer knows where the story is going.\n\n**One story, many questions.** Tag each story with the competencies it proves: technical depth, influence, conflict, ownership, failure/learning, mentoring, delivering under pressure, negotiation. When a question comes, pick the story by competency, then tilt the Action section toward what was asked.\n\n## The six stories to prepare\n\n1. **Salary negotiation outcome** — proves negotiation and self-advocacy. Context: what you asked for and why; preparation (market data, documented impact); how you handled the first \"no\" or counter-offer; the outcome. Interview use: \"How do you handle disagreement with management?\", \"Tell me about a negotiation.\" Keep figures vague in interviews unless asked; focus on the method.\n2. **Becoming lead** — proves ownership and leadership transition. What changed in your daily work, the first hard people decision, what you stopped doing yourself, a mistake in the transition and how you corrected it.\n3. **Outbox introduction** — proves technical judgement and influence. The incident or data-loss risk that triggered it, options considered (publish-after-commit with retries, outbox, CDC), how you convinced the team and product, the rollout (incremental, idempotent consumers), and the measured result. Pairs naturally with an ADR.\n4. **AI workflow rollout** — proves change management and pragmatism. What you set up (project instructions, memory files, hooks, subagents, spec-driven flow), how you handled sceptics, the guardrails (review gates, secrets scanning), where it saved time and where it did not, and how you measured impact rather than asserting it.\n5. **Secrets migration** — proves security ownership and safe execution of risky change. Where secrets lived before, the target (vault/secret manager, environment injection), how you sequenced it without downtime, rotation of exposed credentials, and preventing regression (pre-commit/CI scanning).\n6. **Hard debugging** — proves technical depth under pressure. Symptoms, the wrong hypotheses you eliminated and how (data, not guesses), the tool or insight that broke it open (dump analysis, tracing, reproduction), the fix, and the systemic follow-up (test, alert, postmortem).\n\n## What an interviewer probes\n\n- Follow-ups that test whether the story is real: \"What exactly did you say to the PM?\", \"What would you do differently?\", \"What did the data show?\"\n- Your individual contribution inside a team effort.\n- Self-awareness: a failure story with genuine learning beats a flawless one.\n\n## Common misconceptions\n\n- \"Memorise a script.\" Memorise the bullet skeleton and the numbers; tell it naturally.\n- \"Context makes it impressive.\" Long situations eat the time that should go to Action.\n- \"Never mention mistakes.\" Lead interviews explicitly look for learning from failure.\n- \"Results must be huge.\" A specific, modest, measured result is more credible than a vague big one.\n\n## Story card template\n\n```markdown\n### Outbox introduction\nHeadline: <one sentence, with the number>\nCompetencies: technical judgement, influence, delivery\nS: <team, system, stakes — 2 sentences>\nT: <my responsibility, why it was hard>\nA: <3–5 decisions I made, alternatives rejected, how I got buy-in>\nR: <metric before -> after; what I'd do differently>\nLikely prompts: \"a technical decision you drove\", \"convincing sceptics\", \"reducing incidents\"\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.lead.story-bank.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "behavioral",
+            "star",
+            "story-bank"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Behavioural practice (not a quiz): \"Tell me about a time you drove a significant technical change on your team that others were initially sceptical about.\" Answer with one of your own stories (for example, introducing the outbox pattern or rolling out an AI-assisted workflow), in 2–3 minutes of speaking.",
+              "explanation": "A strong answer opens with a one-line headline, gives brief Situation and Task (team, system, stakes, what the candidate personally owned), spends most of its length on Action told in the first person (the options considered and why alternatives were rejected, how scepticism was handled with data, a pilot or incremental rollout, how others were brought along), and ends with a concrete, ideally measured Result plus a reflection on what the candidate learned or would do differently. Grading checks structure and specificity, not which story was chosen.",
+              "rubric": [
+                "Follows a recognisable STAR structure, with Situation and Task kept brief relative to Action.",
+                "Describes the candidate's own actions in the first person (\"I\"), including at least one decision point with an alternative that was considered and rejected.",
+                "Explains how scepticism or resistance was addressed (data, a pilot/spike, incremental rollout, involving sceptics), not just that the change happened.",
+                "States a concrete, specific result — ideally quantified (incidents, latency, lead time, adoption) — rather than a vague success claim.",
+                "Includes reflection: a lesson learned or something the candidate would do differently."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

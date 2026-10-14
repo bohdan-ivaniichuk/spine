@@ -1,0 +1,1887 @@
+{
+  "domain": "dotnet",
+  "topic": "csharp-lang",
+  "concepts": [
+    {
+      "slug": "records-structs",
+      "title": "Records, Record Structs and Struct Modifiers",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Records, Record Structs and Struct Modifiers",
+          "note": "## What it is\n\nA `record` (C# 9) is a class for which the compiler synthesises **value-based equality**, a readable `ToString`, non-destructive mutation (`with`) and, for the positional form, a constructor, properties and `Deconstruct`. C# 10 added `record struct` (and `record class` as an explicit spelling of the default). Records are a convenience layer: the CLR sees an ordinary class or struct with generated members.\n\nRelated struct modifiers solve different problems: `readonly struct` (C# 7.2) is a guarantee that no instance member mutates state, and `ref struct` is a stack-only type (`Span<T>` is the canonical one).\n\n## How it works underneath\n\nFor `public record Money(decimal Amount, string Currency);` the compiler emits:\n\n- `public decimal Amount { get; init; }` and `Currency` likewise (positional **record class** properties are init-only);\n- `protected virtual Type EqualityContract => typeof(Money);`\n- `Equals(Money? other)` comparing `EqualityContract` and then every instance field with `EqualityComparer<T>.Default`, plus `Equals(object)`, `GetHashCode`, `==` and `!=`;\n- `ToString()` built on a virtual `PrintMembers(StringBuilder)`;\n- a protected copy constructor and a hidden `<Clone>$` method; `a with { Amount = 20m }` calls `<Clone>$` (virtual, so the runtime type is preserved) and then the `init` setters;\n- `Deconstruct(out decimal Amount, out string Currency)`.\n\nConsequences worth knowing cold:\n\n- Equality is **shallow and field-wise**. A `List<string>` property compares by reference, so two records with equal-looking lists are not equal. Use `ImmutableArray<T>`-like types with structural comparison or override `Equals`.\n- `with` is a **shallow** copy: the copy and the original share the same list instance.\n- `EqualityContract` makes a `Person` and an `Employee : Person` with the same `Name` unequal, even through a `Person`-typed variable.\n- Positional **record struct** properties are `{ get; set; }` (mutable); `readonly record struct` makes them `{ get; init; }`. Record structs have no inheritance and no `EqualityContract`.\n- For a plain `struct`, the inherited `ValueType.Equals` falls back to reflection when the struct contains reference fields or padding, and `ValueType.GetHashCode` may hash only the first field. A `record struct` generates strongly-typed `Equals`/`GetHashCode`, avoiding both reflection and boxing via `IEquatable<T>`.\n\n**`readonly struct`.** Every field must be `readonly`. The payoff is that the compiler no longer needs **defensive copies**: when you call a member on a struct held in a `readonly` field or passed as `in`, the compiler copies a non-readonly struct first (it cannot prove the call does not mutate). Individual members can be marked `readonly` (C# 8) when the whole type cannot be.\n\n**`ref struct`.** Must live on the stack: it cannot be boxed, be a field of a class or ordinary struct, be an array element, or be captured by a lambda. C# 11 added `ref` fields inside ref structs. C# 13 allows ref structs to implement interfaces (without ever being converted to the interface type) and to be generic arguments where the type parameter declares `allows ref struct`.\n\n## What an interviewer probes\n\n- Record vs class: same reference type, same heap allocation; the difference is generated equality and copy semantics. Records fit DTOs, messages and value objects; entities with identity (EF Core tracked entities) usually should not be records, because value equality breaks change tracking and hash-based collections when properties change.\n- Record struct vs record class: copying cost vs allocation; record structs suit small (≤ ~16–24 bytes) values in hot paths.\n- Why the mutable-struct-in-readonly-field bug silently \"loses\" writes.\n\n## Common misconceptions\n\n- \"Records are immutable.\" Only positional record class properties default to `init`; you can declare `{ get; set; }` and mutable collections.\n- \"Records are value types.\" `record` means `record class`.\n- \"`with` deep-clones.\" It is a member-wise copy.\n\n## Example\n\n```csharp\npublic record Money(decimal Amount, string Currency);\npublic readonly record struct Point(int X, int Y);\n\nvar a = new Money(10m, \"EUR\");\nvar b = a with { Amount = 20m };\nConsole.WriteLine(a == new Money(10m, \"EUR\")); // True: value equality\nConsole.WriteLine(b);                          // Money { Amount = 20, Currency = EUR }\n\nstruct Counter { public int Value; public void Increment() => Value++; }\nclass Holder\n{\n    private readonly Counter _c;\n    public int Bump() { _c.Increment(); return _c.Value; } // returns 0: defensive copy\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.records-structs.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "records",
+            "equality",
+            "csharp"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the actual difference between `public record Customer(string Name);` and an equivalent `public class Customer` with a `Name` property?",
+              "options": [
+                {
+                  "text": "The record is a value type stored on the stack, which is why it compares by value; the class is a reference type compared by reference.",
+                  "correct": false
+                },
+                {
+                  "text": "The record is immutable: the compiler rejects any `{ get; set; }` property declared in a record body.",
+                  "correct": false
+                },
+                {
+                  "text": "Only `Equals` is overridden; `==` on two records still compares references, exactly as for classes.",
+                  "correct": false
+                },
+                {
+                  "text": "Both are reference types allocated on the heap; the record additionally gets compiler-generated value-based `Equals`/`GetHashCode`/`==`, a `ToString` that prints members, a `with` copy mechanism and `Deconstruct`.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`record` is shorthand for `record class`: a normal reference type, allocated like any class, plus synthesised members (`EqualityContract`, typed `Equals`, `GetHashCode`, `==`/`!=`, `ToString`/`PrintMembers`, copy constructor/`<Clone>$` for `with`, and `Deconstruct` for the positional form). The 'value type on the stack' option confuses records with `record struct`; value equality is generated code, not a consequence of being a struct. The 'immutable' option is a popular myth: positional record class properties default to `init`, but you can declare mutable properties and fields in the body and the compiler accepts them. The '== compares references' option is wrong because records generate `operator ==` and `operator !=` that delegate to the value-based `Equals`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.records-structs.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "records",
+            "equality",
+            "collections"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this print?\n\n```csharp\npublic record Order(string Id, List<string> Lines);\n\nvar a = new Order(\"o-1\", new List<string> { \"apple\" });\nvar b = new Order(\"o-1\", new List<string> { \"apple\" });\nvar c = a with { Id = \"o-2\" };\nc.Lines.Add(\"pear\");\n\nConsole.WriteLine(a == b);\nConsole.WriteLine(a.Lines.Count);\n```",
+              "options": [
+                {
+                  "text": "`True`, then `1`",
+                  "correct": false
+                },
+                {
+                  "text": "`False`, then `2`",
+                  "correct": true
+                },
+                {
+                  "text": "`True`, then `2`",
+                  "correct": false
+                },
+                {
+                  "text": "`False`, then `1`",
+                  "correct": false
+                }
+              ],
+              "explanation": "Generated record equality compares each field with `EqualityComparer<T>.Default`; for `List<string>` that is reference equality, and `a` and `b` hold two different list instances, so `a == b` is `False`. `with` performs a shallow, member-wise copy, so `c.Lines` is the same list object as `a.Lines`; adding \"pear\" through `c` is visible through `a`, giving `2`. The `True` options assume records compare collections structurally, which they never do. The `1` options assume `with` deep-clones reference-typed members, which it does not: it calls the copy constructor, which copies field values (here, the reference)."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.records-structs.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "records",
+            "inheritance",
+            "equality"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given:\n\n```csharp\npublic record Person(string Name);\npublic record Employee(string Name, int Badge) : Person(Name);\n\nPerson p = new Person(\"Ann\");\nPerson e = new Employee(\"Ann\", 7);\nConsole.WriteLine(p == e);\nConsole.WriteLine(p.Equals(e));\n```\n\nWhat is printed, and why?",
+              "options": [
+                {
+                  "text": "`True` and `True`: both variables are typed `Person`, so only the members declared on `Person` are compared.",
+                  "correct": false
+                },
+                {
+                  "text": "`False` and `False`: the generated `Equals` also compares the virtual `EqualityContract` (the runtime type), so a `Person` never equals an `Employee`.",
+                  "correct": true
+                },
+                {
+                  "text": "`True` and `False`: `==` is resolved statically on `Person` and compares `Name` only, while `Equals` is virtual and sees the extra `Badge`.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: a positional record cannot inherit from another positional record.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Every record class has `protected virtual Type EqualityContract`, overridden in each derived record to return its own type, and the synthesised `Equals` checks `EqualityContract` before comparing fields. `p.EqualityContract` is `Person`, `e.EqualityContract` is `Employee`, so both checks fail, which keeps equality symmetric. The 'compare only Person members' option describes what a naive hand-written `Equals` does and why records add `EqualityContract`. The mixed option is wrong because the generated `operator ==` simply calls `Equals`, so both always agree. The 'does not compile' option is wrong: positional records can inherit from records, passing arguments to the base primary constructor exactly as written."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.records-structs.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "structs",
+            "readonly",
+            "defensive-copy"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does `Bump()` return the first time it is called?\n\n```csharp\nstruct Counter\n{\n    public int Value;\n    public void Increment() => Value++;\n}\n\nclass Holder\n{\n    private readonly Counter _c;\n    public int Bump()\n    {\n        _c.Increment();\n        return _c.Value;\n    }\n}\n```",
+              "options": [
+                {
+                  "text": "`1`: `readonly` only prevents assigning a new `Counter` to `_c`; calling a mutating method on it is allowed and mutates the field.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: calling a mutating method on a `readonly` struct field is error CS0191.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws `InvalidOperationException` at runtime because the JIT detects a write to a readonly field.",
+                  "correct": false
+                },
+                {
+                  "text": "`0`: because `_c` is a `readonly` field of a non-readonly struct, the compiler calls `Increment` on a hidden defensive copy, and the field itself never changes.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The compiler cannot prove that `Increment` leaves the struct unchanged, so to honour `readonly` it copies `_c` into a temporary and invokes the method on the copy; the increment is lost and `Value` stays `0`. The same defensive copies happen for `in` parameters and `ref readonly` locals. Declaring the type `readonly struct` (or marking non-mutating members `readonly`) removes the copies, though `Increment` would then no longer compile, which is the point. The '1' option describes the class-field intuition and is the bug itself. The CS0191 option is half-true: a direct write such as `_c.Value++` is a compile error, but a method call is silently compiled against a copy. Nothing happens at runtime to detect it; readonly-ness of fields is a compile-time rule."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.records-structs.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ref-struct",
+            "csharp-13",
+            "generics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `ref struct` types in C# 13 / .NET 9 and later is true?",
+              "options": [
+                {
+                  "text": "Since C# 13 a `ref struct` may be stored in a field of a class, as long as the field is `readonly`.",
+                  "correct": false
+                },
+                {
+                  "text": "A `ref struct` may implement an interface, but it can never be converted to that interface type (that would box it); its interface members are reachable through a generic method whose type parameter is constrained with `where T : IMyInterface, allows ref struct`.",
+                  "correct": true
+                },
+                {
+                  "text": "A `ref struct` may be captured by a lambda if the lambda is marked `static`.",
+                  "correct": false
+                },
+                {
+                  "text": "Declaring a struct `ref` makes it a reference to stack memory, so passing it to a method no longer copies its fields.",
+                  "correct": false
+                }
+              ],
+              "explanation": "C# 13 relaxed two rules: ref structs can implement interfaces, and generic type parameters can opt in with the `allows ref struct` anti-constraint so a ref struct can be a type argument. Conversion to the interface type is still forbidden because it requires boxing, which would move the value to the heap. A class field would also put the value on the heap, so it is still illegal regardless of `readonly`. A lambda capture lifts the variable into a heap-allocated closure, so ref structs can never be captured; a `static` lambda cannot capture anything at all. The last option misreads `ref`: a ref struct is still a value type and is copied by value when passed; `ref` means 'stack-only (may contain refs)', not 'passed by reference'."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.records-structs.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "records",
+            "structs",
+            "equality",
+            "design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When would you choose a `record` (class), a `record struct`, a `readonly struct` and a plain `class`? Use concrete examples (an API DTO, a domain value object such as `Money`, an EF Core entity, a small value used in a hot loop) and explain what the compiler generates for a positional record and which equality pitfalls you watch for.",
+              "explanation": "Model answer: a `record` is a reference type with synthesised value equality (`EqualityContract`, typed `Equals`, `GetHashCode`, `==`), `ToString`/`PrintMembers`, a copy constructor/`<Clone>$` behind `with`, init-only positional properties and `Deconstruct`. It suits DTOs, messages and value objects like `Money`. A `record struct` gives the same conveniences without a heap allocation but with copy-on-assignment; its positional properties are mutable unless it is a `readonly record struct`, which is the usual choice for small hot-path values (prefer ≤ 16–24 bytes). A `readonly struct` guarantees immutability and lets the compiler skip defensive copies for `in` parameters and readonly fields. Entities tracked by EF Core should stay classes with identity-based equality: value equality changes as properties change, which breaks hash sets, dictionaries and change tracking. Pitfalls: equality is shallow (collections compare by reference), `with` is a shallow copy, derived records never equal base records because of `EqualityContract`, and plain structs fall back to reflection-based `ValueType.Equals` when they contain references.",
+              "rubric": [
+                "States that `record` is a reference type with compiler-generated value equality (`Equals`, `GetHashCode`, `==`), `ToString`, `with` support and, for positional records, init-only properties and `Deconstruct`, and that `record struct` is the value-type counterpart whose positional properties are mutable unless declared `readonly record struct`.",
+                "Recommends records for DTOs/messages/value objects and keeps EF Core entities as classes with identity, explaining that value equality on mutable tracked objects breaks hash-based collections and change tracking.",
+                "Explains the choice of struct forms by size and allocation: small immutable values in hot paths as `readonly struct`/`readonly record struct` to avoid allocations, mentioning copy cost of large structs and defensive copies avoided by `readonly`.",
+                "Names at least two equality pitfalls: shallow field-wise comparison (collections compare by reference), shallow `with` copies, `EqualityContract` making base and derived records unequal, or reflection-based `ValueType.Equals`/weak `GetHashCode` on plain structs."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "pattern-matching",
+      "title": "Pattern Matching and Switch Expressions",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Pattern Matching and Switch Expressions",
+          "note": "## What it is\n\nPattern matching lets you test a value's **shape** (type, constant, range, properties, positional components, list elements) and bind parts of it in one expression. It appears in `is` expressions, `switch` statements and `switch` expressions (C# 8). The pattern language grew release by release:\n\n| Version | Patterns |\n|---|---|\n| C# 7 | type/declaration (`o is int n`), constant, `var`, `when` guards in `case` |\n| C# 8 | switch expressions, property (`{ Status: \"open\" }`), positional (`(0, 0)`), tuple patterns |\n| C# 9 | relational (`< 0`), logical (`and`, `or`, `not`), type pattern without designation (`int =>`) |\n| C# 10 | extended property patterns (`{ Address.City: \"Kyiv\" }`) |\n| C# 11 | list patterns (`[1, .., var last]`), `Span<char>` matched against string constants |\n\n## How it works underneath\n\nThe compiler lowers a whole `switch` into a **decision DAG**: each type test, null check and property read happens at most once and is shared across arms, then arms are selected in source order. That gives two compile-time checks:\n\n- **Subsumption**: an arm that can never match because earlier arms already cover it is an error (CS8510 in switch expressions, CS8120 in switch statements).\n- **Exhaustiveness**: a switch expression that does not cover every input produces warning CS8509 (or CS8524 when only unnamed enum values like `(Status)7` are missing). At runtime an unmatched switch expression throws `SwitchExpressionException` (an `InvalidOperationException`). A `switch` *statement* with no matching case simply does nothing.\n\nArms with a `when` guard do not count toward exhaustiveness, because the compiler cannot reason about arbitrary boolean code.\n\nDetails that matter:\n\n- A property pattern implies a **null check**: `x is { }` means \"not null\", and `{ Length: > 0 }` never throws on `null`.\n- `is null` / `is not null` compile to a plain reference comparison and **ignore user-defined `==`**, unlike `x == null`.\n- Positional patterns call `Deconstruct` (or use `ITuple` for `object`).\n- List patterns need a *countable* type (`Length` or `Count`) and an indexer; a slice with a designation (`.. var rest`) also needs a `Range` indexer or `Slice` method. `..` matches **zero or more** elements.\n\n## What an interviewer probes\n\n- `switch` statement vs `switch` expression: expression yields a value, must be exhaustive (otherwise warning + runtime exception), no fall-through, no `break`.\n- Pattern matching vs polymorphism. Virtual methods suit **open** hierarchies where new types are added often; a switch over a **closed** set (a discriminated-union-like hierarchy of records, a state machine, protocol messages) keeps behaviour in one place and gets exhaustiveness hints. This is the \"expression problem\".\n- Order sensitivity: arms are tested top-to-bottom; put specific patterns first.\n\n## Common misconceptions\n\n- \"`is null` and `== null` are identical.\" Not when `==` is overloaded.\n- \"A switch expression returns `default` when nothing matches.\" It throws.\n- \"`..` in a list pattern needs at least one element.\" It matches zero.\n- \"Pattern matching is slow, like a chain of `as` casts.\" The DAG usually beats hand-written `if`/`as` chains.\n\n## Example\n\n```csharp\npublic abstract record Shape;\npublic record Circle(double R) : Shape;\npublic record Rect(double W, double H) : Shape;\n\nstatic double Area(Shape s) => s switch\n{\n    Circle { R: <= 0 }      => 0,\n    Circle(var r)           => Math.PI * r * r,\n    Rect { W: var w, H: var h } when w == h => w * w,\n    Rect(var w, var h)      => w * h,\n    null                    => throw new ArgumentNullException(nameof(s)),\n    _                       => throw new NotSupportedException(s.GetType().Name)\n};\n\nstatic string Describe(int[] xs) => xs switch\n{\n    []                  => \"empty\",\n    [var only]          => $\"one: {only}\",\n    [var first, .., var last] => $\"{first}..{last}\",\n};\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.pattern-matching.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "pattern-matching",
+            "null-checks",
+            "operator-overloading"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`Token` overloads equality so that any two tokens compare equal, and `null` handling was forgotten:\n\n```csharp\npublic sealed class Token\n{\n    public static bool operator ==(Token? a, Token? b) => true;\n    public static bool operator !=(Token? a, Token? b) => false;\n    // Equals/GetHashCode omitted for brevity\n}\n\nToken? t = new Token();\nConsole.WriteLine(t == null);\nConsole.WriteLine(t is null);\n```\n\nWhat is printed?",
+              "options": [
+                {
+                  "text": "`False`, then `False`: the compiler optimises comparisons with the `null` literal to a reference check in both cases.",
+                  "correct": false
+                },
+                {
+                  "text": "`True`, then `True`: `is null` is syntactic sugar for `== null` and binds to the same operator.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: `is null` is not allowed on a type that overloads `==`.",
+                  "correct": false
+                },
+                {
+                  "text": "`True`, then `False`: `== null` calls the user-defined operator, while `is null` is a pure reference check that ignores overloads.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`t == null` binds to the user-defined `operator ==(Token?, Token?)`, which returns `true`. `t is null` is a constant pattern for `null`, which the compiler emits as a direct reference comparison and never routes through user-defined operators, so it reports the truth: `False`. That is why `is null`/`is not null` are the recommended null checks. The 'optimised to a reference check' option is wrong: the compiler must honour the overload for `==`. The 'sugar for == null' option is the misconception this question targets. The 'does not compile' option is wrong; `is null` works on any reference or nullable type."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.pattern-matching.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "pattern-matching",
+            "switch-expression",
+            "enums"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens with this code?\n\n```csharp\nenum Status { Active, Suspended, Closed }\n\nstatic string Label(Status s) => s switch\n{\n    Status.Active    => \"A\",\n    Status.Suspended => \"S\",\n    Status.Closed    => \"C\",\n};\n\nConsole.WriteLine(Label((Status)7));\n```",
+              "options": [
+                {
+                  "text": "It compiles without warnings because every named member is covered, and the call returns `null`.",
+                  "correct": false
+                },
+                {
+                  "text": "It compiles with warning CS8524 (an unnamed enum value is not handled), and the call throws `SwitchExpressionException` at runtime.",
+                  "correct": true
+                },
+                {
+                  "text": "It fails to compile: a switch expression over an enum must contain a discard arm `_`.",
+                  "correct": false
+                },
+                {
+                  "text": "It compiles and prints `A`, because an unmatched value falls through to the first arm, as in C.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The compiler knows an enum variable can hold any value of its underlying type, so covering only the named members leaves `(Status)7` unhandled; it reports CS8524 (CS8509 would be reported if a named member were missing too). A switch expression must produce a value, so when no arm matches the generated code throws `System.Runtime.CompilerServices.SwitchExpressionException`, which derives from `InvalidOperationException`. The `null` option confuses the expression with a switch statement, which silently does nothing when no case matches; an expression never returns a default. A discard arm is good practice but not a compile requirement, so the 'fails to compile' option is wrong. C# has no fall-through to the first arm, in switch expressions or statements."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.pattern-matching.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "pattern-matching",
+            "relational-patterns",
+            "switch-expression"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does the compiler do with this method?\n\n```csharp\nstatic string Classify(int n) => n switch\n{\n    > 0   => \"positive\",\n    > 100 => \"large\",\n    _     => \"other\"\n};\n```",
+              "options": [
+                {
+                  "text": "Compiles; `Classify(150)` returns \"large\" because the most specific matching arm wins.",
+                  "correct": false
+                },
+                {
+                  "text": "Reports error CS8510 on the `> 100` arm: every value it could match is already handled by `> 0`, so the arm is unreachable.",
+                  "correct": true
+                },
+                {
+                  "text": "Compiles with a warning; `Classify(150)` returns \"positive\" because arms are evaluated in source order.",
+                  "correct": false
+                },
+                {
+                  "text": "Compiles; relational patterns are reordered by the compiler from narrowest to widest, so `Classify(150)` returns \"large\".",
+                  "correct": false
+                }
+              ],
+              "explanation": "Arms are evaluated in source order, and the compiler's decision DAG analysis detects that `> 100` is subsumed by `> 0`. For switch expressions this is a hard error (CS8510, 'The pattern has already been handled by a previous arm'), not a warning, so the code never runs. The fix is to put the more specific arm first. 'Most specific arm wins' describes overload resolution, not pattern matching. The 'warning, returns positive' option has the runtime semantics right but the diagnostic wrong. The compiler never reorders arms; order is part of the semantics."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.pattern-matching.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "pattern-matching",
+            "list-patterns",
+            "csharp-11"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given the method below, what do `Describe([7])` and `Describe([4, 9])` return?\n\n```csharp\nstatic string Describe(int[] xs) => xs switch\n{\n    []                        => \"empty\",\n    [var first, .., var last] => $\"{first}..{last}\",\n    [var only]                => $\"one: {only}\",\n};\n```",
+              "options": [
+                {
+                  "text": "`\"7..7\"` and `\"4..9\"`: `first` and `last` may bind the same element when the array has one item.",
+                  "correct": false
+                },
+                {
+                  "text": "`\"one: 7\"` and a `SwitchExpressionException`, because `..` must match at least one element and `[4, 9]` has none in the middle.",
+                  "correct": false
+                },
+                {
+                  "text": "The method does not compile: the `[var only]` arm is subsumed by `[var first, .., var last]`.",
+                  "correct": false
+                },
+                {
+                  "text": "`\"one: 7\"` and `\"4..9\"`: `[var first, .., var last]` needs at least two elements, and `..` may match zero elements.",
+                  "correct": true
+                }
+              ],
+              "explanation": "A list pattern with a slice matches lists of length ≥ the number of non-slice subpatterns: `[var first, .., var last]` requires `Length >= 2`, binds `xs[0]` and `xs[^1]`, and lets `..` match zero or more elements in between. So `[7]` fails that arm and matches `[var only]`, while `[4, 9]` matches it with an empty slice. Elements are never bound twice, so `7..7` is wrong. The 'needs at least one element' belief about `..` is the misconception being tested. There is no subsumption error, because a length-1 array is not covered by the earlier arms; arm order matters only when an earlier arm covers everything a later one could match."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.pattern-matching.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "pattern-matching",
+            "switch-expression",
+            "polymorphism",
+            "design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between a `switch` statement and a `switch` expression in modern C#, which kinds of patterns can you use in them, and when would you prefer pattern matching over virtual methods (polymorphism) for type-based dispatch?",
+              "explanation": "Model answer: a switch expression produces a value, has no fall-through or `break`, and must be exhaustive: the compiler warns (CS8509/CS8524) about uncovered inputs and the generated code throws `SwitchExpressionException` if nothing matches; a switch statement executes blocks and silently does nothing when no case matches. Both accept the same patterns: type/declaration, constant (including `null`), relational, logical `and`/`or`/`not`, property and extended property, positional (via `Deconstruct`), `var`, discard, and list patterns with slices (C# 11), plus `when` guards (which do not count toward exhaustiveness). Arms are evaluated top-to-bottom; the compiler builds a decision DAG so each test runs once and reports unreachable arms as errors. Pattern matching fits closed hierarchies (union-like records, messages, state machines) where operations are added more often than types and logic should live in one place; virtual methods fit open hierarchies where new types are added and each type owns its behaviour.",
+              "rubric": [
+                "Explains that a switch expression yields a value and must be exhaustive, with a compiler warning for uncovered inputs and a `SwitchExpressionException` at runtime, whereas a switch statement does nothing when no case matches.",
+                "Lists at least four pattern kinds correctly, e.g. type/declaration, constant/null, relational and logical (`and`/`or`/`not`), property/extended property, positional via `Deconstruct`, list patterns with `..`.",
+                "Mentions that arms are evaluated in source order, that `when` guards do not contribute to exhaustiveness, and that unreachable (subsumed) arms are compile errors.",
+                "Gives a reasoned trade-off: pattern matching for closed sets of types where operations change often (logic centralised, exhaustiveness hints); virtual methods for open hierarchies where new types are added (each type owns its behaviour)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "generics-variance",
+      "title": "Generics: Constraints, Variance and Static Abstract Members",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Generics: Constraints, Variance and Static Abstract Members",
+          "note": "## What it is\n\n.NET generics are **reified**: `List<int>` and `List<string>` are distinct runtime types with their own method tables and their own static fields, and type arguments are visible to reflection. This differs from Java's erasure and from C++ templates.\n\n## How it works underneath\n\n**Code sharing.** The JIT compiles one shared native body for all **reference-type** instantiations (internally `List<__Canon>`); type-specific information (e.g. `typeof(T)`, `new T()`) is looked up through a runtime *generic dictionary*. Every **value-type** instantiation gets specialised code: `List<int>` stores raw `int`s with no boxing, and `EqualityComparer<T>.Default.Equals` can be devirtualised and inlined. Because statics are per closed type, `static class Cache<T> { public static readonly ... }` is a common lock-free per-type cache.\n\n**Constraints** tell the compiler what it may do with `T`: `class`, `class?`, `struct`, `notnull`, `unmanaged` (no references, enables pointers and `stackalloc`), `new()`, a base class, interfaces, `Enum`/`Delegate` (C# 7.3), `default` (C# 9, for overrides), and the C# 13 anti-constraint `allows ref struct`. Constraints are not part of the method signature for overload resolution.\n\n**Variance** (C# 4) is a property of **generic interfaces and delegates** only, never classes or structs:\n\n- `out T` (covariance): `T` appears only in output positions, so `IEnumerable<string>` converts to `IEnumerable<object>`. Examples: `IEnumerable<out T>`, `IReadOnlyList<out T>`, `Func<out TResult>`.\n- `in T` (contravariance): `T` appears only in input positions, so an `IComparer<object>` or `Action<object>` can be used where `IComparer<string>`/`Action<string>` is expected. Examples: `IComparer<in T>`, `IEqualityComparer<in T>`, `Action<in T>`.\n- Variance applies only to **reference conversions**: `IEnumerable<int>` does not convert to `IEnumerable<object>`, because an `int` must be boxed, which changes its representation.\n- `List<T>` is invariant: it is a class, and `T` appears in both `Add(T)` and the indexer getter.\n\n**Array covariance** is a legacy exception: `object[] a = new string[1];` compiles, so every store into a reference-type array pays a runtime type check and can throw `ArrayTypeMismatchException`.\n\n**Static abstract members** (C# 11 / .NET 7) let interfaces declare static members and operators: `interface IParsable<TSelf> where TSelf : IParsable<TSelf> { static abstract TSelf Parse(string s, IFormatProvider? p); }`. Generic math (`INumber<T>`, `IAdditionOperators<,,>`) is built on this. Calls like `T.Zero` or `a + b` are constrained calls resolved against the type argument; for value types the JIT specialises them, so there is no boxing or interface dispatch. An interface with static abstract members cannot itself be a type argument (CS8920).\n\n## What an interviewer probes\n\n- Why `List<string>` → `List<object>` fails but `IEnumerable<string>` → `IEnumerable<object>` works.\n- Explaining contravariance with a real example (a comparer for a base type sorting a derived list).\n- What the JIT does for `List<int>` vs `List<string>`, and why value-type generics are fast.\n- Designing variance into your own interfaces: `IReader<out T>`, `IHandler<in TMessage>`.\n\n## Common misconceptions\n\n- \"Generics are erased at runtime.\" They are reified.\n- \"Variance works for any generic type.\" Only interfaces and delegates, only reference type arguments.\n- \"Array covariance is type-safe.\" It is checked at runtime, not compile time.\n\n## Example\n\n```csharp\nIEnumerable<string> names = new List<string> { \"a\" };\nIEnumerable<object> objs = names;              // OK: covariant out T\n\nAction<object> log = o => Console.WriteLine(o);\nAction<string> logString = log;                // OK: contravariant in T\n\nstatic T Sum<T>(IEnumerable<T> xs) where T : INumber<T>\n{\n    T total = T.Zero;\n    foreach (var x in xs) total += x;          // constrained call, no boxing\n    return total;\n}\n\npublic interface IHandler<in TMessage> { Task HandleAsync(TMessage m, CancellationToken ct); }\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.generics-variance.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "generics",
+            "variance",
+            "covariance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why does `IEnumerable<object> a = new List<string>();` compile while `List<object> b = new List<string>();` does not?",
+              "options": [
+                {
+                  "text": "`IEnumerable<out T>` is declared covariant and `T` only flows out of it; `List<T>` is a class (variance exists only on interfaces and delegates) and also accepts `T` as input through `Add`, so allowing the conversion would let you add an `int` into a list of strings.",
+                  "correct": true
+                },
+                {
+                  "text": "Converting `List<string>` to `List<object>` would require boxing every element, which the compiler refuses; `IEnumerable` boxes lazily as elements are enumerated.",
+                  "correct": false
+                },
+                {
+                  "text": "`List<string>` to `List<object>` is allowed with an explicit cast `(List<object>)list`; only the implicit conversion is missing.",
+                  "correct": false
+                },
+                {
+                  "text": "The CLR has no notion of variance; `IEnumerable<T>` works because `List<T>` defines an implicit conversion operator to `IEnumerable<object>`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Variance is declared with `in`/`out` on type parameters of generic interfaces and delegates, and the compiler checks that an `out T` is only used in output positions. `IEnumerable<out T>` qualifies, so a sequence of strings is safely a sequence of objects. `List<T>` is a class, which cannot be variant at all, and its API takes `T` as input, so treating `List<string>` as `List<object>` would break type safety. No boxing is involved: `string` is a reference type, and variance only ever works for reference conversions. An explicit cast compiles only via `object` and then throws `InvalidCastException` at runtime, because the two closed types are unrelated. The CLR does support variance natively (since .NET 2.0 in IL; C# exposed it in C# 4), and no conversion operator is involved."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.generics-variance.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "generics",
+            "variance",
+            "value-types"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens with this code?\n\n```csharp\nIEnumerable<int> ints = new List<int> { 1, 2, 3 };\nIEnumerable<object> objs = ints;\n```",
+              "options": [
+                {
+                  "text": "It compiles; each element is boxed lazily when `objs` is enumerated.",
+                  "correct": false
+                },
+                {
+                  "text": "It compiles but throws `InvalidCastException` at runtime because `List<int>` does not implement `IEnumerable<object>`.",
+                  "correct": false
+                },
+                {
+                  "text": "Compile error CS0266: covariance applies only to reference-type arguments; turning an `int` into an `object` requires boxing, which changes the representation, so `ints.Cast<object>()` or `Select(i => (object)i)` is needed.",
+                  "correct": true
+                },
+                {
+                  "text": "It compiles because `int` derives from `object` and `IEnumerable<T>` is declared `out T`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Variant conversions are reinterpretations of the same object: an `IEnumerable<string>` can be used as `IEnumerable<object>` because every `string` reference already is an `object` reference. An `int` is not an object reference; making one requires a boxing allocation per element, which no reinterpretation can do, so the C# compiler rejects the conversion at compile time. The 'boxes lazily' option describes what `Cast<object>()` does, not what an implicit variant conversion does. Nothing reaches runtime, so there is no `InvalidCastException`. The last option is the misconception itself: 'derives from `object`' is true for `int`, but variance additionally requires a reference conversion."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.generics-variance.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "arrays",
+            "covariance",
+            "type-safety"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens when this runs?\n\n```csharp\nobject[] items = new string[2];\nitems[0] = \"ok\";\nitems[1] = 42;\n```",
+              "options": [
+                {
+                  "text": "It does not compile: `string[]` is not convertible to `object[]`.",
+                  "correct": false
+                },
+                {
+                  "text": "The first store succeeds; the second throws `ArrayTypeMismatchException`, because array covariance is checked at runtime on every store into a reference-type array.",
+                  "correct": true
+                },
+                {
+                  "text": "Both stores succeed: the array is typed `object[]`, so the boxed `42` is stored, and the failure only appears when someone later reads `items[1]` as a `string`.",
+                  "correct": false
+                },
+                {
+                  "text": "Both stores throw `ArrayTypeMismatchException`, because an `object[]` variable cannot write into a `string[]` instance.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The CLR supports covariant array conversion (a design borrowed from Java): a `string[]` can be referenced as `object[]`. Because writes are not type-safe at compile time, the runtime checks every store into an array of reference type (`stelem.ref`) against the array's actual element type. Storing a `string` passes; storing a boxed `int` into an array whose actual element type is `string` throws `ArrayTypeMismatchException`. The conversion itself compiles, so the compile-error option is wrong. The 'fails later on read' option assumes no runtime check, which is exactly what the check prevents. The first store is a valid `string`, so it does not throw. Generic interface variance was later designed to be compile-time safe precisely to avoid this hole."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.generics-variance.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "generics",
+            "jit",
+            "clr"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about how .NET executes generic code at runtime is true?",
+              "options": [
+                {
+                  "text": "Type arguments are erased after compilation, as in Java; `List<int>` stores boxed integers internally, and casts are inserted at call sites.",
+                  "correct": false
+                },
+                {
+                  "text": "The C# compiler stamps out a separate copy of the IL for every instantiation used in the assembly, as C++ templates do, so generic code is never shared.",
+                  "correct": false
+                },
+                {
+                  "text": "All instantiations share a single native body; value-type arguments are boxed into `object` inside that body, which is why `List<int>` is slower than `int[]`.",
+                  "correct": false
+                },
+                {
+                  "text": "Generics are reified: `List<int>` and `List<string>` are distinct runtime types with their own static fields. The JIT shares one native body across all reference-type instantiations and generates specialised code for each value-type instantiation.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The CLR keeps type arguments at runtime: each closed type has its own method table and statics (`Cache<int>.Value` and `Cache<string>.Value` are different fields) and reflection sees the type arguments. For reference types, all instantiations have the same layout (a pointer), so the JIT compiles one canonical body (`__Canon`) and looks up per-type information via a generic dictionary. For value types, layouts differ, so each instantiation is compiled separately, which is what allows `List<int>` to store unboxed ints and inline comparisons. Erasure is Java's model. The C# compiler emits generic IL once; specialisation happens in the JIT (or AOT compiler), not as IL copies. The 'all share one body and box' option describes a model .NET deliberately avoided."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.generics-variance.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "generics",
+            "static-abstract",
+            "generic-math"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Consider:\n\n```csharp\nstatic T Sum<T>(ReadOnlySpan<T> xs) where T : INumber<T>\n{\n    T total = T.Zero;\n    foreach (var x in xs) total += x;\n    return total;\n}\n```\n\nWhich statement is true (.NET 7 and later)?",
+              "options": [
+                {
+                  "text": "You can call `Sum<INumber<int>>(...)` to accept any numeric type at runtime; the static members are dispatched to the actual element type.",
+                  "correct": false
+                },
+                {
+                  "text": "`T.Zero` and `+=` are constrained calls resolved against the type argument; for `Sum<int>` the JIT emits specialised code, so there is no boxing and no interface dispatch, and the loop compiles roughly to what a hand-written `int` loop would.",
+                  "correct": true
+                },
+                {
+                  "text": "Static abstract members are looked up by reflection the first time they are used for a given `T` and then cached, so the first call per type is slow.",
+                  "correct": false
+                },
+                {
+                  "text": "Static abstract members can only be implemented by structs; for classes you must use `static virtual` members instead.",
+                  "correct": false
+                }
+              ],
+              "explanation": "C# 11 static abstract interface members are resolved at compile time as constrained calls on the type parameter; at runtime the JIT specialises the method per value-type argument, so `T.Zero` becomes the literal `0` and `+=` an `add` instruction for `int`. That is what makes generic math practical. An interface that has static abstract members without a most specific implementation cannot be used as a type argument (error CS8920), so `Sum<INumber<int>>` does not compile; there is no runtime dispatch of static members through an interface. No reflection is involved. Both classes and structs can implement static abstract members; `static virtual` exists as well, but it means 'has a default implementation', not 'for classes'."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.generics-variance.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "generics",
+            "variance",
+            "covariance",
+            "contravariance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain covariance and contravariance in C#. Give one example of each from the BCL, explain why `in`/`out` are allowed only on interfaces and delegates and only for reference-type arguments, and describe how you would apply variance when designing your own interfaces (for example a message handler or a read-only repository).",
+              "explanation": "Model answer: covariance (`out T`) preserves the direction of assignment compatibility: `IEnumerable<string>` can be used as `IEnumerable<object>`, because `T` only comes out of the interface. Contravariance (`in T`) reverses it: an `IComparer<object>` or `Action<object>` can be used where `IComparer<string>`/`Action<string>` is expected, because `T` only goes in. The compiler enforces position rules (an `out T` cannot appear as a method parameter, an `in T` cannot be a return type). Variance is declared on interfaces and delegates because they describe contracts with no fields; classes such as `List<T>` both accept and return `T` and have storage, so they are invariant. Only reference conversions are allowed because the conversion must reuse the same object without changing representation; `int` to `object` needs boxing. Arrays are covariant for legacy reasons and pay a runtime check (`ArrayTypeMismatchException`). In your own APIs: `IHandler<in TMessage>` lets a handler for a base message handle derived messages; `IReadRepository<out T>` returning `T`/`IEnumerable<T>` lets a repository of `Cat` serve as a repository of `Animal`.",
+              "rubric": [
+                "Defines covariance (`out`, output positions only, `IEnumerable<string>` → `IEnumerable<object>`) and contravariance (`in`, input positions only, e.g. `IComparer<object>` or `Action<object>` usable as `IComparer<string>`/`Action<string>`) with correct direction.",
+                "Explains that variance is only for generic interfaces and delegates (classes like `List<T>` are invariant because they accept and return `T`), and that the compiler enforces the in/out position rules.",
+                "States that variance requires reference conversions, so it does not work for value-type arguments such as `IEnumerable<int>` → `IEnumerable<object>` (boxing changes representation).",
+                "Mentions array covariance as a runtime-checked legacy exception that can throw `ArrayTypeMismatchException`.",
+                "Applies variance to own design with a correct example, such as `IHandler<in TMessage>` or a read-only `IReader<out T>`, and explains which substitution it enables."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "delegates-events-lambdas",
+      "title": "Delegates, Events, Lambdas and Closures",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Delegates, Events, Lambdas and Closures",
+          "note": "## What it is\n\nA **delegate** is an object that represents a callable method: a reference to a target instance (or `null` for static methods) plus a method pointer. Every delegate type is a sealed class deriving from `System.MulticastDelegate`, with a compiler-provided `Invoke` (and, on .NET Framework only, `BeginInvoke`/`EndInvoke`). `Func<...>` and `Action<...>` are general-purpose generic delegate types; custom delegate types (`EventHandler<T>`, `Predicate<T>`) are still separate types, so a `Predicate<int>` is not convertible to a `Func<int, bool>` even though the signatures match.\n\nAn **event** is a member that wraps a delegate with two accessors, `add` and `remove`. A **lambda** is syntax that the compiler turns into a method plus, if needed, a closure object.\n\n## How it works underneath\n\n**Multicast.** `a += b` calls `Delegate.Combine`, which returns a **new** delegate with a longer invocation list; delegates are immutable. Invoking a multicast delegate calls each target in order, returns the **last** return value, and stops at the first exception (the remaining handlers never run). Use `GetInvocationList()` when you need every result or per-handler error isolation.\n\n**Field-like events.** `public event EventHandler<OrderPlaced>? Placed;` generates a private delegate field and `add`/`remove` accessors that update it with an `Interlocked.CompareExchange` loop. Outside the declaring type, only `+=` and `-=` compile: callers cannot invoke the event, assign it with `=`, or read its invocation list. `Placed?.Invoke(this, e)` reads the field once, so a concurrent unsubscribe cannot cause a `NullReferenceException` between the check and the call.\n\n**Lambdas and closures.**\n\n- A lambda that captures nothing compiles to a method on a compiler-generated singleton class (`<>c`), and the delegate is created once and cached in a static field.\n- A lambda that captures only `this` becomes an instance method of the enclosing class; a new delegate is allocated every time the lambda expression is evaluated.\n- A lambda that captures locals or parameters causes the compiler to **hoist those variables into a display class** (`<>c__DisplayClass`). The local stops being a stack variable and becomes a field of a heap object created **when the scope declaring it is entered**, even if the code path creating the lambda never runs. Every lambda in that scope shares the same instance.\n- Closures capture **variables, not values**. Changes made after the lambda is created are visible to it, and the lambda can change the variable too.\n- `for (int i = 0; ...)` declares one `i` for the whole loop, so all lambdas see its final value. `foreach` declares a fresh iteration variable per iteration (C# 5 change), so each lambda sees its own value.\n- `static` lambdas (C# 9) make \"captures nothing\" a compile-time guarantee. Since C# 11, conversions from a **static** method group (`list.Select(int.Parse)`) are cached too.\n- Lambdas have a natural type since C# 10: `var square = (int x) => x * x;` is a `Func<int, int>`.\n\n## What an interviewer probes\n\n- Event vs delegate field: encapsulation (only the owner raises/resets), thread-safe accessors, and the classic leak where a long-lived publisher keeps short-lived subscribers alive.\n- Why the `for`-loop closure prints the same number three times, and how to fix it (copy into a local declared inside the loop body).\n- Allocation profile of lambdas in hot paths: capturing lambdas allocate a closure and a delegate; passing state explicitly (`(state) => ...` overloads such as `ConcurrentDictionary.GetOrAdd(key, factory, arg)`) avoids it.\n\n## Common misconceptions\n\n- \"Events are asynchronous.\" Raising an event is a synchronous call of each handler on the raising thread.\n- \"Closures copy the value at creation time.\" They share the variable.\n- \"`static` makes a lambda faster.\" A non-capturing lambda is already cached; `static` only prevents accidental capture.\n\n## Example\n\n```csharp\npublic sealed class OrderService\n{\n    public event EventHandler<OrderPlaced>? Placed;   // outsiders: += and -= only\n\n    public void Place(Order o)\n    {\n        // ...\n        Placed?.Invoke(this, new OrderPlaced(o.Id)); // field read once\n    }\n}\n\nvar actions = new List<Action>();\nfor (int i = 0; i < 3; i++)\n{\n    int copy = i;                 // new variable per iteration\n    actions.Add(() => Console.Write(copy));\n}\nactions.ForEach(a => a());        // 012\n\nFunc<int, int> twice = static x => x * 2;  // compile error if it captured anything\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.delegates-events-lambdas.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "delegates",
+            "events",
+            "encapsulation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the real difference between declaring `public event EventHandler? Changed;` and `public EventHandler? Changed;` (a public delegate field) on a class?",
+              "options": [
+                {
+                  "text": "An `event` is multicast while a plain delegate field can hold only one method at a time.",
+                  "correct": false
+                },
+                {
+                  "text": "Raising an `event` invokes subscribers asynchronously on the thread pool, whereas invoking a delegate is synchronous.",
+                  "correct": false
+                },
+                {
+                  "text": "With `event`, code outside the declaring type can only `+=` and `-=` handlers; only the declaring type can invoke it, assign it with `=` or set it to `null`. A public delegate field can be invoked, overwritten or cleared by anyone.",
+                  "correct": true
+                },
+                {
+                  "text": "An `event` holds its subscribers through weak references, so subscribing cannot cause memory leaks, unlike a delegate field.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`event` is an encapsulation feature: the compiler generates `add`/`remove` accessors (thread-safe for field-like events) and restricts the delegate field so outside code can only subscribe and unsubscribe. That prevents another class from raising your event or wiping all subscribers with `Changed = null`. Every delegate type is multicast (`MulticastDelegate`), so a plain field can hold many handlers too. Events are raised synchronously, one handler after another, on the thread that raises them; no thread pool is involved. Events hold strong references to their subscribers (the delegate's `Target`), which is exactly why forgetting `-=` on a long-lived publisher leaks short-lived subscribers."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.delegates-events-lambdas.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "closures",
+            "lambdas",
+            "loops"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this print?\n\n```csharp\nvar actions = new List<Action>();\nfor (int i = 0; i < 3; i++)\n    actions.Add(() => Console.Write(i));\n\nforeach (var a in actions) a();\n```",
+              "options": [
+                {
+                  "text": "`012`: since C# 5 each loop iteration gets its own copy of the loop variable.",
+                  "correct": false
+                },
+                {
+                  "text": "`333`: there is a single `i` for the whole `for` loop; the lambdas capture that variable (hoisted into a closure object), and its value is 3 when they run.",
+                  "correct": true
+                },
+                {
+                  "text": "`222`: the lambdas see the last value the loop body observed, before the final increment.",
+                  "correct": false
+                },
+                {
+                  "text": "`012`: lambdas capture the value of `i` at the moment they are created.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Closures capture variables, not values. The `for` statement declares `i` once, so the compiler hoists it into one display-class instance shared by all three lambdas; after the loop exits, `i` is 3, and every lambda prints 3. The C# 5 breaking change applied only to `foreach`, whose iteration variable is now scoped per iteration; `for` was deliberately left alone because its variable is mutated by the increment clause. `222` ignores that the increment runs before the final condition check. 'Capture the value at creation' is the misconception; the fix is to copy into a local declared inside the loop body (`int copy = i;`)."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.delegates-events-lambdas.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "delegates",
+            "multicast",
+            "exceptions"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this print?\n\n```csharp\nFunc<int> f = () => 1;\nf += () => 2;\nf += () => 3;\nConsole.WriteLine(f());\n```",
+              "options": [
+                {
+                  "text": "`3`: all three targets run in order and the invocation returns the result of the last one.",
+                  "correct": true
+                },
+                {
+                  "text": "`1`: a multicast delegate returns the result of the first target and ignores the rest.",
+                  "correct": false
+                },
+                {
+                  "text": "`6`: results of a multicast `Func<int>` are summed.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: `+=` is only allowed for delegates returning `void`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`+=` on any delegate calls `Delegate.Combine`, producing a new multicast delegate whose invocation list is `[1, 2, 3]`. `Invoke` calls each target in order and keeps only the last return value, so `3` is printed and the earlier results are discarded. Nothing is aggregated, and the first result is not kept. Multicast is allowed for non-void delegates (it is merely rarely useful); to collect all results, iterate `f.GetInvocationList()` and invoke each `Func<int>`. The same mechanics mean that if the second target threw, the third would never run."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.delegates-events-lambdas.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "lambdas",
+            "closures",
+            "allocations",
+            "csharp-9"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `static` lambdas (C# 9), as in `items.Select(static x => x * 2)`, is true?",
+              "options": [
+                {
+                  "text": "`static` is a compile-time guarantee that the lambda captures no locals, parameters or `this`; a lambda that captures nothing is already compiled to a cached delegate, so adding `static` does not by itself remove an allocation.",
+                  "correct": true
+                },
+                {
+                  "text": "`static` makes the compiler copy captured locals by value at creation time, which avoids allocating a closure object.",
+                  "correct": false
+                },
+                {
+                  "text": "Without `static`, even a non-capturing lambda allocates a new delegate every time the expression is evaluated; `static` makes the compiler cache it.",
+                  "correct": false
+                },
+                {
+                  "text": "A `static` lambda may still read instance fields through `this`, but it may not capture local variables.",
+                  "correct": false
+                }
+              ],
+              "explanation": "For a non-capturing lambda the compiler emits a method on a singleton `<>c` class and caches the delegate in a static field on first use, whether or not the lambda says `static`. The modifier's job is to turn accidental capture (and the closure plus delegate allocation it causes) into a compile error, which is valuable in hot paths and library code. It never changes capture semantics to by-value; a `static` lambda cannot capture at all. Reading `this` is a capture of `this`, so it is rejected as well. The 'without static it allocates every time' option was never true for lambdas; it was partly true for method-group conversions of static methods before C# 11, which C# 11 now caches."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.delegates-events-lambdas.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "closures",
+            "lambdas",
+            "compiler",
+            "allocations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is a closure in C#? Explain what the compiler generates for a lambda that captures a local variable (and for one that captures nothing, or only `this`), what \"captures variables, not values\" means in practice, and what consequences this has for correctness, object lifetime and allocations.",
+              "explanation": "Model answer: a closure is a lambda (or local function converted to a delegate) together with the variables it uses from the enclosing scope. For captured locals/parameters the compiler generates a display class, turns each captured variable into a field of it, instantiates it when the declaring scope is entered, and compiles the lambda as an instance method on that class; the delegate's `Target` is the display-class instance. A non-capturing lambda becomes a method on a cached singleton `<>c` and its delegate is cached; a lambda capturing only `this` is an instance method on the enclosing class, with a new delegate per evaluation. Because the variable itself is shared, later changes are visible to the lambda and vice versa; the `for`-loop bug (all lambdas print the final value) follows, while `foreach` gets a fresh variable per iteration since C# 5. Lifetime: captured variables (and `this`) live as long as the delegate, so storing it in a long-lived event or cache keeps them alive. Allocation: one closure object plus one delegate per evaluation; `static` lambdas or state-passing overloads avoid it in hot paths.",
+              "rubric": [
+                "Describes the compiler-generated display class: captured locals/parameters become fields, the instance is created on entry to the declaring scope, and the lambda body becomes an instance method on it (the delegate targets that instance).",
+                "Distinguishes the other cases: a non-capturing lambda compiles to a cached delegate (singleton `<>c`), while capturing only `this` produces an instance method on the enclosing type with a new delegate per evaluation.",
+                "Explains 'captures variables, not values' with the `for`-loop example (all lambdas observe the final value) and notes that `foreach` has a per-iteration variable since C# 5; fix is copying to a loop-body local.",
+                "Mentions lifetime extension (captured variables and `this` stay reachable while the delegate is referenced, e.g. by an event or cache) and allocation cost (closure + delegate), with a mitigation such as `static` lambdas or passing state explicitly."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "linq-internals",
+      "title": "LINQ Internals: Deferred Execution, IQueryable, Expression Trees",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "LINQ Internals: Deferred Execution, IQueryable, Expression Trees",
+          "note": "## What it is\n\nLINQ is a set of extension methods plus query syntax that the compiler translates into method calls. Two worlds share the same operator names:\n\n- **LINQ to Objects** — `System.Linq.Enumerable`, extension methods on `IEnumerable<T>` taking delegates (`Func<T, bool>`), executed in-process.\n- **Query providers** — `System.Linq.Queryable`, extension methods on `IQueryable<T>` taking **expression trees** (`Expression<Func<T, bool>>`). The provider (EF Core, OData, a MongoDB driver) translates the tree into something else, usually SQL.\n\nWhich one you get is decided **at compile time by the static type** of the receiver.\n\n## How it works underneath\n\n**Deferred execution.** Operators such as `Where`, `Select`, `Take`, `SelectMany` return an iterator object that remembers the source and the delegate; nothing runs until something calls `GetEnumerator`/`MoveNext` (a `foreach`, `ToList`, `Count`, `First`, `Sum`...). Consequences:\n\n- Captured variables are read when the query is enumerated, not when it is built.\n- Exceptions thrown by your lambdas surface during enumeration. Argument validation (`source` or `selector` is `null`) is **eager**, because the BCL splits each operator into a validating method and an iterator.\n- **Streaming** operators (`Where`, `Select`, `Take`) yield as they go; **buffering** operators (`OrderBy`, `GroupBy`, `Reverse`, the inner side of `Join`) must consume their whole input before yielding the first element. `Infinite().Where(p).First()` returns; `Infinite().OrderBy(k).First()` never does (though `OrderBy(...).First()` on a finite source is optimised to a single O(n) scan instead of a full sort).\n\n**Multiple enumeration.** A deferred query is a recipe, not a result: enumerating it twice runs the whole pipeline twice, re-invoking selectors, re-reading files and, for `IQueryable`, issuing the SQL twice. Calls like `Any()` followed by `foreach`, or `Count()` followed by a loop, are the usual culprits. Materialise once (`ToList`, `ToArray`) when you need the results more than once, and accept `IReadOnlyCollection<T>`/`IReadOnlyList<T>` in APIs that need to iterate several times.\n\n**Fast paths.** `Enumerable` special-cases known shapes: `Count()` uses `ICollection<T>.Count`, chained `Where().Select()` fuse into one iterator, and operators over arrays and `List<T>` avoid interface dispatch. Such optimisations can change *how many times* your lambdas run (for example, a count may be computed without invoking a `Select` projection), so side effects inside LINQ lambdas are a design smell.\n\n**Expression trees.** For `Expression<Func<Order, bool>> e = o => o.Total > 100;` the compiler emits code that builds an object graph (`LambdaExpression` → `BinaryExpression` → `MemberExpression`/`ConstantExpression`). A provider walks it with an `ExpressionVisitor`; captured variables appear as member accesses on a closure object, which EF Core turns into SQL parameters. `e.Compile()` produces a delegate (via `System.Reflection.Emit`, or an interpreter where dynamic code is unavailable, such as Native AOT).\n\n**The IEnumerable/IQueryable trap.** If a `DbSet<Order>` is held in an `IEnumerable<Order>` variable, `Where` binds to `Enumerable.Where`: EF Core runs `SELECT * FROM Orders` and filters in memory. `AsEnumerable()` does this on purpose to switch to client-side evaluation for the rest of a query. Since EF Core 3.0, untranslatable expressions throw (`InvalidOperationException`) instead of silently evaluating on the client, except in the final `Select` projection.\n\n## What an interviewer probes\n\n- When a query executes, and what happens if the source changes between building and enumerating.\n- `IEnumerable<T>` vs `IQueryable<T>`: delegates vs expression trees, in-process vs translated, and what static typing does to `Where`.\n- Multiple-enumeration bugs and the analyzer warnings (CA1851) that catch them.\n- Newer operators: `CountBy`, `AggregateBy`, `Index` (.NET 9); `LeftJoin`/`RightJoin` (.NET 10).\n\n## Common misconceptions\n\n- \"`ToList()` at the end is the only thing that executes the query.\" Any aggregate, `First`, `Any` or `foreach` does too.\n- \"`IEnumerable<T>` is just a read-only list.\" It is a sequence that may be lazy, infinite or expensive to re-enumerate.\n- \"`AsEnumerable()` loads the table.\" It only changes the static type; loading happens when the result is enumerated.\n\n## Example\n\n```csharp\nIQueryable<Order> q = db.Orders.Where(o => o.Total > minTotal);   // expression tree\nvar sql = q.ToQueryString();                                        // EF Core: inspect SQL\n\nIEnumerable<Order> local = db.Orders;                               // static type changed!\nvar big = local.Where(o => o.Total > 1000).ToList();                // SELECT * ... then filter in memory\n\nvar lines = File.ReadLines(path).Where(l => l.Length > 0);         // deferred\nvar materialised = lines.ToList();                                  // read the file once\nif (materialised.Count > 0) Process(materialised);\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.linq-internals.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "deferred-execution",
+            "csharp"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this print?\n\n```csharp\nvar list = new List<int> { 1, 2, 3 };\nvar query = list.Where(x => x > 1);\nlist.Add(4);\nConsole.WriteLine(query.Count());\n```",
+              "options": [
+                {
+                  "text": "`2`: the filtered result is captured when `Where` is called, before `4` is added.",
+                  "correct": false
+                },
+                {
+                  "text": "`3`: `Where` is deferred, so the filter runs when `Count()` enumerates the list, which by then contains 2, 3 and 4.",
+                  "correct": true
+                },
+                {
+                  "text": "It throws `InvalidOperationException` (collection was modified), because `list` changed after the query was created.",
+                  "correct": false
+                },
+                {
+                  "text": "`4`: `Count()` short-circuits to `List<T>.Count` because the source is an `ICollection<T>`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Where` only builds an iterator that remembers `list` and the predicate; nothing is evaluated until `Count()` enumerates it. At that moment the list holds `1, 2, 3, 4`, and three elements pass the filter. The '2' option assumes eager evaluation, which LINQ to Objects does not do for `Where`. The 'collection was modified' exception is thrown only when a `List<T>` changes **during** an active enumeration; here the add happens before any enumerator exists. The `ICollection<T>.Count` fast path applies when `Count()` is called directly on the list, not on a `Where` iterator, because the filter must still run."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.linq-internals.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "iqueryable",
+            "ef-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In a repository using EF Core:\n\n```csharp\nIEnumerable<Order> orders = _db.Orders;\nvar big = orders.Where(o => o.Total > 1000).ToList();\n```\n\nWhat SQL does EF Core execute, and why?",
+              "options": [
+                {
+                  "text": "`SELECT ... WHERE Total > 1000`: the runtime type is still `DbSet<Order>`, so virtual dispatch routes `Where` to the EF Core provider.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws `InvalidOperationException` because EF Core cannot translate a `Func<Order, bool>` predicate.",
+                  "correct": false
+                },
+                {
+                  "text": "A query for **all** orders without a `WHERE` clause; the filter runs in memory, because the static type `IEnumerable<Order>` makes the compiler bind `Enumerable.Where` (a `Func` delegate) instead of `Queryable.Where` (an expression tree).",
+                  "correct": true
+                },
+                {
+                  "text": "`SELECT ... WHERE Total > 1000`, but the filter is also re-applied in memory as a safety net.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Extension methods are bound at compile time by the static type of the receiver. With `IEnumerable<Order>`, the call resolves to `Enumerable.Where(IEnumerable<T>, Func<T,bool>)`, so the lambda compiles to a delegate, EF Core is asked only to enumerate the `DbSet` (an unfiltered `SELECT`), and every row is materialised and filtered in process. Extension methods are static, so there is no virtual dispatch to the provider, whatever the runtime type is. EF Core never sees the delegate, so nothing throws; the bug is silent and only shows up as slow queries and memory pressure. There is no 'double filter'. Keep the variable `IQueryable<Order>` (or compose the query before converting) to get a server-side `WHERE`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.linq-internals.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "multiple-enumeration",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`LoadIds()` is an iterator method (`yield return 1; yield return 2; yield return 3;`). How many times is the selector invoked?\n\n```csharp\nint calls = 0;\nIEnumerable<int> items = LoadIds().Select(id => { calls++; return id * 10; });\n\nif (items.Any())\n{\n    foreach (var x in items) { /* ... */ }\n}\nConsole.WriteLine(calls);\n```",
+              "options": [
+                {
+                  "text": "`3`: `Any()` and `foreach` share the same enumeration, so each element is projected once.",
+                  "correct": false
+                },
+                {
+                  "text": "`4`: `Any()` starts an enumeration and stops after the first element (one call), then `foreach` enumerates the pipeline again from the start (three calls).",
+                  "correct": true
+                },
+                {
+                  "text": "`6`: `Any()` enumerates the whole sequence to check it is non-empty, then `foreach` enumerates it again.",
+                  "correct": false
+                },
+                {
+                  "text": "`3`: the results of `Select` are cached after the first enumeration, as with `Lazy<T>`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A deferred query is re-executed on every enumeration. `Any()` calls `GetEnumerator`, `MoveNext` once (projecting the first id) and returns `true`; `foreach` then calls `GetEnumerator` again, re-running `LoadIds()` and the projection for all three ids: 1 + 3 = 4. Enumerations are independent, nothing is shared or cached between them (LINQ has no memoisation), and `Any()` short-circuits after the first element rather than scanning everything. With an `IQueryable` this pattern means two database round-trips. Note that when the source is an array or list, `Any()` may answer from the known count without running the projection at all, which is one more reason not to put side effects in LINQ lambdas."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.linq-internals.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "deferred-execution",
+            "exceptions"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens when this runs?\n\n```csharp\nint[] numbers = { 1, 0, 2 };\nIEnumerable<int> q = numbers.Select(n => 10 / n);   // line A\nConsole.WriteLine(\"built\");\nvar results = q.ToList();                            // line B\n```",
+              "options": [
+                {
+                  "text": "Line A throws `DivideByZeroException`, because `Select` over an array is evaluated eagerly as an optimisation.",
+                  "correct": false
+                },
+                {
+                  "text": "`built` is printed and line B returns `[10, 5]`: elements whose selector throws are skipped.",
+                  "correct": false
+                },
+                {
+                  "text": "`built` is printed, then line B throws an `AggregateException` that wraps the `DivideByZeroException`.",
+                  "correct": false
+                },
+                {
+                  "text": "`built` is printed, then line B throws `DivideByZeroException`; by contrast, a `null` selector would throw `ArgumentNullException` immediately at line A, because `Enumerable` operators validate arguments eagerly.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`Select` returns an iterator without invoking the lambda, so line A cannot fail on the data and `built` is printed. `ToList()` enumerates; the projection runs for `1` and then throws on `0`, propagating the original `DivideByZeroException` out of `ToList`. The BCL deliberately splits operators into an eager argument check and a lazy iterator, so passing `null` as the selector throws `ArgumentNullException` at the call site. The array fast path changes how iteration happens, not when; it is still deferred. LINQ never swallows exceptions. `AggregateException` is a TPL/PLINQ wrapper; sequential LINQ to Objects rethrows the original exception."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.linq-internals.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "streaming",
+            "buffering"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`Infinite()` is an iterator that yields 0, 1, 2, ... forever. Which statement is true?",
+              "options": [
+                {
+                  "text": "`Infinite().Where(x => x > 5).First()` returns 6, while `Infinite().OrderBy(x => x).First()` never returns, because `OrderBy` is a buffering operator that must read its entire source before yielding anything.",
+                  "correct": true
+                },
+                {
+                  "text": "Both return quickly: `OrderBy` is implemented as a lazy insertion sort that yields the smallest element seen so far.",
+                  "correct": false
+                },
+                {
+                  "text": "Both hang: every LINQ operator materialises its source into a buffer before `First()` can run.",
+                  "correct": false
+                },
+                {
+                  "text": "`OrderBy(...).First()` is rewritten by the runtime into `First()`, so it returns 0 without sorting.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Where` is a streaming operator: each `MoveNext` pulls from the source until an element matches, so `First()` stops after reading 0..6. Sorting cannot emit the smallest element until it has seen all elements, so `OrderBy` consumes the whole source on the first `MoveNext`; with an infinite source that never finishes. There is no lazy insertion-sort implementation. Most operators (`Where`, `Select`, `Take`, `Skip`) stream; buffering is limited to operators that need all input (`OrderBy`, `GroupBy`, `Reverse`, `ToLookup`, the inner sequence of `Join`). .NET does optimise `OrderBy(...).First()` on finite input into a single linear scan for the minimum instead of a full O(n log n) sort, but it still must read every element; it is not rewritten into a plain `First()`, which would return the wrong element."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.linq-internals.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "linq",
+            "iqueryable",
+            "expression-trees",
+            "ef-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain the difference between `IEnumerable<T>` and `IQueryable<T>`. Cover what the compiler produces for a lambda passed to `Where` in each case, where and when the query executes, how static typing decides which one you get, what happens when EF Core cannot translate part of a query, and how multiple enumeration bites in each world.",
+              "explanation": "Model answer: `Enumerable` operators take delegates (`Func<T, bool>`); the lambda is compiled IL and runs in-process when the sequence is enumerated. `Queryable` operators take `Expression<Func<T, bool>>`; the compiler emits code that builds an expression tree, each operator appends a `MethodCallExpression` to `IQueryable.Expression`, and on enumeration the provider (EF Core) visits the tree, translates it to SQL with captured variables as parameters, and executes it. Both are deferred. Extension method binding uses the static type, so an `IQueryable` stored in an `IEnumerable` variable (or a method that accepts `Func` instead of `Expression`) silently switches to client-side evaluation after loading the whole table; `AsEnumerable()` does the same deliberately. Since EF Core 3.0 an untranslatable expression throws `InvalidOperationException`, except in the top-level `Select`, where client evaluation is allowed. Multiple enumeration re-runs the pipeline: in memory it repeats work and side effects, against a database it repeats round-trips; materialise once with `ToList`/`ToArray`.",
+              "rubric": [
+                "States that `IEnumerable<T>` operators take delegates (compiled code running in-process) while `IQueryable<T>` operators take expression trees that a provider translates (e.g. EF Core to SQL), and that both are deferred until enumeration.",
+                "Explains that the static type decides at compile time which extension (`Enumerable` or `Queryable`) binds, so assigning a `DbSet` to `IEnumerable<T>` or accepting a `Func` loads all rows and filters in memory; mentions `AsEnumerable()` as the deliberate switch.",
+                "Describes expression trees as data (an object graph of `Expression` nodes, captured variables as member accesses that become SQL parameters) that can be inspected or compiled with `Compile()`.",
+                "States EF Core 3.0+ behaviour: untranslatable expressions throw `InvalidOperationException` instead of silent client evaluation, except in the final projection.",
+                "Explains multiple enumeration: each enumeration re-executes the whole query (repeated work and side effects in memory, repeated round-trips for `IQueryable`), and the fix is to materialise once."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "nullable-reference-types",
+      "title": "Nullable Reference Types",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Nullable Reference Types",
+          "note": "## What it is\n\nNullable reference types (NRT, C# 8) are a **compile-time** static analysis feature. With `<Nullable>enable</Nullable>` (the default in new SDK project templates since .NET 6), `string` means \"should never be null\" and `string?` means \"may be null\", and the compiler warns when you dereference a maybe-null value or assign one to a non-nullable location.\n\nThere is no runtime component. `string` and `string?` are the same `System.String` at runtime; the annotation is stored as `[Nullable]`/`[NullableContext]` metadata so that consumers of your library get the same warnings. Contrast with `int?`, which is a genuinely different type, `Nullable<int>`.\n\n## How it works underneath\n\n**Flow analysis.** The compiler tracks a *null state* (not-null / maybe-null) per expression. `if (x is null) return;`, `x ??= ...`, `ArgumentNullException.ThrowIfNull(x)` and pattern checks move `x` to not-null for the rest of the flow. Fields and properties are tracked too, but the state is reset by calls that could have changed them.\n\n**`!` (null-forgiving).** `expr!` changes the null state to not-null and suppresses the warning. It emits **no IL**: no check, no exception at that point. If the value is null you get a `NullReferenceException` later, wherever it is dereferenced. `= null!` / `= default!` on a property means \"I promise something else will set this\" (EF Core, DI, deserialisers).\n\n**Attributes** (`System.Diagnostics.CodeAnalysis`) describe contracts that `?` alone cannot express:\n\n| Attribute | Meaning |\n|---|---|\n| `[AllowNull]` / `[DisallowNull]` | input may / may not be null, independent of the declared type |\n| `[MaybeNull]` / `[NotNull]` | output may be null / is never null (e.g. after the call for a `ref` argument) |\n| `[MaybeNullWhen(false)]` | `out T value` of a `TryGet` pattern |\n| `[NotNullWhen(true/false)]` | argument is not null when the method returns that value (`string.IsNullOrEmpty`) |\n| `[NotNullIfNotNull(\"p\")]` | return is not null if parameter `p` was not null |\n| `[MemberNotNull(nameof(_f))]` | helper methods that initialise fields |\n| `[DoesNotReturn]` | throw helpers |\n\nUnconstrained generics: since C# 9, `T?` means \"default of T\", i.e. maybe-null for reference types.\n\n**Known holes.** Arrays (`new string[10]` contains nulls with no warning), `default(T)` for structs containing references, reflection, deserialisation, and code compiled without NRT. Warnings are not errors unless you use `<WarningsAsErrors>nullable</WarningsAsErrors>` (or `TreatWarningsAsErrors`).\n\n## NRT at the boundaries\n\n- **EF Core**: with NRT enabled, a non-nullable `string Name` is mapped as required (`NOT NULL`) and `string? Notes` as optional. Required navigations are declared `public Customer Customer { get; set; } = null!;`. With NRT disabled, reference-type properties are optional unless marked `[Required]`/`IsRequired()`.\n- **ASP.NET Core MVC model binding** treats non-nullable reference properties as implicitly `[Required]` (configurable via `SuppressImplicitRequiredAttributeForNonNullableReferenceTypes`).\n- **System.Text.Json** ignores annotations by default: `{\"name\": null}` happily sets a non-nullable `string Name` to null. .NET 9 added `JsonSerializerOptions.RespectNullableAnnotations` (opt-in), which makes the serializer throw `JsonException` instead. Combine with `required` members to also enforce presence.\n- **DTOs**: prefer `required` + non-nullable over `= null!`, so object creation in code is checked too.\n\n## What an interviewer probes\n\n- What NRT guarantees (nothing at runtime) and why you still need validation at trust boundaries.\n- How `!` differs from a null check.\n- Migrating a large codebase: enable per project or per file (`#nullable enable`), start with leaf libraries, annotate public APIs first, warnings as errors once clean, avoid sprinkling `!`.\n\n## Common misconceptions\n\n- \"Enabling NRT makes the compiler insert null checks.\" It inserts nothing.\n- \"`string?` is `Nullable<string>`.\" `Nullable<T>` requires `T : struct`.\n- \"`!` throws if the value is null.\" It is a pure annotation.\n\n## Example\n\n```csharp\npublic static bool TryFind(int id, [NotNullWhen(true)] out Customer? customer) { /* ... */ }\n\nif (TryFind(42, out var c))\n    Console.WriteLine(c.Name);          // no warning: not null when true\n\npublic sealed class Order                // EF Core entity, NRT enabled\n{\n    public int Id { get; set; }\n    public string Number { get; set; } = null!;   // NOT NULL column, set by EF\n    public string? Comment { get; set; }          // NULL column\n    public Customer Customer { get; set; } = null!; // required navigation\n}\n\npublic sealed record CreateOrderRequest\n{\n    public required string Number { get; init; }\n    public string? Comment { get; init; }\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "nrt",
+            "compiler"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team enables `<Nullable>enable</Nullable>` in a project. What changes in the compiled program's runtime behaviour?",
+              "options": [
+                {
+                  "text": "The compiler inserts `ArgumentNullException` checks at the start of every method for parameters declared as non-nullable reference types.",
+                  "correct": false
+                },
+                {
+                  "text": "`string?` is compiled to `Nullable<string>`, which adds a `HasValue` flag next to each reference.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing: annotations are emitted as metadata attributes and the compiler produces warnings, but `string` and `string?` are the same runtime type and no null checks are inserted.",
+                  "correct": true
+                },
+                {
+                  "text": "Non-nullable reference fields and properties are initialised to non-null defaults (e.g. `string.Empty`) by the runtime.",
+                  "correct": false
+                }
+              ],
+              "explanation": "NRT is purely a static analysis: the compiler tracks null state, issues warnings, and records annotations in `[Nullable]`/`[NullableContext]` attributes so consumers of the assembly see them. The IL for method bodies is unchanged. No parameter checks are generated (you write `ArgumentNullException.ThrowIfNull` yourself; a proposed `!!` syntax for this was dropped before C# 11 shipped). `Nullable<T>` has a `struct` constraint, so `string?` cannot be `Nullable<string>`; the `?` on a reference type is only an annotation. The runtime never initialises fields to anything other than their default (`null` for references); that is why the compiler warns about uninitialised non-nullable members."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "null-forgiving",
+            "nrt"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens when this runs?\n\n```csharp\nstatic string? FindEmail(int id) => null;\n\nstring email = FindEmail(42)!;      // line A\nConsole.WriteLine(\"got it\");\nConsole.WriteLine(email.Length);    // line B\n```",
+              "options": [
+                {
+                  "text": "Line A throws `NullReferenceException`, because `!` asserts non-null at runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "`got it` is printed and line B throws `NullReferenceException`: `!` only suppresses the compiler warning and emits no runtime check.",
+                  "correct": true
+                },
+                {
+                  "text": "Line A throws `ArgumentNullException` with the expression text as the parameter name.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: the result of a method returning `string?` cannot be assigned to `string`, even with `!`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The null-forgiving operator tells the compiler 'treat this as not-null'; it changes the flow state and silences warning CS8600, but generates no IL. So `email` simply holds `null`, line A succeeds, and the failure moves to the first dereference at line B. This is why `!` should be rare: it converts a compile-time warning into a later, harder-to-diagnose runtime crash. No variant of `!` throws `ArgumentNullException`. Assigning `string?` to `string` without `!` is only a warning (not an error), and with `!` it is not even that."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "attributes",
+            "flow-analysis"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You have:\n\n```csharp\nstatic bool IsMissing(string? s) => s is null || s.Length == 0;\n\nvoid Print(string? name)\n{\n    if (!IsMissing(name))\n        Console.WriteLine(name.Length);   // warning CS8602: possible null dereference\n}\n```\n\nWhich change removes the warning while keeping the annotations truthful?",
+              "options": [
+                {
+                  "text": "Annotate the parameter: `static bool IsMissing([NotNullWhen(false)] string? s)`.",
+                  "correct": true
+                },
+                {
+                  "text": "Annotate the parameter: `static bool IsMissing([NotNull] string? s)`.",
+                  "correct": false
+                },
+                {
+                  "text": "Annotate the parameter: `static bool IsMissing([MaybeNullWhen(true)] string? s)`.",
+                  "correct": false
+                },
+                {
+                  "text": "Annotate the return value: `[return: NotNull] static bool IsMissing(string? s)`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`[NotNullWhen(false)]` states the real contract: if `IsMissing` returns `false`, the argument was not null, so the compiler moves `name` to the not-null state inside the `if`. This is exactly how `string.IsNullOrEmpty` is annotated. `[NotNull]` on a parameter claims the argument is non-null after *any* return, which is a lie here (the method returns `true` for `null`) and would hide real bugs in the `true` branch. `[MaybeNullWhen(true)]` only says the value may be null when the result is `true`, which is already implied by `string?` and gives no information for the `false` branch, so the warning stays. `[return: NotNull]` talks about the return value, which is a non-nullable `bool` anyway."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "ef-core",
+            "mapping"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "With NRT enabled, an EF Core entity is declared as:\n\n```csharp\npublic class Product\n{\n    public int Id { get; set; }\n    public string Name { get; set; } = null!;\n    public string? Description { get; set; }\n}\n```\n\nWhich statement about the generated schema is true?",
+              "options": [
+                {
+                  "text": "`Name` maps to a `NOT NULL` column and `Description` to a nullable column: EF Core uses the NRT annotations to infer requiredness; `= null!` only silences the uninitialised-property warning and has no effect on mapping.",
+                  "correct": true
+                },
+                {
+                  "text": "Both columns are nullable: EF Core ignores NRT annotations, and only `[Required]` or `IsRequired()` makes a string column `NOT NULL`.",
+                  "correct": false
+                },
+                {
+                  "text": "`Name` is nullable because it is initialised with `null!`; EF Core reads the initialiser to decide nullability.",
+                  "correct": false
+                },
+                {
+                  "text": "Both columns are `NOT NULL`; `string?` only affects compiler warnings, not EF Core mapping.",
+                  "correct": false
+                }
+              ],
+              "explanation": "When the project has NRT enabled, EF Core's conventions treat a non-nullable reference property as required and a `T?` property as optional, so migrations emit `NOT NULL` for `Name` and `NULL` for `Description`. The `= null!` initialiser is a C# idiom telling the compiler 'EF will set this'; EF never inspects initialisers. The 'ignores NRT' option describes behaviour with NRT **disabled**, where reference-type properties are optional unless configured otherwise, which is a common surprise when enabling NRT on an existing model (the next migration flips columns to `NOT NULL`). The last option contradicts the convention."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "system-text-json",
+            "dto",
+            "validation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In a .NET 10 API, with default `JsonSerializerOptions(JsonSerializerDefaults.Web)` and NRT enabled:\n\n```csharp\npublic sealed class CustomerDto\n{\n    public string Name { get; set; } = \"\";\n}\n\nvar dto = JsonSerializer.Deserialize<CustomerDto>(\"{\\\"name\\\": null}\", options);\n```\n\nWhat is the result?",
+              "options": [
+                {
+                  "text": "It throws `JsonException`, because `System.Text.Json` enforces non-nullable reference annotations by default since .NET 8.",
+                  "correct": false
+                },
+                {
+                  "text": "`dto.Name` is `null` with no warning or exception; enabling `options.RespectNullableAnnotations = true` (available since .NET 9) makes this deserialisation throw `JsonException` instead.",
+                  "correct": true
+                },
+                {
+                  "text": "`dto.Name` is `\"\"`: the serializer skips JSON `null` values for non-nullable properties and keeps the initialiser's value.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws `ArgumentNullException` from the property setter, because NRT makes setters reject `null`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "NRT annotations are compile-time only, and by default `System.Text.Json` does not consult them: an explicit JSON `null` is assigned to the property, overwriting the initialiser, so `Name` is `null` despite its type. .NET 9 introduced the opt-in `RespectNullableAnnotations` option (and an equivalent feature switch); when enabled, writing `null` into a non-nullable property, field or constructor parameter throws `JsonException`. It is not the default in .NET 8, 9 or 10, so the 'throws by default since .NET 8' option is wrong. The serializer does not skip `null` tokens for non-nullable members (you would need `JsonIgnoreCondition` or a converter for that). Setters are ordinary methods with no generated checks. Note that `RespectNullableAnnotations` does not enforce presence of a missing property; that is what `required` members (or `RespectRequiredConstructorParameters`) are for."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.nullable-reference-types.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "nullable",
+            "nrt",
+            "migration",
+            "validation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What do nullable reference types guarantee, and what don't they? Explain `?`, `!` and the main nullability attributes, list the places where null can still sneak in at runtime, and describe how you would roll NRT out across a large existing solution that includes EF Core entities and API DTOs.",
+              "explanation": "Model answer: NRT is compile-time flow analysis; annotations are metadata and nothing is checked at runtime, so it reduces but does not eliminate null bugs. `string?` declares maybe-null, `string` declares not-null; `!` suppresses a warning and emits no check. Attributes such as `[NotNullWhen(true)]`, `[MaybeNullWhen(false)]`, `[NotNullIfNotNull]`, `[MemberNotNull]`, `[AllowNull]`/`[DisallowNull]` and `[DoesNotReturn]` describe contracts that `?` cannot. Null still arrives via deserialisation (System.Text.Json ignores annotations unless `RespectNullableAnnotations` in .NET 9+), reflection, arrays and `default` structs, un-annotated libraries, `!` misuse, and old callers compiled without NRT; trust boundaries still need validation (`ThrowIfNull`, model validation, `required`). Rollout: enable per project starting from leaf libraries (or `#nullable enable` per file), annotate public APIs first, fix rather than suppress, then turn nullable warnings into errors. For EF Core, enabling NRT changes conventions (non-nullable strings become `NOT NULL`), so review the next migration; use `= null!` for EF-populated members and `required` for DTOs.",
+              "rubric": [
+                "States that NRT is compile-time only (annotations and warnings, metadata attributes) with no runtime checks, and that `!` merely suppresses a warning without emitting a check.",
+                "Names at least two nullability attributes with correct meaning, e.g. `[NotNullWhen(true)]` for Try/IsNullOrEmpty-style methods, `[MaybeNullWhen(false)]`, `[NotNullIfNotNull]`, `[MemberNotNull]`, `[AllowNull]`/`[DisallowNull]`.",
+                "Lists runtime sources of null that bypass analysis: deserialisation, reflection, arrays/default structs, un-annotated or NRT-disabled callers, and misuse of `!`; concludes that validation at trust boundaries is still needed.",
+                "Describes an incremental rollout: per project or `#nullable enable` per file, leaf libraries and public APIs first, treating nullable warnings as errors once clean, avoiding blanket `!`.",
+                "Notes the EF Core effect (enabling NRT makes non-nullable reference properties required/`NOT NULL`, so migrations must be reviewed) and a DTO approach (`required` members, or `RespectNullableAnnotations` in System.Text.Json)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "exceptions",
+      "title": "Exceptions: Cost, Filters, Rethrow and the Result Pattern",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Exceptions: Cost, Filters, Rethrow and the Result Pattern",
+          "note": "## What it is\n\nExceptions are .NET's mechanism for signalling that a method could not do what its name promises. They carry a type, a message, an optional `InnerException`, a stack trace and `Data`, and they unwind the stack until a matching `catch` is found. Senior interviews focus less on syntax and more on **cost**, **semantics of rethrow and filters**, and **when not to use them**.\n\n## How it works underneath\n\n**Two-pass handling.** When an exception is thrown, the runtime first **searches** up the stack for a handler: for each `catch` whose type matches it evaluates the exception filter (`when (...)`), if any. Only after a handler is chosen does the second pass **unwind**: it runs `finally` blocks (and `using` disposals) from the throw site up to the handler, then enters the `catch`. Consequences:\n\n- A filter runs **before** inner `finally` blocks, with the stack still intact. That makes `catch (Exception ex) when (Log(ex))` with a `Log` that returns `false` a way to log with full context without catching.\n- A filter returning `false` means the handler never existed: no unwinding, no rethrow, a crash dump still shows the original throw site.\n- A filter that throws is treated as `false`.\n\n**Cost.** Entering a `try` block is essentially free (handlers are described in metadata tables, not set up at runtime). The cost is paid on `throw`: allocating the exception, the two-pass stack walk, capturing stack-trace data per frame, running `finally` blocks, and losing JIT optimisations along the way. A throw/catch costs on the order of microseconds, thousands of times slower than returning a value. .NET 9 replaced the C++ exception-handling machinery with a managed implementation ported from NativeAOT, which Microsoft measured as roughly 2–4x faster, but exceptions are still far too expensive for expected outcomes on hot paths (validation failures, \"not found\", parsing user input; use `TryParse`-style APIs).\n\n**Rethrowing.**\n\n- `throw;` rethrows the current exception and preserves its stack trace.\n- `throw ex;` rethrows the same object but **resets** the stack trace to the current line, losing the origin.\n- `throw new XException(\"context\", ex);` wraps; the original is kept in `InnerException`.\n- `ExceptionDispatchInfo.Capture(ex).Throw()` rethrows a previously captured exception from anywhere (another thread, after a `catch` block exited), appending to the original trace. This is how `await` rethrows a faulted task's exception without `AggregateException`. `ExceptionDispatchInfo.SetCurrentStackTrace` (.NET 5) stamps a trace onto an exception you create but do not throw.\n\n**Custom exceptions.** Derive from `Exception` (not `ApplicationException`), name them `...Exception`, provide the standard constructors (`()`, `(string)`, `(string, Exception)`), and add strongly-typed properties instead of encoding data in the message. The serialization constructor and `[Serializable]` boilerplate are no longer needed: `BinaryFormatter` is gone and the `Exception(SerializationInfo, StreamingContext)` constructor is obsolete since .NET 8 (SYSLIB0051). Create a custom type only when callers will catch it specifically.\n\n**Exceptions vs the result pattern.** Exceptions are for situations the caller cannot reasonably handle locally or that indicate bugs and infrastructure failures (DB down, invariant violated). Expected business outcomes (validation errors, insufficient funds, not found) are part of the method's contract; a `Result<T>`/discriminated-union return type makes them visible in the signature, forces the caller to handle them, and costs nothing at runtime. In ASP.NET Core this typically maps to `TypedResults`/`ProblemDetails` at the edge, with a global `IExceptionHandler` for the truly unexpected.\n\n## What an interviewer probes\n\n- `throw` vs `throw ex` and the stack trace.\n- Execution order of filters, `finally` and `catch`.\n- Which exceptions you should never catch (`StackOverflowException` cannot be caught at all; `OutOfMemoryException` and `AccessViolationException` rarely should be), and why `catch (Exception)` belongs only at boundaries.\n- `catch (Exception ex) when (ex is not OperationCanceledException)` to let cancellation flow.\n- An exception thrown inside `finally` replaces the one in flight.\n\n## Common misconceptions\n\n- \"`try` blocks slow down code.\" Only throwing does.\n- \"Exceptions are cheap since .NET 9.\" Faster, not cheap.\n- \"Filters are just `if` inside `catch`.\" They run before unwinding and do not catch when false.\n\n## Example\n\n```csharp\ntry\n{\n    await _gateway.ChargeAsync(order, ct);\n}\ncatch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.TooManyRequests)\n{\n    return Result.Retry(order.Id);                 // expected, handled locally\n}\ncatch (Exception ex) when (Log(ex))                // never true: logs before unwinding\n{\n}\n\nstatic bool Log(Exception ex) { Logger.LogError(ex, \"Charge failed\"); return false; }\n\npublic sealed class PaymentDeclinedException(string reason, Exception? inner = null)\n    : Exception($\"Payment declined: {reason}\", inner)\n{\n    public string Reason { get; } = reason;\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.exceptions.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "rethrow",
+            "stack-trace"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Inside a `catch (Exception ex)` block, what is the difference between `throw;` and `throw ex;`?",
+              "options": [
+                {
+                  "text": "`throw ex;` creates a new exception that wraps the original in `InnerException`, while `throw;` rethrows the original unchanged.",
+                  "correct": false
+                },
+                {
+                  "text": "`throw;` rethrows the current exception with its original stack trace; `throw ex;` rethrows the same object but resets the stack trace to the current line, hiding where the error actually originated.",
+                  "correct": true
+                },
+                {
+                  "text": "There is no difference in Release builds, because the JIT rewrites `throw ex;` into `throw;` when `ex` is the caught variable.",
+                  "correct": false
+                },
+                {
+                  "text": "`throw;` is only valid for exceptions derived from `SystemException`; application exceptions must be rethrown with `throw ex;`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`throw;` (IL `rethrow`) keeps the exception's existing stack trace and adds the current frames. `throw ex;` (IL `throw`) treats the object as newly thrown, so its stack trace restarts at this `catch` block and the frames below are lost, which makes production diagnostics much harder. Neither form creates a new exception or sets `InnerException`; wrapping requires `throw new SomeException(\"...\", ex)`. The JIT does not rewrite one into the other; they are semantically different instructions. `throw;` works for any exception inside a `catch` block; the `SystemException` distinction has no bearing on rethrow."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.exceptions.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "exception-filters",
+            "finally"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this program print before it exits?\n\n```csharp\ntry\n{\n    Inner();\n}\ncatch (InvalidOperationException ex) when (Log(ex))\n{\n    Console.Write(\"C\");\n}\ncatch (Exception)\n{\n    Console.Write(\"E\");\n}\n\nstatic void Inner()\n{\n    try { throw new InvalidOperationException(); }\n    finally { Console.Write(\"F\"); }\n}\n\nstatic bool Log(Exception e) { Console.Write(\"L\"); return false; }\n```",
+              "options": [
+                {
+                  "text": "`LFE`",
+                  "correct": true
+                },
+                {
+                  "text": "`FLE`",
+                  "correct": false
+                },
+                {
+                  "text": "`FE`",
+                  "correct": false
+                },
+                {
+                  "text": "`LFC`",
+                  "correct": false
+                }
+              ],
+              "explanation": "Exception handling is two-pass. In the first pass the runtime searches for a handler with the stack still intact: it evaluates the filter of the first matching `catch`, which prints `L` and returns `false`, so that handler is skipped, and it selects `catch (Exception)`. In the second pass it unwinds, running `Inner`'s `finally` (`F`), and then executes the chosen handler (`E`). `FLE` assumes filters run after unwinding, as an `if` inside a `catch` would. `FE` assumes the filter is never evaluated, but it is evaluated because the exception type matches. `LFC` ignores the `false` returned by the filter: a `false` filter means that handler does not catch at all."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.exceptions.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "exception-dispatch-info",
+            "async"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A background worker catches an exception on one thread and must rethrow it later on another thread (for example when a caller awaits the result). Which statement is true?",
+              "options": [
+                {
+                  "text": "`throw ex;` on the other thread preserves the original stack trace, because the trace is stored inside the exception object when it is first thrown.",
+                  "correct": false
+                },
+                {
+                  "text": "`ExceptionDispatchInfo.Capture(ex)` followed later by `.Throw()` rethrows the same exception object and keeps its original stack trace, appending the new throw site; this is the mechanism `await` uses to rethrow a faulted task's exception without wrapping it.",
+                  "correct": true
+                },
+                {
+                  "text": "`ExceptionDispatchInfo.Throw()` wraps the exception in a `TargetInvocationException` whose `InnerException` preserves the original stack trace.",
+                  "correct": false
+                },
+                {
+                  "text": "A bare `throw;` can be used on the other thread as long as the exception object is still referenced.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ExceptionDispatchInfo` snapshots the exception's stack trace at `Capture` time; `Throw()` rethrows the same instance and restores that trace, adding a marker such as '--- End of stack trace from previous location ---' before the new frames. `TaskAwaiter.GetResult` relies on it, which is why `await` surfaces the original exception, not an `AggregateException`, with a useful trace. `throw ex;` resets the trace, whatever thread it runs on. `ExceptionDispatchInfo` never wraps; `TargetInvocationException` is what reflection's `Invoke` uses. `throw;` is only legal lexically inside a `catch` block and rethrows the exception being handled there; it cannot target an arbitrary stored object."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.exceptions.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "performance",
+            "control-flow"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about the performance cost of exceptions in .NET 10 is true?",
+              "options": [
+                {
+                  "text": "Every `try` block adds measurable overhead to the code it protects, even when nothing is thrown, so `try` should be kept out of loops.",
+                  "correct": false
+                },
+                {
+                  "text": "Since .NET 9 rewrote exception handling in managed code, throwing is about as cheap as returning an error code, so using exceptions for validation failures is fine.",
+                  "correct": false
+                },
+                {
+                  "text": "Most of the cost is the allocation of the exception object; caching and rethrowing a preallocated exception instance makes throwing cheap.",
+                  "correct": false
+                },
+                {
+                  "text": "Entering a `try`/`catch`/`finally` block costs essentially nothing on the non-throwing path; the cost is paid when an exception is thrown (stack walk, stack-trace capture, unwinding), so exceptions should not be used for expected outcomes on hot paths even after the faster managed exception handling introduced in .NET 9.",
+                  "correct": true
+                }
+              ],
+              "explanation": ".NET uses table-based handling: protected regions and handlers are described in metadata, so the non-throwing path pays nothing beyond, in some cases, slightly more conservative JIT optimisation around the region. Throwing triggers a two-pass stack walk, stack-trace collection and unwinding, typically microseconds per throw. .NET 9's managed EH (ported from NativeAOT) made this faster, around 2–4x in Microsoft's measurements, but still orders of magnitude slower than returning a value. The allocation is a minor part of the cost, and reusing one exception instance across throws corrupts its stack trace and is unsafe under concurrency."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.exceptions.mcq.5",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "custom-exceptions",
+            "dotnet-8"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are adding a custom `PaymentDeclinedException` in a .NET 10 library. Which approach follows current guidance?",
+              "options": [
+                {
+                  "text": "Derive from `ApplicationException` so callers can distinguish application errors from runtime errors.",
+                  "correct": false
+                },
+                {
+                  "text": "Derive from `Exception`, provide the standard constructors (parameterless, message, message + inner exception) plus strongly-typed properties such as `Reason`; skip `[Serializable]` and the `SerializationInfo` constructor, which has been obsolete since .NET 8 (SYSLIB0051).",
+                  "correct": true
+                },
+                {
+                  "text": "Mark it `[Serializable]` and implement the `(SerializationInfo, StreamingContext)` constructor and `GetObjectData`; otherwise the exception cannot cross `await` boundaries or be logged.",
+                  "correct": false
+                },
+                {
+                  "text": "Put all details into the message as JSON so that handlers can parse what they need; extra properties are lost when the exception is rethrown.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The current design guidelines are to derive from `Exception` (or a more specific BCL exception), provide the conventional constructors, and expose data as typed properties. `ApplicationException` was intended as a root for application exceptions but provides no value, and the guidelines explicitly say not to use it. Legacy serialization support existed for `BinaryFormatter` and .NET Remoting; .NET 8 marked the serialization constructor and `Exception.GetObjectData` obsolete, and `BinaryFormatter` was removed in .NET 9. `await` and logging work with the in-memory object and need no serialization. Properties survive rethrows because the same object is rethrown; encoding data as JSON in the message is fragile and unstructured."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.exceptions.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "exceptions",
+            "result-pattern",
+            "error-handling",
+            "design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When do you throw exceptions and when do you return a result object (`Result<T>`, `OneOf`, `TryXxx`)? Discuss the cost of exceptions, how each approach appears in method signatures and at the ASP.NET Core boundary, and give concrete examples of failures you would model each way.",
+              "explanation": "Model answer: throwing is expensive (two-pass stack walk, stack-trace capture, unwinding; microseconds per throw, faster since .NET 9 but still far more than a return) and invisible in signatures, so it suits exceptional conditions: bugs and broken invariants (`ArgumentException`, `InvalidOperationException`), infrastructure failures (database or network down), and cases the immediate caller cannot handle. Expected domain outcomes (validation failed, insufficient funds, entity not found, conflicting update) are part of the contract: a `Result<T>`/union return type documents them, forces handling, composes without try/catch and has no throw cost; `TryParse`/`TryGetValue` are the BCL's lightweight version. At the ASP.NET Core boundary, results map to `TypedResults`/`ProblemDetails` with 400/404/409 status codes, while a global `IExceptionHandler` (or exception middleware) turns unexpected exceptions into a 500 `ProblemDetails` and logs them. Mixing is normal: results in the domain/application layers, exceptions for the unexpected, never `catch (Exception)` deep inside the code except to add context and rethrow.",
+              "rubric": [
+                "Explains the runtime cost of throwing (stack walk, stack-trace capture, unwinding) versus the near-zero cost of `try` on the happy path, and concludes exceptions should not drive expected control flow on hot paths.",
+                "Places expected business outcomes (validation, not found, insufficient funds, conflicts) in result types or `Try` methods, noting that they make failure explicit in the signature and force the caller to handle it.",
+                "Reserves exceptions for bugs/broken invariants and infrastructure failures that the caller cannot handle locally, with at least one concrete example.",
+                "Describes the ASP.NET Core boundary: results mapped to `ProblemDetails`/`TypedResults` with specific status codes, and a global exception handler (`IExceptionHandler` or middleware) logging unexpected exceptions and returning 500."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "source-generators-reflection",
+      "title": "Source Generators, Reflection and AOT Implications",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Source Generators, Reflection and AOT Implications",
+          "note": "## What it is\n\n**Reflection** inspects and invokes types at runtime through metadata (`Type`, `MethodInfo`, `PropertyInfo`, `Activator`), optionally generating code on the fly with `System.Reflection.Emit` or `Expression.Compile()`. **Source generators** move that work to **compile time**: Roslyn plug-ins that read your code and add new C# source to the compilation. The two are increasingly in tension because of **trimming** and **Native AOT**, which require the set of types and members used at runtime to be known statically.\n\n## How it works underneath\n\n**Reflection cost.** Looking up members walks metadata and allocates `MemberInfo` objects (cache them). `MethodInfo.Invoke` allocates an `object[]` for arguments, boxes value types, validates and converts arguments and wraps exceptions in `TargetInvocationException`. .NET 7 made `Invoke` much faster by emitting an invoke stub after the first calls, and .NET 8 added `MethodInvoker`/`ConstructorInvoker` with span-based arguments, but a cached strongly-typed delegate (`methodInfo.CreateDelegate<Func<T, int>>()`) or a compiled expression remains the fast path. Since .NET 8, `[UnsafeAccessor]` gives zero-overhead, AOT-safe access to private members by declaring an `extern` method that the runtime binds directly.\n\n**Trimming and Native AOT.** The trimmer (ILLink) removes code it cannot see being used; reflection by string name or over `Type` values computed at runtime defeats that analysis. Native AOT also has no JIT, so `Reflection.Emit` and `DynamicMethod` are unavailable, `Expression.Compile()` falls back to an interpreter, and `MakeGenericType` over value types may fail. The toolchain reports this as warnings: `IL2026` (`[RequiresUnreferencedCode]`), `IL3050` (`[RequiresDynamicCode]`) and `IL2070`-family warnings that you fix with `[DynamicallyAccessedMembers]`. A warning-free publish is the contract that the app behaves the same trimmed or AOT-compiled.\n\n**Source generators.** Modern generators implement `IIncrementalGenerator`: they declare a pipeline over syntax and semantic models, Roslyn caches each step, and the generator re-runs only when its inputs change, which keeps the IDE responsive. They can **only add** source files; they cannot modify or delete existing code, which is why the pattern is \"you write a `partial` declaration, the generator writes the other half\". (Interceptors are a narrow, opt-in exception that let generated code replace specific call sites; ASP.NET Core's Request Delegate Generator uses them.) Generated files are visible in the IDE under Analyzers, or on disk with `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>`.\n\nBCL generators worth knowing:\n\n- **`[GeneratedRegex]`** (.NET 7): on a `partial` method (or a `partial` property since .NET 9 / C# 13). It emits a readable, debuggable C# implementation of the regex at build time: no runtime parsing, no runtime IL emission, works under Native AOT. `RegexOptions.Compiled`, by contrast, parses the pattern and emits IL with `Reflection.Emit` when the `Regex` is constructed (slow startup), and is ignored under Native AOT, where the interpreter is used instead.\n- **System.Text.Json source generation**: `[JsonSerializable(typeof(Order))] partial class AppJsonContext : JsonSerializerContext`. It generates `JsonTypeInfo<T>` metadata (and optionally fast-path serialisation code), avoiding reflection warm-up and making serialisation trimming- and AOT-safe. In trimmed/AOT apps reflection-based serialisation is disabled by default (`JsonSerializerIsReflectionEnabledByDefault=false`), so calling `JsonSerializer.Serialize(order)` without type info throws `InvalidOperationException` at runtime.\n- **`[LoggerMessage]`** for allocation-free, strongly-typed logging; the configuration-binding generator; the ASP.NET Core minimal API Request Delegate Generator; `[LibraryImport]` for P/Invoke marshalling.\n\n## What an interviewer probes\n\n- Why reflection is slow and how you would make a reflection-heavy hot path fast (cache, delegates, generators).\n- Source generators vs reflection vs IL weaving (Fody): when each runs and what each can change.\n- What breaks when a service is published with `PublishAot=true`, and how you would fix it.\n\n## Common misconceptions\n\n- \"Source generators can rewrite my methods.\" They add code only.\n- \"`RegexOptions.Compiled` is the fastest option everywhere.\" It costs startup time and does nothing under AOT.\n- \"Trimming warnings are harmless noise.\" Each one is a potential runtime `MissingMethodException`.\n\n## Example\n\n```csharp\npublic static partial class Validators\n{\n    [GeneratedRegex(@\"^[A-Z]{3}-\\d{4}$\", RegexOptions.CultureInvariant)]\n    public static partial Regex OrderNumber();\n}\n\n[JsonSerializable(typeof(Order))]\n[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]\ninternal partial class AppJsonContext : JsonSerializerContext;\n\nstring json = JsonSerializer.Serialize(order, AppJsonContext.Default.Order);\n\nstatic class AccountAccess\n{\n    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = \"_balance\")]\n    public static extern ref decimal Balance(Account account);\n}\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "reflection",
+            "performance",
+            "delegates"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A serializer calls `propertyInfo.GetValue(obj)` and `methodInfo.Invoke(obj, args)` millions of times per second. Which statement best explains the cost and the fix?",
+              "options": [
+                {
+                  "text": "Most of the cost is `obj.GetType()`, which walks metadata every time; caching the `Type` object is enough to make `Invoke` as fast as a direct call.",
+                  "correct": false
+                },
+                {
+                  "text": "Since .NET 7, `MethodInfo.Invoke` is compiled into a direct call after the first invocation, so it costs the same as calling the method normally and no caching is needed.",
+                  "correct": false
+                },
+                {
+                  "text": "Using reflection disables tiered JIT compilation for the whole assembly, so the fix is to move reflection code into a separate assembly.",
+                  "correct": false
+                },
+                {
+                  "text": "Each `Invoke` allocates an argument array, boxes value-type arguments and results, validates and converts arguments, and wraps exceptions; caching a strongly-typed delegate (`CreateDelegate`) or compiled accessor once per member, or generating the code at build time, removes that per-call overhead.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The expensive part of reflection is per call: `Invoke` takes `object?[]`, so arguments are allocated and boxed, each argument is checked and possibly converted, and the target is called through a generic stub, with exceptions wrapped in `TargetInvocationException`. Creating a delegate (`methodInfo.CreateDelegate<Func<Order, decimal>>()`) or a compiled expression once and caching it per member gives near-direct call speed; source generators avoid reflection entirely. `GetType()` is a cheap pointer read; metadata lookups like `GetProperty` are worth caching, but they are not the per-call cost. .NET 7 greatly sped up `Invoke` by emitting an invoke stub, yet the argument array, boxing and validation remain, so it is still clearly slower than a delegate. Reflection has no effect on how the JIT tiers other code."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "regex",
+            "source-generators",
+            "native-aot"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about `[GeneratedRegex]` compared to `new Regex(pattern, RegexOptions.Compiled)` is true?",
+              "options": [
+                {
+                  "text": "`[GeneratedRegex]` produces C# code for the matcher at build time, so there is no runtime parsing or IL emission, the code is debuggable, and it works under Native AOT; `RegexOptions.Compiled` emits IL at runtime when the `Regex` is constructed (costing startup time) and is ignored under Native AOT, where the interpreter is used.",
+                  "correct": true
+                },
+                {
+                  "text": "They are equivalent; `[GeneratedRegex]` is just a shorter way to declare a cached static `Regex` with `RegexOptions.Compiled`.",
+                  "correct": false
+                },
+                {
+                  "text": "`[GeneratedRegex]` is interpreted at runtime, so it is slower than `RegexOptions.Compiled` but uses less memory.",
+                  "correct": false
+                },
+                {
+                  "text": "`[GeneratedRegex]` only works on string literals known at compile time, while `RegexOptions.Compiled` is required for any pattern used more than once.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The regex source generator (.NET 7+) parses the pattern during compilation and writes an implementation in C# into the `partial` method/property you declared, roughly what `RegexOptions.Compiled` would emit, but as source: inspectable, debuggable, and with zero runtime code generation, which also makes it compatible with trimming and Native AOT. `RegexOptions.Compiled` parses and emits IL via `Reflection.Emit` at construction time; under Native AOT dynamic code is unavailable, so the option has no effect and the regex runs interpreted. They are not equivalent, and the generated code is not interpreted. The 'literal only' part of the last option is true (the pattern must be a constant), but the conclusion is wrong: a cached `Regex` without `Compiled`, or the generator, is fine for patterns used many times."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "source-generators",
+            "roslyn",
+            "compile-time"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about Roslyn source generators (`IIncrementalGenerator`) is true?",
+              "options": [
+                {
+                  "text": "They run inside the compiler (and IDE) and can only add new source to the compilation; they cannot modify or remove existing code, which is why generator-based APIs ask you to write a `partial` declaration that the generator completes.",
+                  "correct": true
+                },
+                {
+                  "text": "They post-process the compiled IL, like Fody weavers, so they can inject code into existing method bodies.",
+                  "correct": false
+                },
+                {
+                  "text": "They run when the application starts, generating code for types discovered at runtime and caching it on disk.",
+                  "correct": false
+                },
+                {
+                  "text": "They can replace an existing method body by returning a modified syntax tree for the file that declares it.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A source generator receives the compilation (syntax trees and semantic model) and contributes additional source texts; the compiler then compiles everything together. It cannot change user-written syntax trees, so the established pattern is a `partial` class, method or property that the generator implements (`[GeneratedRegex]`, `[LoggerMessage]`, `JsonSerializerContext`). The narrow exception is interceptors, an opt-in compiler feature that redirects specific call sites to generated methods without rewriting the original source. IL weaving (Fody, PostSharp) is a different, post-compilation technique. Nothing about a generator runs at application startup; the output is ordinary compiled code. Generators returning modified trees for existing files is precisely what the Roslyn design forbids."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "system-text-json",
+            "native-aot",
+            "trimming"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A minimal API is published with `<PublishAot>true</PublishAot>`. It calls `JsonSerializer.Serialize(order)` (where `order` is an `Order`) and the publish output shows IL2026/IL3050 warnings for that line. What happens at runtime, and what is the fix?",
+              "options": [
+                {
+                  "text": "It works; the warnings are informational because `System.Text.Json` falls back to `Reflection.Emit` under Native AOT.",
+                  "correct": false
+                },
+                {
+                  "text": "Reflection-based serialisation is disabled by default in trimmed and AOT apps, so the call throws `InvalidOperationException`; declare `[JsonSerializable(typeof(Order))] partial class AppJsonContext : JsonSerializerContext` and call `JsonSerializer.Serialize(order, AppJsonContext.Default.Order)` (or add the context to the options' `TypeInfoResolverChain`).",
+                  "correct": true
+                },
+                {
+                  "text": "It works, but slower; marking `Order` with `[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]` removes the warnings and restores full speed.",
+                  "correct": false
+                },
+                {
+                  "text": "It fails at publish time with a build error; the fix is `<TrimMode>partial</TrimMode>`, which keeps all of `System.Text.Json`'s reflection code.",
+                  "correct": false
+                }
+              ],
+              "explanation": "When `PublishTrimmed` or `PublishAot` is set, the SDK sets `JsonSerializerIsReflectionEnabledByDefault` to `false`, so the reflection-based default resolver is not available and the overloads without `JsonTypeInfo` throw `InvalidOperationException` (reflection-based serialization has been disabled). The IL2026/IL3050 warnings point at exactly this. The source-generated `JsonSerializerContext` provides compile-time metadata for `Order` and works with trimming and AOT; in minimal APIs you register it via `ConfigureHttpJsonOptions(o => o.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default))`. There is no `Reflection.Emit` under Native AOT at all. `[DynamicallyAccessedMembers]` can keep members from being trimmed but does not satisfy `RequiresDynamicCode` or re-enable the reflection resolver. These are warnings, not errors, and `TrimMode` does not address the AOT dynamic-code issue."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "reflection",
+            "unsafe-accessor",
+            "native-aot",
+            "dotnet-8"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In a .NET 10 Native AOT test harness you need fast read/write access to the private field `decimal _balance` of `Account` (a type you cannot change). Which approach is AOT-safe and has no per-call reflection overhead?",
+              "options": [
+                {
+                  "text": "Cache `typeof(Account).GetField(\"_balance\", BindingFlags.NonPublic | BindingFlags.Instance)` and call `SetValue` on it.",
+                  "correct": false
+                },
+                {
+                  "text": "Build an `Expression.Assign` over `Expression.Field(...)` and call `Compile()` once to get a fast setter delegate.",
+                  "correct": false
+                },
+                {
+                  "text": "Emit a `DynamicMethod` with `ILGenerator` that loads and stores the field, and cache the resulting delegate.",
+                  "correct": false
+                },
+                {
+                  "text": "Declare `[UnsafeAccessor(UnsafeAccessorKind.Field, Name = \"_balance\")] static extern ref decimal Balance(Account a);` and use `Balance(account) = 10m;`.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`[UnsafeAccessor]` (.NET 8) declares an `extern` method that the runtime (or the AOT compiler) binds directly to the named private member; the call compiles to a direct field access, with no reflection, boxing or metadata lookup, and the trimmer sees the dependency statically. A cached `FieldInfo.SetValue` works under AOT only if the field survives trimming, and every call still boxes the `decimal` and goes through reflection. `Expression.Compile()` works under Native AOT only because it falls back to an interpreter, which is slow, so the 'fast setter' expectation fails. `DynamicMethod`/`ILGenerator` relies on runtime code generation, which Native AOT does not support at all."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.source-generators-reflection.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "source-generators",
+            "reflection",
+            "native-aot",
+            "trimming"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What are source generators, and when would you choose one over runtime reflection? Explain the costs of reflection, why trimming and Native AOT push the ecosystem toward source generation, and give examples of BCL/ASP.NET Core features that already made this shift.",
+              "explanation": "Model answer: source generators are Roslyn plug-ins (`IIncrementalGenerator`) that run at compile time, inspect the code through syntax and semantic models, and add new source files; they cannot modify existing code, hence `partial` declarations. Reflection resolves metadata at runtime: member lookup allocations, `Invoke` with boxing, argument arrays and validation, plus warm-up cost on first use, and dynamic code via `Reflection.Emit`. Under trimming, members referenced only by reflection can be removed (runtime `MissingMethodException`), and Native AOT has no JIT, so `Reflection.Emit` is unavailable and `Expression.Compile` is interpreted; the toolchain surfaces this as IL2026/IL3050 warnings. Generators make the dependency static: faster startup, no runtime codegen, AOT-compatible, debuggable output. Examples: `[GeneratedRegex]`, System.Text.Json `JsonSerializerContext`, `[LoggerMessage]`, the configuration binding generator, the minimal API Request Delegate Generator, `[LibraryImport]`; `[UnsafeAccessor]` covers private access without reflection. Reflection remains fine for genuinely dynamic plug-in scenarios on the JIT runtime, ideally with cached delegates.",
+              "rubric": [
+                "Defines source generators as compile-time Roslyn components (incremental generators) that add source but cannot modify existing code, explaining the `partial` pattern.",
+                "Explains concrete reflection costs: metadata lookup, `Invoke` argument arrays/boxing/validation, startup warm-up, and runtime code generation via `Reflection.Emit`, with caching delegates as the classic mitigation.",
+                "Explains trimming and Native AOT constraints: unreferenced members may be trimmed, no JIT so no `Reflection.Emit`/dynamic code, and the IL2026/IL3050 (`RequiresUnreferencedCode`/`RequiresDynamicCode`) warnings that signal them.",
+                "Gives at least two correct BCL/ASP.NET Core examples of the shift, e.g. `[GeneratedRegex]`, System.Text.Json source generation with `JsonSerializerContext`, `[LoggerMessage]`, configuration binding generator, Request Delegate Generator, `[LibraryImport]`."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "modern-features",
+      "title": "Modern C# Features (C# 11 to 14)",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Modern C# Features (C# 11 to 14)",
+          "note": "## What it is\n\nThe C# 12–14 features that show up daily in .NET 8–10 codebases and in interviews: primary constructors, collection expressions, `required` members, `params` collections, and C# 14's extension members. Know what each one compiles to, because most interview questions are about the gap between how the syntax looks and what it does.\n\n## How it works underneath\n\n**Primary constructors (C# 12)** on classes and structs: `public class OrderService(IOrderRepository repo, ILogger<OrderService> log)`. The parameters are in scope for the whole type body. Unlike positional **records**, no public properties are generated. If a parameter is used inside a member (method, property body), the compiler captures it in a hidden private field; that field is **not readonly**, and the parameter can be reassigned inside members. If a parameter is only used in initialisers, no field is created. Using a parameter both to initialise a property and inside a member stores it twice (warning CS9124), and the two copies can diverge. Teams that want `readonly` write `private readonly IOrderRepository _repo = repo;` explicitly. Any other constructor must chain to the primary one with `: this(...)`.\n\n**Collection expressions (C# 12)**: `int[] a = [1, 2, 3];`, `List<string> l = [];`, `ImmutableArray<int> i = [..a, 4];` (`..` spreads). They are **target-typed**: the compiler picks the construction strategy for the target (array, `List<T>`, `Span<T>`, types with `[CollectionBuilder]`, interfaces). `ReadOnlySpan<byte> s = [1, 2, 3];` over constants uses static data with no allocation; `Span<T>` targets can use stack storage; `IEnumerable<T> e = [];` may reuse an empty singleton, and for interface targets you must not rely on the concrete type. There is no natural type, so `var x = [1, 2];` does not compile.\n\n**`required` members (C# 11)**: `public required string Name { get; init; }` forces every object creation to set the member in an object initialiser (compile error CS9035 otherwise). A constructor marked `[SetsRequiredMembers]` tells the compiler it sets them all, which the compiler trusts without checking. `required` is enforced by the compiler only; reflection and older compilers can bypass it, but System.Text.Json (.NET 7+) honours it and throws `JsonException` when a required property is missing from the payload. Types with required members cannot satisfy the `new()` constraint unless the parameterless constructor has `[SetsRequiredMembers]`.\n\n**`params` collections (C# 13)**: `params` now accepts `ReadOnlySpan<T>`, `Span<T>`, `IEnumerable<T>`, `List<T>` and other collection types. For span parameters the compiler stores arguments in a stack-allocated inline array, so `Log(\"a\", \"b\")` no longer allocates an array. Overload resolution prefers the span overload over the array overload, which is why upgrading to .NET 9 silently made calls like `string.Join(\",\", a, b)` or `Task.WhenAll(t1, t2)` cheaper on recompilation.\n\n**Extension members (C# 14, .NET 10)**: an `extension(Receiver r) { ... }` block inside a static class declares extension **properties**, extension methods and, with `extension(Receiver)` (no parameter name), **static** extension members callable as `Receiver.Member`. Classic `this`-parameter extension methods remain valid and can coexist; the new syntax for methods is source- and binary-compatible. Extensions add no state, and real members of the type always win over extensions.\n\nOther C# 14 items worth one sentence each: the `field` keyword (access the auto-property backing field inside an accessor), null-conditional assignment (`customer?.Order = order;`), first-class implicit `Span<T>`/`ReadOnlySpan<T>` conversions, `nameof(List<>)`, partial constructors and events, and modifiers on simply-typed lambda parameters (`(ref x) => ...`).\n\n## What an interviewer probes\n\n- Primary constructor in a class vs in a record; why the captured field is mutable; using primary constructors for DI.\n- What `[]` produces for different targets, and the allocation story of collection expressions and `params` spans.\n- `required` vs constructor parameters for DTOs, and how serialisers treat it.\n\n## Common misconceptions\n\n- \"Primary constructors create properties.\" Only records do.\n- \"`required` validates at runtime.\" It is a compile-time rule (serialisers opt in).\n- \"Collection expressions are sugar for `new[] { }`.\" The target type decides.\n\n## Example\n\n```csharp\npublic sealed class OrderService(IOrderRepository repo, TimeProvider clock)\n{\n    public Task<Order?> GetAsync(int id, CancellationToken ct) => repo.FindAsync(id, ct);\n    public DateTimeOffset Now => clock.GetUtcNow();\n}\n\npublic sealed class CreateCustomer\n{\n    public required string Name { get; init; }\n    public string[] Tags { get; init; } = [];\n}\n\npublic static class OrderExtensions\n{\n    extension(Order order)\n    {\n        public bool IsLarge => order.Total > 10_000m;     // extension property\n    }\n}\n\nstatic void Log(params ReadOnlySpan<object?> args) { /* no array allocation */ }\n```"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "primary-constructors",
+            "csharp-12",
+            "dependency-injection"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does the compiler generate for the parameters of a class primary constructor such as `public class OrderService(IOrderRepository repo)` when `repo` is used inside a method?",
+              "options": [
+                {
+                  "text": "A hidden private field that captures `repo`; the field is not `readonly` and no public property is generated (unlike a positional `record`).",
+                  "correct": true
+                },
+                {
+                  "text": "A public `init`-only property `Repo`, exactly as for a positional record.",
+                  "correct": false
+                },
+                {
+                  "text": "A `private readonly` field named `_repo` that can be referenced by that name elsewhere in the class.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing: primary constructor parameters can only be used in field and property initialisers, so using `repo` inside a method is a compile error.",
+                  "correct": false
+                }
+              ],
+              "explanation": "For non-record classes and structs, primary constructor parameters are simply in scope throughout the type. When a member body uses one, the compiler captures it in an unspeakable private field (not accessible by any name you can write); the field is mutable, so `repo = null!;` inside a method compiles. If a parameter is used only in initialisers, nothing is captured. Public properties and `Deconstruct` are generated only for positional records. There is no `_repo` you can reference; if you want a readonly field, declare it yourself (`private readonly IOrderRepository _repo = repo;`). Using parameters inside methods is the main use case for DI-style services, so it is certainly allowed."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "primary-constructors",
+            "csharp-12",
+            "pitfalls"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this print?\n\n```csharp\npublic class Person(string name)\n{\n    public string Name { get; set; } = name;\n    public override string ToString() => $\"Person {name}\";\n}\n\nvar p = new Person(\"Ann\");\np.Name = \"Bob\";\nConsole.WriteLine(p);\n```",
+              "options": [
+                {
+                  "text": "`Person Bob`: the parameter `name` and the property `Name` are the same storage because the property is initialised from it.",
+                  "correct": false
+                },
+                {
+                  "text": "It does not compile: a primary constructor parameter cannot be used both in an initialiser and in a member.",
+                  "correct": false
+                },
+                {
+                  "text": "`Person Bob`: the compiler rewrites uses of `name` in members to read the `Name` property it initialised.",
+                  "correct": false
+                },
+                {
+                  "text": "`Person Ann` (and the compiler reports warning CS9124): `name` is captured into a hidden field because `ToString` uses it, and separately copied into the `Name` property's backing field, so the two copies diverge.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The initialiser copies the value of `name` into `Name`'s backing field at construction time; the use in `ToString` makes the compiler capture `name` into its own hidden field. After `p.Name = \"Bob\"`, only the property changes, and `ToString` still reads the captured `\"Ann\"`. The compiler flags this 'double storage' with warning CS9124 (parameter is captured into the state of the enclosing type and also used to initialise a field, property, or event). It is a warning, not an error, so the code compiles. There is no aliasing between a parameter and a property initialised from it, and the compiler does not rewrite parameter uses into property reads. Fix: use `Name` inside `ToString`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "collection-expressions",
+            "csharp-12",
+            "allocations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about collection expressions (C# 12 and later) is true?",
+              "options": [
+                {
+                  "text": "`var xs = [1, 2, 3];` does not compile: collection expressions have no natural type, and the target type (array, `List<T>`, `Span<T>`, an interface, or a type with `[CollectionBuilder]`) decides what is built.",
+                  "correct": true
+                },
+                {
+                  "text": "`[1, 2, 3]` always creates an `int[]`, which is then converted to the target type, so assigning it to `List<int>` allocates twice.",
+                  "correct": false
+                },
+                {
+                  "text": "`ReadOnlySpan<int> s = [1, 2, 3];` allocates a new `int[]` on the heap on every call.",
+                  "correct": false
+                },
+                {
+                  "text": "Assigning `[]` to an `IEnumerable<int>` creates a new `List<int>` each time, so you can safely cast it back to `List<int>` and add items.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Collection expressions are target-typed only; without a target the compiler cannot choose a representation, so `var` is an error (natural types have been discussed for a future version). For each target the compiler picks a strategy: arrays are built directly, `List<T>` is created with the right capacity and filled, `ImmutableArray<T>` uses its `[CollectionBuilder]` method, and so on; there is no intermediate array. A `ReadOnlySpan<T>` of constants is backed by static data in the assembly, with no heap allocation. For interface targets the compiler may use an empty singleton or a compiler-synthesised read-only type, so the concrete type is unspecified and you must not cast it to `List<T>`; `IList<T>`/`ICollection<T>` targets get a mutable `List<T>`, but `IEnumerable<T>` does not promise one."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "required-members",
+            "csharp-11",
+            "system-text-json"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given `public sealed class CreateCustomer { public required string Name { get; init; } }`, which statement is true?",
+              "options": [
+                {
+                  "text": "`required` adds a runtime check to the setter that throws `ArgumentNullException` when `Name` is assigned `null`.",
+                  "correct": false
+                },
+                {
+                  "text": "`new CreateCustomer()` without setting `Name` in an object initialiser is a compile error, and System.Text.Json (.NET 7+) throws `JsonException` when deserialising a payload in which `name` is missing.",
+                  "correct": true
+                },
+                {
+                  "text": "A constructor that assigns `Name` automatically satisfies the requirement, so callers using that constructor need no object initialiser.",
+                  "correct": false
+                },
+                {
+                  "text": "`required` properties must be `init`-only; a `required` property with a `set` accessor does not compile.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`required` (C# 11) makes the compiler check that every object creation sets the member, typically in an object initialiser (otherwise CS9035). System.Text.Json treats C# `required` members as required JSON properties and throws `JsonException` if one is missing. `required` checks presence, not value: assigning `null` is a nullability warning at most, never a runtime exception, and a JSON `null` is accepted unless `RespectNullableAnnotations` is on. The compiler does not analyse constructor bodies; a constructor must be marked `[SetsRequiredMembers]` to tell callers it initialises everything (and the compiler trusts that attribute). `required` works with both `init` and `set` accessors."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "params",
+            "csharp-13",
+            "span",
+            "allocations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A library on .NET 10 offers both overloads below. What happens when callers recompile `Log(\"a\", \"b\", \"c\")`?\n\n```csharp\npublic static void Log(params object?[] args) { /* ... */ }\npublic static void Log(params ReadOnlySpan<object?> args) { /* ... */ }\n```",
+              "options": [
+                {
+                  "text": "The call is ambiguous (CS0121) because both overloads accept the same expanded argument list.",
+                  "correct": false
+                },
+                {
+                  "text": "The call binds to the `object?[]` overload because array `params` always takes precedence for backward compatibility.",
+                  "correct": false
+                },
+                {
+                  "text": "The span overload is chosen, but the compiler still allocates an `object[]` and wraps it in a span, so only the method signature changes.",
+                  "correct": false
+                },
+                {
+                  "text": "The call binds to the `ReadOnlySpan<object?>` overload, and the compiler places the three arguments in a stack-allocated inline array, so no `object[]` is allocated for the call.",
+                  "correct": true
+                }
+              ],
+              "explanation": "C# 13 extended `params` to spans and other collection types and added a betterness rule that prefers `ReadOnlySpan<T>`/`Span<T>` `params` overloads over array ones, so there is no ambiguity and recompiled callers move to the span overload. For span `params` the compiler materialises the arguments in an `[InlineArray]` buffer on the stack, avoiding the heap array. This is why many BCL APIs gained span `params` overloads in .NET 9 (`string.Join`, `Path.Combine`, `Task.WhenAll`, and others) and existing call sites got cheaper simply by recompiling. Note the span overload cannot be used if arguments must outlive the call (spans cannot be stored on the heap). Strings are still references; the saving is the per-call array."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.mcq.6",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "extension-members",
+            "csharp-14",
+            "dotnet-10"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about extension members in C# 14 (.NET 10) is true?",
+              "options": [
+                {
+                  "text": "Extension properties can store per-instance state, because the compiler adds a hidden field to the extended type.",
+                  "correct": false
+                },
+                {
+                  "text": "An extension member with the same signature as an instance member takes precedence, which allows overriding `ToString()` on a sealed type.",
+                  "correct": false
+                },
+                {
+                  "text": "Classic `this`-parameter extension methods are obsolete in C# 14 and must be migrated to extension blocks before upgrading.",
+                  "correct": false
+                },
+                {
+                  "text": "An `extension(Order order) { ... }` block in a static class can declare extension properties and methods, and `extension(Order) { ... }` can declare static extension members called as `Order.Member`; existing `this`-parameter extension methods keep working and can coexist.",
+                  "correct": true
+                }
+              ],
+              "explanation": "C# 14 introduces extension blocks: the receiver is declared once in `extension(...)`, and inside it you can declare instance-like extension methods and properties; a receiver without a parameter name declares static extension members that appear on the type itself. The old syntax is fully supported, and the new syntax for methods compiles to compatible metadata, so libraries can migrate gradually. Extensions cannot add state: an extended type's layout is fixed, so extension properties must be computed (or use an external store such as `ConditionalWeakTable`). Member lookup always prefers the type's own members; extensions are considered only when no applicable instance member exists, so they cannot override `ToString`."
+            }
+          }
+        },
+        {
+          "id": "dotnet.csharp-lang.modern-features.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "csharp-12",
+            "csharp-13",
+            "csharp-14",
+            "primary-constructors"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which C# 12–14 features do you actually use in a .NET 10 codebase, and what are their pitfalls? Cover at least primary constructors (especially for DI-registered services, compared with records), collection expressions, `required` members and `params` spans, and say what each compiles to.",
+              "explanation": "Model answer: primary constructors give every member access to constructor parameters; the compiler captures a parameter into a hidden, mutable (non-readonly) field only if a member uses it, and generates no properties, unlike positional records, which produce public init-only properties, value equality and `Deconstruct`. For DI services this removes boilerplate, but the captured field can be reassigned, and initialising a property from a parameter that is also used in members stores it twice (CS9124) with divergent copies; teams wanting readonly declare an explicit field. Collection expressions are target-typed (`var` does not compile), build the target directly (arrays, `List<T>` with capacity, `[CollectionBuilder]` types such as `ImmutableArray<T>`), and avoid allocations for constant `ReadOnlySpan<T>`; for interface targets the concrete type is unspecified. `required` is a compile-time rule satisfied by object initialisers or `[SetsRequiredMembers]` constructors; System.Text.Json honours it, but it checks presence, not non-null values. `params ReadOnlySpan<T>` (C# 13) uses a stack inline array and is preferred by overload resolution, so recompiling against .NET 9+ BCL overloads removes array allocations. C# 14 adds extension properties/static extension members, the `field` keyword and null-conditional assignment.",
+              "rubric": [
+                "Explains primary constructors correctly: parameters in scope across the type, captured into a hidden mutable (non-readonly) field only when used in members, no generated properties, contrasted with positional records (properties, equality, `Deconstruct`).",
+                "Names at least one primary-constructor pitfall: mutable capture/no readonly, or double storage when a parameter both initialises a member and is used elsewhere (CS9124), with a fix such as an explicit readonly field.",
+                "Describes collection expressions as target-typed (no natural type, `var` fails) with the compiler choosing the construction per target, and mentions an allocation benefit (constant `ReadOnlySpan<T>`, presized `List<T>`) or the unspecified concrete type for interface targets.",
+                "States that `required` is enforced at compile time (object initialiser or `[SetsRequiredMembers]`), is honoured by System.Text.Json for missing properties, and does not validate non-null values at runtime.",
+                "Explains `params ReadOnlySpan<T>`: arguments in a stack-allocated inline array, preferred over array `params` by overload resolution, so recompiling against newer BCL overloads removes per-call array allocations."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

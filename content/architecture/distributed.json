@@ -1,0 +1,1531 @@
+{
+  "domain": "architecture",
+  "topic": "distributed",
+  "concepts": [
+    {
+      "slug": "idempotency-outbox",
+      "title": "Idempotency & Transactional Outbox: Inbox, Idempotency Keys, At-Least-Once Delivery",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Idempotency & Transactional Outbox: Inbox, Idempotency Keys, At-Least-Once Delivery",
+          "note": "## What it is\n\nA service that changes its own database **and** tells another system about it (publishes an event, calls an API) is doing a **dual write**. The two resources share no transaction, so a crash between them leaves them disagreeing: commit then crash before publishing, and the event is lost forever; publish then roll back, and consumers act on an order that never existed. The **transactional outbox** moves the problem to the one place where you do have atomicity: the event is written as a row in an `outbox` table **in the same local ACID transaction** as the business change, and a separate **relay** later reads unpublished rows, publishes them and marks them done.\n\n## How it works underneath\n\n**Write side.** `BEGIN; INSERT INTO orders ...; INSERT INTO outbox (id, aggregate_id, type, payload, occurred_at) ...; COMMIT;` Either both rows exist or neither does. In EF Core this is one `SaveChangesAsync` over a context that tracks both entities (often domain events collected on aggregates and converted to outbox rows by a `SaveChanges` interceptor).\n\n**Relay.** Two flavours: a *polling publisher* (`SELECT ... WHERE published_at IS NULL ORDER BY id LIMIT n`) or *transaction-log tailing* (CDC, e.g. Debezium reading the Postgres WAL): lower latency and no polling load, more infrastructure. The relay marks a row only **after** the broker confirms (RabbitMQ publisher confirms, Kafka `acks=all`). A crash between \"broker confirmed\" and \"row marked\" republishes the message, so the guarantee is **at-least-once**. Exactly-once *delivery* across a network is not on offer; what you build is exactly-once **effect**.\n\n**Read side: idempotent consumer.** Two tools:\n\n- *Naturally idempotent operations*: upserts, `SET status = 'Paid'` instead of `balance = balance + x`, conditional updates `WHERE version = @expected`.\n- *Inbox (processed-messages) table*: `INSERT INTO inbox (message_id)` **in the same transaction** as the effect; a unique-key conflict means \"already done\": acknowledge and skip. Dedupe and effect must commit together. Marking first (say, `SETNX` in Redis) loses the message if processing then fails; marking after a separate commit duplicates the effect if the process dies in between.\n\n**Idempotency keys** are the same idea at the HTTP edge. The client generates a key per *logical* operation and resends it on every retry (`Idempotency-Key` header: an IETF httpapi draft, popularised by Stripe). The server stores key + request fingerprint + status + response. First request: insert the key as `in-progress` (the unique constraint is the lock), execute, store the response. Retry after completion: replay the stored response. Retry while still in flight: `409 Conflict`. Same key, different payload: `422`. Keys expire after a window (Stripe: 24 hours).\n\n**Housekeeping.** Delete or archive published outbox rows; keep inbox rows longer than the longest possible redelivery window.\n\n## What an interviewer probes\n\n- *Why not 2PC / `TransactionScope`?* Kafka, RabbitMQ and SQS do not enlist in XA/MSDTC transactions; .NET (Core) supports distributed transactions only on Windows, since .NET 7; and 2PC couples the availability of every participant to the coordinator.\n- *Ordering.* A relay that remembers \"last published id\" can **skip** rows: identity values are allocated at insert time, not at commit time, so a transaction holding id 41 can commit after the relay already moved past id 42. Use a per-row published flag (or CDC, which follows commit order). Scaling the relay out with `FOR UPDATE SKIP LOCKED` loses per-aggregate order; partition by aggregate id instead.\n- *Kafka exactly-once?* Idempotent producer + transactions give exactly-once for read-process-write **inside Kafka**; a database write or an email is still a side effect that needs idempotency.\n- *Libraries.* MassTransit (EF Core outbox + inbox), NServiceBus outbox, Wolverine, CAP implement this; a senior can explain what they do, not just name them.\n\n## Common misconceptions\n\n- \"The outbox gives exactly-once delivery.\" It gives at-least-once; duplicates are designed in.\n- \"Dedupe on the broker's message id.\" Republishing creates a new broker id; dedupe on the id written into the outbox row, which is stable across retries.\n- \"Publish inside the open transaction, then commit.\" Still a dual write, plus row locks held across a network call.\n\n## Code\n\n```csharp\n// Write side: business row and outbox row in one transaction\ndb.Orders.Add(order);\ndb.OutboxMessages.Add(new OutboxMessage\n{\n    Id = Guid.NewGuid(),                  // stable dedupe key for every consumer\n    AggregateId = order.Id,\n    Type = \"OrderPlaced\",\n    Payload = JsonSerializer.Serialize(new OrderPlaced(order.Id, order.Total)),\n    OccurredAt = DateTimeOffset.UtcNow\n});\nawait db.SaveChangesAsync(ct);            // both rows or neither\n\n// Read side: dedupe and effect commit together\nawait using var tx = await billing.Database.BeginTransactionAsync(ct);\nint inserted = await billing.Database.ExecuteSqlAsync(\n    $\"INSERT INTO inbox (message_id) VALUES ({msg.Id}) ON CONFLICT DO NOTHING\", ct);\nif (inserted == 1)\n{\n    billing.Charges.Add(Charge.For(msg));\n    await billing.SaveChangesAsync(ct);\n}\nawait tx.CommitAsync(ct);                 // ack the broker only after this line\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.idempotency-outbox.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "dual-write",
+            "messaging"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service does this in a request handler:\n\n```csharp\nawait db.SaveChangesAsync(ct);                    // order committed\nawait bus.PublishAsync(new OrderPlaced(order.Id)); // event to the broker\n```\n\nWhat is wrong with it, and what does the transactional outbox change?",
+              "options": [
+                {
+                  "text": "Nothing is wrong as long as the publish is retried with Polly; the outbox is only needed when the broker has no retry support.",
+                  "correct": false
+                },
+                {
+                  "text": "It is a dual write: a crash or broker outage after the commit loses the event for good. The outbox writes the event as a row in the same local transaction as the order, and a relay publishes it later, which turns \"maybe lost\" into at-least-once delivery.",
+                  "correct": true
+                },
+                {
+                  "text": "It is a dual write; the correct fix is to wrap both calls in a `TransactionScope` so the database and the broker commit atomically, and the outbox is a legacy workaround for that.",
+                  "correct": false
+                },
+                {
+                  "text": "The only problem is latency; the outbox moves publishing off the request path so the response returns faster, and delivery becomes exactly-once.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The database commit and the broker publish are two independent resources with no shared transaction, so the process can die (or the broker can be down past the retry budget) between them and the event is lost while the order exists. The outbox stores the event in the *same* local transaction as the order; a relay publishes committed rows and marks them only after the broker confirms, so every committed event is eventually published, possibly more than once (at-least-once). In-process retries do not help when the process itself crashes or is recycled after the commit, so \"retry with Polly\" leaves the hole open. `TransactionScope` cannot fix it: Kafka, RabbitMQ and SQS do not enlist in distributed (XA/MSDTC) transactions, .NET supports MSDTC only on Windows, and 2PC would couple availability anyway. The latency option misstates both the purpose and the guarantee: the outbox is about reliability, and it yields at-least-once, not exactly-once, delivery."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.idempotency-outbox.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "idempotency",
+            "inbox",
+            "consumer"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A billing consumer receives `OrderPlaced` messages with at-least-once delivery and must charge each order exactly once. Which implementation is actually safe?",
+              "options": [
+                {
+                  "text": "Before processing, `SET processed:{messageId} 1 NX` in Redis; if the key already existed, skip; otherwise charge the order in the billing database and commit.",
+                  "correct": false
+                },
+                {
+                  "text": "Charge the order and commit; then, in a second transaction, insert the message id into an `inbox` table; on the next delivery, skip if the id is already there.",
+                  "correct": false
+                },
+                {
+                  "text": "In one database transaction, insert the message id into an `inbox` table with a primary key on it and create the charge; on a unique-key violation, roll back, acknowledge and skip; acknowledge the broker only after the commit.",
+                  "correct": true
+                },
+                {
+                  "text": "Acknowledge the message as soon as it is received, then charge the order; since the message is gone from the queue, it cannot be redelivered.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The dedupe record and the effect must commit atomically, and the acknowledgement must come after that commit: then a crash at any point either leaves nothing (redelivery reprocesses cleanly) or leaves both (redelivery hits the unique key and is skipped). The Redis `SETNX` variant marks the message as processed *before* the effect is durable: if the charge fails or the process dies, every redelivery is skipped and the order is never charged; it also lives in a different store, so no transaction spans both. Inserting the inbox row in a second transaction leaves a window after the charge commits where a crash produces a redelivery that charges twice. Acknowledging first is at-most-once delivery: it removes duplicates by losing messages whenever processing fails after the ack."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.idempotency-outbox.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "idempotency-key",
+            "http",
+            "api-design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your `POST /payments` endpoint supports an `Idempotency-Key` header. The first request with key `K` is still executing when the client times out and retries with the same key and the same body. What should the server do?",
+              "options": [
+                {
+                  "text": "Execute the retry as a new request, because the first one has not committed yet and therefore does not exist from the server's point of view.",
+                  "correct": false
+                },
+                {
+                  "text": "Return `200 OK` with an empty body so the client stops retrying, and let the first request finish on its own.",
+                  "correct": false
+                },
+                {
+                  "text": "Ignore the header on the retry and rely on the payment provider to detect the duplicate charge.",
+                  "correct": false
+                },
+                {
+                  "text": "Detect that `K` is recorded as in progress (the key row was inserted under a unique constraint when the first request started) and reject the retry with `409 Conflict`, so the client retries later and then gets the stored response replayed.",
+                  "correct": true
+                }
+              ],
+              "explanation": "An idempotency-key implementation records the key with an `in-progress` status *before* doing the work, using a unique constraint as the lock; a concurrent duplicate finds that row and is refused with `409 Conflict` (Stripe's behaviour; the IETF draft also uses 409 for a request still being processed), and once the first request finishes, later retries get the stored status and body replayed. Executing the retry because nothing has committed is exactly the race the key exists to prevent: both requests would charge. An empty `200` lies to the client: it cannot tell whether the payment succeeded and has no response to act on. Delegating to the provider assumes the downstream deduplicates, which you cannot rely on, and it ignores the key you promised to honour; reusing the same key with a *different* body should be a `422`, which also requires server-side storage of the request fingerprint."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.idempotency-outbox.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "relay",
+            "ordering",
+            "postgres"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An outbox relay polls with `SELECT * FROM outbox WHERE id > @lastPublishedId ORDER BY id LIMIT 100` (`id` is a `bigint` identity column), publishes the rows, and then stores the highest id it published as `@lastPublishedId`. Under concurrent write traffic, what can go wrong?",
+              "options": [
+                {
+                  "text": "Some events are never published: a transaction can receive id 41, commit after another transaction's id 42 has been read and published, and the relay has already moved its cursor past 41.",
+                  "correct": true
+                },
+                {
+                  "text": "Nothing: identity values are strictly increasing, so a row with a smaller id always becomes visible before a row with a larger id.",
+                  "correct": false
+                },
+                {
+                  "text": "Events are published twice whenever two transactions commit in the same millisecond, because identity values can collide under load.",
+                  "correct": false
+                },
+                {
+                  "text": "The query deadlocks with the writers, because reading the outbox takes a lock that blocks inserts until the relay finishes publishing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Identity/sequence values are allocated when the row is inserted, not when the transaction commits, so commit order can differ from id order: if T1 gets id 41 and T2 gets id 42, and T2 commits first, the relay may see and publish 42, advance the cursor to 42, and never revisit 41 when T1 commits a moment later. That is silent message loss. Fixes: track a published flag (or `published_at`) per row instead of a high-water mark, add a safety lag and re-scan window, or use log-based CDC, which follows commit order. \"Strictly increasing so always visible in order\" confuses allocation order with commit/visibility order. Identity values do not collide; they are unique even under load. Under Postgres MVCC a plain `SELECT` does not block inserts, so there is no deadlock from this read."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.idempotency-outbox.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "relay",
+            "ordering",
+            "scaling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "To raise throughput you run three replicas of the outbox relay, each claiming rows with `SELECT ... WHERE published_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED`. Which guarantee have you given up?",
+              "options": [
+                {
+                  "text": "At-least-once delivery: `SKIP LOCKED` makes a replica skip rows that another replica locked, so those rows can be missed forever.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing: `SKIP LOCKED` processes batches in id order across replicas, so ordering and delivery guarantees are both preserved, and duplicates also become impossible.",
+                  "correct": false
+                },
+                {
+                  "text": "Per-aggregate ordering: consecutive events of the same order can be claimed by different replicas and reach the broker out of order, so either partition the relay by aggregate id or make consumers tolerate reordering (version checks).",
+                  "correct": true
+                },
+                {
+                  "text": "Durability: rows locked with `FOR UPDATE` are held in memory only until the relay commits, so a relay crash discards them.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`SKIP LOCKED` lets replicas claim disjoint batches concurrently, which is good for throughput but means `OrderCreated` (id 10, replica A) and `OrderPaid` (id 11, replica B) are published concurrently with no ordering between them. If consumers need per-aggregate order, route each aggregate to one relay worker (hash partitioning) and publish with the aggregate id as the partition/message-group key, or make consumers order-tolerant with version numbers. At-least-once survives: skipped rows stay unpublished and a later poll claims them once the lock is released. Duplicates are still possible (crash after publish, before marking), so \"duplicates become impossible\" is wrong as well as the ordering claim. Row locks do not affect durability; the rows are committed data and a crashed relay's locks are released when its transaction aborts."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.idempotency-outbox.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "inbox",
+            "idempotency",
+            "at-least-once"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An order service must publish `OrderPlaced` reliably whenever an order is saved, and a billing service must charge each order exactly once. Explain the dual-write problem, then walk through a transactional outbox plus idempotent consumer design end to end, naming every failure point and what happens at it.",
+              "explanation": "Model answer: saving to the database and publishing to a broker are two writes without a shared transaction, so a crash between them loses the event (or, if publishing first, announces an order that rolled back); 2PC is unavailable because brokers do not enlist in XA/MSDTC. The order and an outbox row are inserted in one local transaction. A relay (polling or CDC) reads unpublished rows, publishes them, waits for the broker confirmation and only then marks the row; a crash between confirm and mark republishes, so delivery is at-least-once and duplicates are expected. Ordering needs care: high-water-mark cursors can skip rows that commit out of id order, and parallel relays reorder events unless partitioned by aggregate. Billing inserts the outbox message id into an inbox table and creates the charge in the same transaction, acknowledging only after commit; a redelivery hits the unique key and is skipped, so the effect happens once. Published and inbox rows are cleaned up on a retention schedule longer than the redelivery window.",
+              "rubric": [
+                "Defines the dual-write problem (database commit and broker publish are not atomic; a crash between them loses the event or publishes an event for a rolled-back change) and explains why 2PC/`TransactionScope` is not the answer (brokers do not take part in distributed transactions; availability coupling).",
+                "Describes the write side: the business row and an outbox row (with a stable message id, type, payload, aggregate id) inserted in the same local transaction.",
+                "Describes the relay: reads unpublished rows, publishes, marks published only after broker confirmation, and states that a crash between confirm and mark causes a republish, so delivery is at-least-once, not exactly-once.",
+                "Describes the idempotent consumer: dedupe record (inbox table keyed by the outbox message id) and the effect committed in one transaction, broker acknowledged after commit, duplicates skipped on unique-key conflict; or a naturally idempotent operation as an alternative.",
+                "Addresses at least one operational detail: ordering (cursor skipping rows that commit out of id order, or parallel relays reordering per-aggregate events) or retention/cleanup of outbox and inbox rows."
+              ]
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "architecture.distributed.idempotency-outbox.kata.1",
+          "title": "Outbox relay with an idempotent inbox consumer",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 60,
+          "translations": {
+            "en": {
+              "task": "Build a single-file C# console app (.NET 8 or later, no NuGet packages) that demonstrates a transactional outbox with an idempotent consumer and proves the effect happens exactly once even though delivery is at-least-once.\n\nUse this in-memory stand-in for a relational database. `Execute` is serialised and atomic: changes made to the `DbState` passed to `work` are committed only if `work` returns; if it throws, they are discarded. Use **two** instances: one for the order service, one for billing.\n\n```csharp\npublic sealed class DbState\n{\n    public Dictionary<Guid, decimal> Orders { get; private init; } = new();\n    public List<OutboxRow> Outbox { get; private init; } = new();\n    public HashSet<Guid> Inbox { get; private init; } = new();\n    public Dictionary<Guid, decimal> Ledger { get; private init; } = new();\n    public long NextSequence { get; set; } = 1;\n    public DbState Clone() => new() { Orders = new(Orders), Outbox = new(Outbox), Inbox = new(Inbox), Ledger = new(Ledger), NextSequence = NextSequence };\n}\n\npublic sealed class Database\n{\n    private readonly object _gate = new();\n    private DbState _state = new();\n    public T Execute<T>(Func<DbState, T> work)\n    {\n        lock (_gate) { var draft = _state.Clone(); var result = work(draft); _state = draft; return result; }\n    }\n}\n\npublic sealed record OutboxMessage(long Sequence, Guid MessageId, string Type, string Payload);\npublic sealed record OutboxRow(OutboxMessage Message, bool Published);\npublic sealed class BrokerException(string message) : Exception(message);\npublic interface IBroker { Task PublishAsync(OutboxMessage message, CancellationToken ct); }\n```\n\nImplement:\n\n1. **`OrderService.PlaceOrder(Guid orderId, decimal amount) -> bool`**: throws `ArgumentOutOfRangeException` for `amount <= 0`; otherwise, in **one** `Execute`, inserts the order and an `OrderPlaced` outbox row (new `MessageId`, next `Sequence`, payload carrying order id and amount) and returns `true`. Placing an `orderId` that already exists is a client retry: return `false` and write nothing.\n2. **`OutboxRelay.PublishPendingAsync(CancellationToken) -> Task<int>`** (constructor takes the orders `Database`, an `IBroker` and a batch size): reads up to `batchSize` unpublished rows in `Sequence` order in a short transaction, publishes them one by one **outside** any transaction, marks each row published in its own transaction **only after** `PublishAsync` returned, and stops the batch at the first `BrokerException` (do not skip ahead). Returns the number marked.\n3. **`InboxConsumer.Handle(OutboxMessage) -> bool`** (constructor takes the billing `Database`): in **one** `Execute`, records `MessageId` in `Inbox` and adds the amount to `Ledger[orderId]`; if the id is already in `Inbox`, changes nothing and returns `false`.\n4. **`FlakyBroker : IBroker`** with a seeded `Random` and a `Deliveries` counter: about 20% of calls throw `BrokerException` *without* delivering; about 30% deliver to the consumer (call `Handle`, increment `Deliveries`) and *then* throw (lost acknowledgement); the rest deliver and return normally.\n5. **`Main`**: place 50 orders with distinct amounts, re-place 5 of them, check that a transaction that throws midway leaves no trace, run the relay until no unpublished rows remain (with an iteration cap), and print `PASS`/`FAIL` for: duplicate `PlaceOrder` is a no-op; one outbox row per order; failed transaction rolls back; all rows published; `Deliveries > 50` (duplicates really happened); `Inbox.Count == 50`; every ledger entry equals its order amount.\n\nConstraints: no `Task.Wait()`/`.Result`; no transaction (no `Execute` call) may span a `PublishAsync` call; avoid reflection-based `System.Text.Json` (file-based apps run with trimming/AOT analysis on); format the payload yourself with `CultureInfo.InvariantCulture`.",
+              "rubric": [
+                "`PlaceOrder` inserts the order and its outbox row inside a single `Execute` call, and a repeated `orderId` returns `false` without writing a second outbox row (producer-side idempotency).",
+                "The relay reads pending rows in `Sequence` order, calls `PublishAsync` outside any `Execute`, marks a row published only after `PublishAsync` returns, and stops the batch at the first failure instead of skipping ahead.",
+                "`InboxConsumer.Handle` performs the inbox check/insert and the ledger update in the same `Execute`, so a redelivered message changes nothing and returns `false`.",
+                "`FlakyBroker` simulates both failure modes (fail before delivery, and deliver then throw), so the run actually produces duplicate deliveries.",
+                "`Main` checks every listed property (including rollback of a throwing transaction, `Deliveries > 50`, `Inbox.Count == 50`, ledger equals amounts) and prints PASS/FAIL per check, without `.Result`/`.Wait()`."
+              ],
+              "referenceSolution": "using System.Globalization;\n\nvar ordersDb = new Database();\nvar billingDb = new Database();\nvar orders = new OrderService(ordersDb);\nvar consumer = new InboxConsumer(billingDb);\nvar broker = new FlakyBroker(consumer, seed: 42);\nvar relay = new OutboxRelay(ordersDb, broker, batchSize: 10);\n\nvar placed = new Dictionary<Guid, decimal>();\nfor (var i = 1; i <= 50; i++)\n{\n    var id = Guid.NewGuid();\n    placed[id] = i * 10m;\n    orders.PlaceOrder(id, i * 10m);\n}\n\n// Client retries of the first five orders: same order id, must not create new outbox rows.\nforeach (var (id, amount) in placed.Take(5))\n    Check(\"duplicate PlaceOrder is a no-op\", !orders.PlaceOrder(id, amount));\n\nCheck(\"rejected order leaves no trace\", Throws(() => orders.PlaceOrder(Guid.NewGuid(), 0m)));\nCheck(\"failed transaction rolls back\", RollsBack(ordersDb));\nCheck(\"one outbox row per order\", ordersDb.Execute(s => s.Outbox.Count) == placed.Count);\n\nvar rounds = 0;\nwhile (ordersDb.Execute(s => s.Outbox.Any(r => !r.Published)) && rounds++ < 1_000)\n    await relay.PublishPendingAsync(CancellationToken.None);\n\nCheck(\"all outbox rows published\", ordersDb.Execute(s => s.Outbox.All(r => r.Published)));\nCheck(\"broker delivered duplicates\", broker.Deliveries > placed.Count);\nCheck(\"each message applied once\", billingDb.Execute(s => s.Inbox.Count) == placed.Count);\nCheck(\"ledger matches orders\", billingDb.Execute(s =>\n    placed.All(p => s.Ledger.TryGetValue(p.Key, out var v) && v == p.Value)));\nConsole.WriteLine($\"deliveries={broker.Deliveries}, orders={placed.Count}, relay rounds={rounds}\");\n\nstatic void Check(string name, bool ok) => Console.WriteLine($\"{(ok ? \"PASS\" : \"FAIL\")} {name}\");\n\nstatic bool RollsBack(Database db)\n{\n    var before = db.Execute(s => (s.Orders.Count, s.Outbox.Count));\n    try\n    {\n        db.Execute<int>(s =>\n        {\n            s.Orders[Guid.NewGuid()] = 1m;\n            throw new InvalidOperationException(\"crash before the outbox row is written\");\n        });\n    }\n    catch (InvalidOperationException) { }\n    return db.Execute(s => (s.Orders.Count, s.Outbox.Count)) == before;\n}\n\nstatic bool Throws(Action a)\n{\n    try { a(); return false; }\n    catch (ArgumentOutOfRangeException) { return true; }\n}\n\npublic sealed record OutboxMessage(long Sequence, Guid MessageId, string Type, string Payload);\n\npublic sealed record OutboxRow(OutboxMessage Message, bool Published);\n\npublic sealed record OrderPlaced(Guid OrderId, decimal Amount)\n{\n    public string ToPayload() => string.Create(CultureInfo.InvariantCulture, $\"{OrderId}|{Amount}\");\n\n    public static OrderPlaced FromPayload(string payload)\n    {\n        var parts = payload.Split('|');\n        return new OrderPlaced(Guid.Parse(parts[0]), decimal.Parse(parts[1], CultureInfo.InvariantCulture));\n    }\n}\n\npublic sealed class BrokerException(string message) : Exception(message);\n\npublic interface IBroker\n{\n    Task PublishAsync(OutboxMessage message, CancellationToken ct);\n}\n\n/// <summary>Stand-in for one relational database: Execute is serialised and atomic.</summary>\npublic sealed class DbState\n{\n    public Dictionary<Guid, decimal> Orders { get; private init; } = new();\n    public List<OutboxRow> Outbox { get; private init; } = new();\n    public HashSet<Guid> Inbox { get; private init; } = new();\n    public Dictionary<Guid, decimal> Ledger { get; private init; } = new();\n    public long NextSequence { get; set; } = 1;\n\n    public DbState Clone() => new()\n    {\n        Orders = new(Orders),\n        Outbox = new(Outbox),\n        Inbox = new(Inbox),\n        Ledger = new(Ledger),\n        NextSequence = NextSequence,\n    };\n}\n\npublic sealed class Database\n{\n    private readonly object _gate = new();\n    private DbState _state = new();\n\n    public T Execute<T>(Func<DbState, T> work)\n    {\n        lock (_gate)\n        {\n            var draft = _state.Clone();\n            var result = work(draft); // if work throws, the draft is discarded: rollback\n            _state = draft;           // commit\n            return result;\n        }\n    }\n}\n\npublic sealed class OrderService(Database db)\n{\n    /// <returns>true if the order was created, false if it already existed (idempotent retry).</returns>\n    public bool PlaceOrder(Guid orderId, decimal amount)\n    {\n        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);\n        return db.Execute(s =>\n        {\n            if (s.Orders.ContainsKey(orderId)) return false;\n            s.Orders[orderId] = amount;\n            var message = new OutboxMessage(\n                s.NextSequence++,\n                Guid.NewGuid(),\n                nameof(OrderPlaced),\n                new OrderPlaced(orderId, amount).ToPayload());\n            s.Outbox.Add(new OutboxRow(message, Published: false)); // same transaction as the order\n            return true;\n        });\n    }\n}\n\npublic sealed class OutboxRelay(Database db, IBroker broker, int batchSize)\n{\n    /// <returns>Number of messages published and marked in this pass.</returns>\n    public async Task<int> PublishPendingAsync(CancellationToken ct)\n    {\n        // Short read transaction; never hold a transaction open across a network call.\n        var batch = db.Execute(s => s.Outbox\n            .Where(r => !r.Published)\n            .OrderBy(r => r.Message.Sequence)\n            .Take(batchSize)\n            .Select(r => r.Message)\n            .ToList());\n\n        var published = 0;\n        foreach (var message in batch)\n        {\n            try\n            {\n                await broker.PublishAsync(message, ct);\n            }\n            catch (BrokerException)\n            {\n                break; // keep order: do not skip ahead of an unpublished message\n            }\n\n            db.Execute(s =>\n            {\n                var i = s.Outbox.FindIndex(r => r.Message.MessageId == message.MessageId);\n                s.Outbox[i] = s.Outbox[i] with { Published = true };\n                return 0;\n            });\n            published++;\n        }\n\n        return published;\n    }\n}\n\npublic sealed class InboxConsumer(Database db)\n{\n    /// <returns>true if the effect was applied, false if the message was a duplicate.</returns>\n    public bool Handle(OutboxMessage message)\n    {\n        if (message.Type != nameof(OrderPlaced))\n            throw new InvalidOperationException($\"Unknown message type {message.Type}\");\n\n        var evt = OrderPlaced.FromPayload(message.Payload);\n\n        return db.Execute(s =>\n        {\n            if (!s.Inbox.Add(message.MessageId)) return false; // dedupe and effect commit together\n            s.Ledger[evt.OrderId] = s.Ledger.GetValueOrDefault(evt.OrderId) + evt.Amount;\n            return true;\n        });\n    }\n}\n\npublic sealed class FlakyBroker(InboxConsumer consumer, int seed) : IBroker\n{\n    private readonly Random _random = new(seed);\n\n    public int Deliveries { get; private set; }\n\n    public Task PublishAsync(OutboxMessage message, CancellationToken ct)\n    {\n        ct.ThrowIfCancellationRequested();\n        var roll = _random.NextDouble();\n        if (roll < 0.2) throw new BrokerException(\"connection refused\"); // not delivered\n\n        Deliveries++;\n        consumer.Handle(message);\n\n        if (roll < 0.5) throw new BrokerException(\"ack lost\"); // delivered, but the relay thinks it failed\n        return Task.CompletedTask;\n    }\n}\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "messaging",
+      "title": "Messaging: Queues vs Pub/Sub, RabbitMQ/Kafka/SQS, Ordering, DLQ, Poison Messages",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Messaging: Queues vs Pub/Sub, RabbitMQ/Kafka/SQS, Ordering, DLQ, Poison Messages",
+          "note": "## What it is\n\nMessaging decouples a producer from consumers in **time** (the consumer may be down), **load** (the queue absorbs bursts) and **knowledge** (the producer need not know who listens). Two delivery shapes:\n\n- **Queue (point-to-point).** Each message is processed by **one** of N *competing consumers*; adding consumers adds throughput.\n- **Publish/subscribe.** Each **subscription** gets its own copy; inside one subscription, consumers compete again. \"Queue vs pub/sub\" is therefore a question of how many logical receivers there are, not of persistence or push vs pull.\n\n## How the big three differ underneath\n\n**RabbitMQ: smart broker, per-message state.** Producers publish to an *exchange* (`direct`, `topic`, `fanout`, `headers`) that routes copies into queues via bindings, which is how pub/sub is built. Consumers get messages pushed, bounded by the **prefetch** (`basic.qos`), and ack/nack each one. A message is gone once acked; replay is not a feature. Use **quorum queues** (Raft-replicated) for durability; they count deliveries and can dead-letter after a *delivery limit* (since RabbitMQ 4.0 the default limit is 20). A **dead-letter exchange** (DLX) receives rejected, expired or over-limit messages. RabbitMQ *streams* (3.9+) add a log-style, replayable structure.\n\n**Kafka: dumb broker, smart consumer, durable log.** A topic is split into **partitions**, each an append-only log; records with the same key go to the same partition, so **ordering is per partition**, never per topic. A *consumer group* assigns each partition to exactly one member, so **parallelism is capped by the partition count**: extra members sit idle. Consumers track **offsets**; committing an offset acknowledges everything before it. Messages stay for the retention period whether consumed or not, so you can replay, add new consumer groups later, and measure *consumer lag*. Kafka 4.x adds *share groups* (KIP-932, queue-like per-record acks), still maturing.\n\n**SQS: managed queue, pull-based.** *Standard* queues: nearly unlimited throughput, at-least-once, best-effort ordering. *FIFO* queues: ordering per **`MessageGroupId`** (different groups proceed in parallel), deduplication of identical sends within a 5-minute window, lower throughput limits (high-throughput mode raises them). A received message becomes invisible for the **visibility timeout**; if not deleted in time it reappears, which is SQS's redelivery mechanism. A *redrive policy* moves a message to a DLQ after `maxReceiveCount` receives. Fan-out is done with SNS (or EventBridge) in front of several queues.\n\n## Ordering, poison messages, DLQs\n\n- **Ordering is expensive.** Global order means one consumer. Ask what must actually be ordered (usually per entity), key by it (Kafka key, FIFO group id, consistent-hash exchange) and accept that a retry or redelivery can still reorder unless the consumer checks versions.\n- **Poison message**: one that fails deterministically (bad schema, a bug). Retrying it forever burns CPU and, in an ordered log, **blocks the whole partition** (head-of-line blocking). Bound retries, separate transient from permanent errors, then move the message aside: a DLQ, or retry topics with increasing delays and a final DLQ for Kafka (Kafka itself has no built-in consumer DLQ; frameworks and Kafka Connect provide one).\n- **A DLQ is a process, not a bin.** Alert on its depth, keep the original headers and the exception, and have a tested redrive path.\n\n## What an interviewer probes\n\nDelivery semantics (at-most-once = ack before processing; at-least-once = ack after; \"exactly-once\" = at-least-once plus idempotency), why consumer count above partition count does nothing in Kafka, what happens when processing outlives the visibility timeout or the RabbitMQ consumer ack timeout, and how you pick between the three.\n\n## Common misconceptions\n\n- \"Pub/sub messages are not persisted\": Kafka topics and SNS-to-SQS subscriptions are durable.\n- \"More consumers always means more throughput\": not past the partition count, and not for ordered FIFO groups.\n- \"Prefetch 1 with several consumers keeps order\": competing consumers process in parallel, and a nack/requeue reorders.\n\n## Code: Kafka consumer committing after processing\n\n```csharp\nvar config = new ConsumerConfig\n{\n    BootstrapServers = \"kafka:9092\",\n    GroupId = \"billing\",\n    EnableAutoCommit = false,                  // commit only after the effect is durable\n    AutoOffsetReset = AutoOffsetReset.Earliest\n};\nusing var consumer = new ConsumerBuilder<string, string>(config).Build();\nconsumer.Subscribe(\"orders\");\nwhile (!ct.IsCancellationRequested)\n{\n    var result = consumer.Consume(ct);\n    try\n    {\n        await handler.HandleAsync(result.Message, ct);   // idempotent\n    }\n    catch (Exception ex) when (IsPermanent(ex))\n    {\n        await deadLetters.ProduceAsync(\"orders.dlq\", result.Message, ct); // do not block the partition\n    }\n    consumer.Commit(result);                    // at-least-once\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.messaging.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "messaging",
+            "queue",
+            "pub-sub"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the essential difference between a queue (point-to-point) and publish/subscribe?",
+              "options": [
+                {
+                  "text": "A queue persists messages to disk, while pub/sub delivers them in memory only and loses them if no subscriber is online.",
+                  "correct": false
+                },
+                {
+                  "text": "In a queue each message is processed by one of the competing consumers; in pub/sub every subscription receives its own copy, and consumers within one subscription can still compete for that copy.",
+                  "correct": true
+                },
+                {
+                  "text": "A queue is pull-based and pub/sub is push-based; that delivery mechanism is what defines the two models.",
+                  "correct": false
+                },
+                {
+                  "text": "A queue guarantees FIFO ordering of all messages, while pub/sub never guarantees any ordering.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The defining property is the number of logical receivers: a queue hands each message to exactly one of its consumers (competing consumers scale throughput), whereas pub/sub gives each subscription (a RabbitMQ queue bound to a fanout/topic exchange, an SNS subscription, a Kafka consumer group) its own copy, and members of one subscription compete as in a queue. Persistence is orthogonal: Kafka topics and SNS-to-SQS fan-out are durable, and a non-durable queue can exist too. Push vs pull is an implementation choice (RabbitMQ pushes to queue consumers, Kafka consumers pull in a pub/sub model). Ordering is also orthogonal: SQS Standard queues offer only best-effort ordering, and competing consumers process in parallel anyway, while Kafka (pub/sub) guarantees order per partition."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.messaging.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "kafka",
+            "partitions",
+            "consumer-groups",
+            "scaling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A Kafka topic has 6 partitions. Consumer lag is growing, so you scale the classic consumer group of the `billing` service from 3 to 10 instances. What happens?",
+              "options": [
+                {
+                  "text": "Throughput roughly triples: Kafka round-robins records across all 10 instances once they join the group.",
+                  "correct": false
+                },
+                {
+                  "text": "Kafka automatically splits the topic into 10 partitions so each instance gets one.",
+                  "correct": false
+                },
+                {
+                  "text": "Each of the 10 instances receives every record, so the effect is applied 10 times unless the handler is idempotent.",
+                  "correct": false
+                },
+                {
+                  "text": "Only 6 instances are assigned a partition; the other 4 sit idle. Parallelism within a consumer group is capped by the partition count, so you need more partitions (which changes key-to-partition mapping) or faster per-partition processing.",
+                  "correct": true
+                }
+              ],
+              "explanation": "In a classic consumer group each partition is assigned to exactly one member at a time, so with 6 partitions at most 6 members do work; the rest are standby (useful for failover, useless for throughput). Kafka does not round-robin individual records across members: it assigns partitions. Partition count is never changed automatically; increasing it is a manual operation that remaps keys to partitions and can break per-key ordering during the transition. \"Every instance receives every record\" describes separate consumer groups (pub/sub between groups), not members of one group. Kafka 4.x share groups (KIP-932) relax the one-member-per-partition rule, which is why the question says \"classic\" group."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.messaging.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "kafka",
+            "poison-message",
+            "dlq",
+            "head-of-line-blocking"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A record on partition 3 has a payload the handler cannot parse, and the consumer retries it in place forever (no offset commit until it succeeds). What is the impact?",
+              "options": [
+                {
+                  "text": "Partition 3 stops progressing (head-of-line blocking): every later record on it waits and its lag grows without bound, while the other partitions keep flowing. The fix is a bounded retry for transient errors and, for permanent ones, publishing the record to a DLQ/retry topic and committing past it.",
+                  "correct": true
+                },
+                {
+                  "text": "Kafka moves the record to a dead-letter topic automatically after `max.poll.interval.ms`, and the partition continues.",
+                  "correct": false
+                },
+                {
+                  "text": "The whole consumer group stops, because Kafka pauses all partitions of a topic when one of them has an unacknowledged record.",
+                  "correct": false
+                },
+                {
+                  "text": "The broker drops the record after the session timeout, so the problem resolves itself with data loss but no blocking.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Kafka's guarantee is ordered processing per partition, and the consumer advances by committing offsets; if one record never succeeds, nothing after it on that partition is committed or (with in-place retries) even processed, so that partition is blocked while others are unaffected. Kafka has no built-in consumer-side DLQ: frameworks (Spring Kafka, MassTransit riders, Kafka Connect's error handling) implement it by producing to another topic and committing. Exceeding `max.poll.interval.ms` makes the consumer leave the group and triggers a rebalance; the next owner of partition 3 starts from the last committed offset and hits the same record again. Other partitions are not paused. Records are not deleted on timeout; they live until retention, so nothing \"resolves itself\"."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.messaging.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ordering",
+            "sqs",
+            "rabbitmq",
+            "kafka"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Events must be processed in order **per customer**, but you need parallelism across customers. Which design meets both requirements?",
+              "options": [
+                {
+                  "text": "Kafka with a key of `customerId` (all events of a customer land in one partition) or SQS FIFO with `MessageGroupId = customerId`; different customers are processed in parallel across partitions or message groups.",
+                  "correct": true
+                },
+                {
+                  "text": "A single RabbitMQ queue with 8 competing consumers and `prefetch = 1`; with prefetch 1, each message is completed before the next is delivered, so order is preserved.",
+                  "correct": false
+                },
+                {
+                  "text": "An SQS Standard queue; it is FIFO by default, and the visibility timeout ensures each customer's messages are handled sequentially.",
+                  "correct": false
+                },
+                {
+                  "text": "A Kafka topic with one partition, which keeps global order, and 8 consumers in the same group for parallelism.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Ordering only needs to hold per customer, so you partition by the customer: a Kafka record key hashes to a fixed partition, and SQS FIFO orders within each `MessageGroupId` while different groups are delivered in parallel. With competing consumers on one RabbitMQ queue, prefetch 1 limits each consumer to one unacked message, but 8 consumers still process 8 consecutive messages concurrently, and a nack/requeue reorders further. SQS Standard queues offer only best-effort ordering and at-least-once delivery; the visibility timeout is about redelivery, not sequencing. One Kafka partition does preserve order, but a classic group assigns it to a single member, so the other 7 consumers are idle and there is no parallelism."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.messaging.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sqs",
+            "visibility-timeout",
+            "at-least-once"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An SQS consumer takes up to 90 seconds to process some messages; the queue's visibility timeout is 30 seconds. What do you observe, and what is the fix?",
+              "options": [
+                {
+                  "text": "Nothing unusual: SQS keeps the message invisible until the consumer deletes it, however long that takes.",
+                  "correct": false
+                },
+                {
+                  "text": "The message is moved to the DLQ after 30 seconds because the consumer exceeded the timeout.",
+                  "correct": false
+                },
+                {
+                  "text": "Slow messages become visible again after 30 seconds and are received by another consumer while the first is still working, so they are processed two or more times; raise the visibility timeout above worst-case processing time or extend it with `ChangeMessageVisibility` while working, and keep the handler idempotent.",
+                  "correct": true
+                },
+                {
+                  "text": "The `ReceiveMessage` call blocks for 90 seconds, because long polling waits for in-flight messages to finish.",
+                  "correct": false
+                }
+              ],
+              "explanation": "SQS hides a received message only for the visibility timeout; if the consumer has not deleted it by then, the message reappears and another receive picks it up, so long-running handlers cause concurrent duplicate processing (and increment the receive count, which eventually triggers the redrive policy). The remedy is a timeout above the worst case, a heartbeat that calls `ChangeMessageVisibility`, and idempotent handling for the duplicates you will still get. The visibility timeout is not \"until deleted\", which is the misconception the question targets. Moving to a DLQ happens only after `maxReceiveCount` receives under a redrive policy, not on the first timeout. Long polling (`WaitTimeSeconds`, up to 20 s) controls how long `ReceiveMessage` waits for messages to arrive, not for in-flight work."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.messaging.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "rabbitmq",
+            "kafka",
+            "sqs",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are choosing a messaging technology for a new system: order events consumed by several services, a few task queues with slow workers, and a requirement to rebuild a read model from history. Compare RabbitMQ, Kafka and SQS for this, and explain how you would handle ordering, poison messages and dead-letter queues.",
+              "explanation": "Model answer: RabbitMQ is a smart broker with exchanges and per-message acks, great for task queues and routing with prefetch-based flow control; consumed messages are gone (streams aside), so history rebuild is not native. Kafka is a partitioned, retained log: ordering per partition/key, consumer groups scale up to the partition count, offsets allow replay and new consumers reading history, which suits the event stream and read-model rebuild, but per-message work queues with slow, uneven jobs fit it poorly (head-of-line blocking per partition). SQS is fully managed, pull-based, at-least-once; Standard has best-effort ordering, FIFO orders per message group with limited throughput; fan-out needs SNS/EventBridge; there is no replay. A sensible answer might use Kafka for order events and SQS or RabbitMQ for task queues. Ordering only per entity key; poison messages are bounded-retried and moved to a DLQ (Kafka: retry/DLQ topics implemented by the consumer framework; RabbitMQ: DLX and quorum-queue delivery limit; SQS: redrive policy with `maxReceiveCount`), with alerting on DLQ depth and a redrive procedure.",
+              "rubric": [
+                "Characterises RabbitMQ correctly: exchanges/bindings route to queues, per-message ack with prefetch, messages removed after ack (no native replay outside streams), good fit for task queues and routing.",
+                "Characterises Kafka correctly: partitioned retained log, ordering per partition/key only, consumer-group parallelism capped by partition count, offsets enable replay and late-joining consumers, which suits rebuilding a read model.",
+                "Characterises SQS correctly: managed pull queue, at-least-once, Standard vs FIFO (per `MessageGroupId` ordering, lower throughput), visibility timeout for redelivery, fan-out via SNS/EventBridge, no replay.",
+                "Explains ordering as a per-key concern (partition key / message group) and that global ordering sacrifices parallelism; mentions that redelivery or retries can still reorder without consumer-side version checks.",
+                "Explains poison-message handling: bounded retries, classify transient vs permanent errors, dead-letter mechanism per technology (Kafka has no built-in consumer DLQ; DLX/delivery limit in RabbitMQ; redrive policy in SQS), plus alerting on DLQ depth and a redrive path."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "consistency",
+      "title": "Consistency: CAP/PACELC, Eventual Consistency, Sagas and Compensations",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Consistency: CAP/PACELC, Eventual Consistency, Sagas and Compensations",
+          "note": "## What it is\n\nOnce data lives on more than one node or in more than one service, \"the\" current value stops being free. **CAP** (Brewer, proved by Gilbert and Lynch) says: when a **network partition** separates nodes, a system must choose between **consistency** (here: *linearizability*, every read sees the latest acknowledged write) and **availability** (every non-failed node answers). Partitions are not optional in a real network, so CAP is not \"pick two of three\"; it is \"during a partition, pick C or A\". **PACELC** (Abadi) completes the picture: **E**lse, in normal operation, you trade **L**atency against **C**onsistency, because synchronous replication costs round trips. Spanner-style systems are PC/EC; Cassandra/Dynamo with eventual reads are PA/EL.\n\n## Consistency models in practice\n\nFrom strongest to weakest: linearizable → sequential → causal → session guarantees (**read-your-writes**, monotonic reads, monotonic writes, writes-follow-reads) → **eventual** (replicas converge if writes stop; no promise about when). Most user-visible bugs are session anomalies: a user saves a profile, the next read hits a lagging replica and shows the old value. Fixes: read from the primary for a short window after the user's write, route by session to the same replica, or wait until the replica has applied the write's log position. Quorum stores make the trade explicit: with N replicas, writes acknowledged by W and reads from R, `R + W > N` makes read and write sets overlap (sloppy quorums and hinted handoff weaken this).\n\n## Eventual consistency between services: sagas\n\nEach microservice owns its database, so a business transaction spanning services cannot be one ACID transaction, and 2PC is rarely available or desirable. A **saga** is a sequence of *local* transactions; if a step fails, previously completed steps are semantically undone by **compensating transactions** in reverse order.\n\n- **Choreography**: each service reacts to events and emits new ones (`OrderCreated` → payment → `PaymentCaptured` → shipping). No central component, loose coupling, good for short flows; but the flow exists only implicitly across services, cyclic event dependencies creep in, and \"where is order 42 stuck?\" is hard to answer.\n- **Orchestration**: a coordinator (a state machine: MassTransit saga state machine, NServiceBus saga, Temporal, Durable Functions) sends commands and reacts to replies. The flow, timeouts and compensations live in one place and can be monitored; the cost is a central component that must be durable and must not absorb business logic that belongs to the participants.\n\n**Compensation is not rollback.** The step committed and others may already have seen it; you issue a new business action (refund, release reservation, cancellation email). Some actions cannot be compensated (an email sent, a parcel shipped), so order steps so that the **pivot** (the point of no return) comes after the compensatable steps and the steps after the pivot are *retriable* until they succeed. Compensations and steps must be **idempotent**, because the messages driving them are delivered at least once.\n\n**Sagas have no isolation (the \"I\" of ACID).** Other requests can observe intermediate states (lost updates, dirty reads). Countermeasures: *semantic locks* (status `PendingPayment` that other operations respect), commutative updates, re-reading and version checks, and ordering steps to minimise exposure.\n\n## What an interviewer probes\n\n- State CAP precisely, and say why \"CA\" is not a meaningful choice for a distributed system.\n- Which consistency your feature actually needs (bank balance vs like counter vs product description).\n- Orchestration vs choreography with a concrete flow, compensations, pivot step, timeouts, idempotency.\n- How the UI copes with eventual consistency: optimistic UI, \"processing\" states, polling or push for completion.\n\n## Common misconceptions\n\n- \"C in CAP is the C in ACID\": ACID consistency is about invariants within one database; CAP's C is linearizability.\n- \"Eventual consistency means data might stay inconsistent\": it converges; the problem is the window and what users see during it.\n- \"Orchestration means synchronous HTTP calls\": orchestrators normally use asynchronous commands and replies.\n\n## Code: orchestrated saga (sketch)\n\n```csharp\npublic async Task RunAsync(PlaceOrder cmd, CancellationToken ct)\n{\n    var reservation = await inventory.ReserveAsync(cmd.OrderId, cmd.Lines, ct);      // compensatable\n    try\n    {\n        await payments.CaptureAsync(cmd.OrderId, cmd.Total, idempotencyKey: cmd.OrderId, ct); // pivot\n    }\n    catch (PaymentDeclinedException)\n    {\n        await inventory.ReleaseAsync(reservation.Id, ct);                              // compensation\n        await orders.MarkRejectedAsync(cmd.OrderId, ct);\n        return;\n    }\n    await RetryUntilSuccessAsync(() => shipping.ScheduleAsync(cmd.OrderId, ct));       // retriable after pivot\n}\n```\n\nIn production the orchestrator persists its state after every step (a durable state machine), so a crash resumes the saga instead of forgetting it.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.consistency.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "cap",
+            "consistency",
+            "distributed-systems"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement describes the CAP theorem correctly?",
+              "options": [
+                {
+                  "text": "A distributed system can provide any two of consistency, availability and partition tolerance; relational databases choose CA, NoSQL stores choose AP or CP.",
+                  "correct": false
+                },
+                {
+                  "text": "The C in CAP means ACID consistency: every transaction moves the database from one valid state to another, which is impossible during a partition.",
+                  "correct": false
+                },
+                {
+                  "text": "When a network partition occurs, a distributed system must choose between consistency (linearizable reads and writes) and availability (every non-failed node responds); when there is no partition, both can be provided.",
+                  "correct": true
+                },
+                {
+                  "text": "Eventually consistent systems violate CAP, because they give up consistency without gaining anything in return.",
+                  "correct": false
+                }
+              ],
+              "explanation": "CAP is a statement about behaviour *during* a partition: some nodes cannot reach others, so a node must either refuse/delay requests (keeping linearizability, losing availability) or answer with possibly stale data (keeping availability, losing linearizability). Because partitions happen in any real network, \"drop P and choose CA\" is not a real option for a distributed system; a single-node relational database is CA only because it is not distributed. CAP's C is linearizability, not ACID's invariant-preserving consistency, which is a different concept. Eventually consistent (AP) systems do not violate CAP; they pick availability during partitions and converge afterwards, and PACELC adds that they also often gain lower latency in normal operation."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.consistency.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "pacelc",
+            "latency",
+            "replication"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A store is described as **PA/EL** under PACELC. What does the \"EL\" part mean?",
+              "options": [
+                {
+                  "text": "Even when there is no partition, it favours lower latency over consistency, for example by acknowledging writes before all replicas have them or serving reads from any replica.",
+                  "correct": true
+                },
+                {
+                  "text": "Else (no partition), it favours eventual consistency only for writes, while reads are always linearizable.",
+                  "correct": false
+                },
+                {
+                  "text": "Its leader election is eventual: after a partition heals, a new leader is elected lazily.",
+                  "correct": false
+                },
+                {
+                  "text": "Its writes are eventually logged: data is kept in memory first and written to the log later, so it can lose writes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "PACELC reads: if Partition, choose Availability or Consistency; Else, choose Latency or Consistency. EL means that in normal operation the system prefers fast responses over coordination: asynchronous replication, single-replica reads, small quorums (Dynamo-style stores with default settings). The \"eventual only for writes, linearizable reads\" option invents a split that PACELC does not describe, and linearizable reads would contradict the EL choice. Leader election timing and write-ahead logging are durability/availability implementation details; \"L\" stands for latency, not leader or log."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.consistency.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "saga",
+            "orchestration",
+            "choreography"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which is a genuine advantage of an **orchestrated** saga over a **choreographed** one?",
+              "options": [
+                {
+                  "text": "Orchestration gives ACID isolation across services, because the orchestrator holds locks on every participant until the saga finishes.",
+                  "correct": false
+                },
+                {
+                  "text": "Only orchestration can compensate failed steps; in choreography a failure leaves earlier steps committed for good.",
+                  "correct": false
+                },
+                {
+                  "text": "The flow, its timeouts and its compensations are defined and observable in one place (a persisted state machine), so you can answer \"where is this order stuck?\" and change the sequence without editing every participant's event handlers.",
+                  "correct": true
+                },
+                {
+                  "text": "Participants no longer need to be idempotent, because the orchestrator sends each command exactly once.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The real win of orchestration is explicitness: one durable state machine owns the sequence, handles timeouts and triggers compensations, which makes the process visible, testable and easier to evolve; choreography spreads the flow across event handlers in many services, which keeps coupling loose but makes the overall process implicit. Neither style provides isolation: sagas commit each local transaction immediately and need countermeasures such as semantic locks. Choreography can compensate too; each service listens for failure events and runs its compensation. Commands from an orchestrator are still delivered over at-least-once messaging and may be retried after a crash, so participants must stay idempotent."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.consistency.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "saga",
+            "compensation",
+            "idempotency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A checkout saga runs: (1) reserve inventory, (2) capture payment, (3) book shipment with the carrier. Step 3 fails permanently because the carrier rejects the address. What is the correct behaviour?",
+              "options": [
+                {
+                  "text": "Roll back the local database transactions of steps 1 and 2, which are still open because the saga has not completed.",
+                  "correct": false
+                },
+                {
+                  "text": "Run compensating actions for the completed steps in reverse order (refund the payment, then release the reservation), make them idempotent and retriable, and accept that other requests may already have observed the intermediate state.",
+                  "correct": true
+                },
+                {
+                  "text": "Run the compensations in the original order (release the reservation, then refund) so inventory becomes available as soon as possible.",
+                  "correct": false
+                },
+                {
+                  "text": "Retry step 3 indefinitely, because once payment is captured the saga must move forward, so compensation is never needed after the pivot.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Each saga step commits its local transaction immediately, so nothing is \"open\" to roll back; failure is handled with compensating transactions, new business operations that semantically undo earlier ones, normally in reverse order so each compensation sees the state its forward step produced. They must be idempotent and retried until they succeed, because they are driven by at-least-once messages, and because sagas lack isolation, other operations may already have seen the reserved stock or the captured payment. Compensation order follows dependency, not convenience: refunding first keeps the \"payment captured but stock released\" state from appearing. \"Retry forever after the pivot\" applies only to steps that *can* eventually succeed; a permanent business rejection means that step was not retriable, and the design should have put the pivot after it (validate the address with the carrier before capturing payment)."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.consistency.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "read-your-writes",
+            "replication-lag",
+            "session-consistency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A user updates their display name; the write goes to the primary database, but the profile page that loads right after reads from an asynchronous read replica and shows the old name. Which guarantee is missing, and which fix targets it?",
+              "options": [
+                {
+                  "text": "Linearizability; the only fix is to make replication synchronous for every table.",
+                  "correct": false
+                },
+                {
+                  "text": "Monotonic reads; fix it by pinning every user permanently to one replica.",
+                  "correct": false
+                },
+                {
+                  "text": "Durability; the write was not persisted, so fix it with `fsync` on commit.",
+                  "correct": false
+                },
+                {
+                  "text": "Read-your-writes (session consistency); for example, route that user's reads to the primary for a short window after they write, or wait until the replica has replayed the write's log position before reading.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Read-your-writes is the session guarantee that a client always sees its own previous writes; replica lag breaks it, and targeted fixes are sticky-to-primary for a period after a write, or tracking the write's log sequence number (Postgres LSN, MySQL GTID) and reading from a replica only once it has caught up. Synchronous replication everywhere would also hide the problem but costs latency on every write and is far more than the feature needs (the PACELC \"EL\" trade-off). Monotonic reads (never seeing time go backwards across reads) is a different session guarantee; pinning to one replica helps it but does not make your own write visible on that lagging replica. The write was durable on the primary; the problem is visibility on the replica, not persistence."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.consistency.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "saga",
+            "orchestration",
+            "choreography",
+            "compensation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design the order checkout flow across Orders, Inventory, Payments and Shipping services, each with its own database. Explain why you cannot use a single transaction, compare an orchestrated and a choreographed saga for this flow, and describe compensations, the pivot step and how you deal with the lack of isolation.",
+              "explanation": "Model answer: each service owns its data, so there is no shared ACID transaction, and 2PC is unavailable or harmful to availability; the flow is a saga of local transactions made consistent eventually. Choreography: Orders emits OrderCreated, Inventory reserves and emits StockReserved, Payments captures and emits PaymentCaptured, Shipping books; failure events trigger compensations in each service; loosely coupled but the flow is implicit, hard to monitor and prone to cyclic dependencies. Orchestration: a durable state machine in Orders sends commands and handles replies, timeouts and compensations explicitly; easier to see and change, at the cost of a central component. Compensations are new business actions (refund, release reservation), run in reverse order, idempotent and retried. Ordering puts compensatable steps first, then the pivot (payment capture), then retriable steps (shipping booking retried until success); address validation happens before the pivot. Isolation is absent: use a semantic lock (order status PendingPayment), version checks, and design the UI to show processing states.",
+              "rubric": [
+                "Explains why a single ACID transaction or 2PC is not used: database-per-service, brokers and services do not join distributed transactions, and 2PC couples availability and blocks on coordinator failure.",
+                "Compares choreography (events, no coordinator, implicit flow, harder monitoring, risk of cyclic dependencies) with orchestration (explicit persisted state machine, timeouts and compensations in one place, central component) and picks one with a reason.",
+                "Describes compensating transactions as semantic undo (refund, release reservation), run in reverse order, idempotent and retried, because steps are already committed.",
+                "Identifies the pivot step (e.g. payment capture), places compensatable steps before it and retriable steps after it, and moves validations that could fail permanently before the pivot.",
+                "Addresses the missing isolation with at least one countermeasure (semantic lock or pending status, version checks, commutative updates) and mentions how users see intermediate states."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "caching-strategies",
+      "title": "Caching Strategies: Cache-Aside, Write-Through, TTL vs Invalidation, Distributed Cache Pitfalls",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Caching Strategies: Cache-Aside, Write-Through, TTL vs Invalidation, Distributed Cache Pitfalls",
+          "note": "## What it is\n\nA cache trades **freshness for latency and load**. The architecture question is never \"Redis or not\" but: who populates the cache, who keeps it correct when data changes, how stale a value may be, and what happens when the cache is slow, empty or down.\n\n## Read and write patterns\n\n- **Cache-aside (lazy loading).** The application reads the cache; on a miss it loads from the database and populates the cache. On a write it updates the database and then **invalidates** (deletes) the key. The most common pattern: only requested data is cached, the cache can be lost without data loss, but each miss costs three hops and stale data is possible.\n- **Read-through.** Same as cache-aside but the cache (or a library in front of it) owns the loader; the application only talks to the cache.\n- **Write-through.** Writes go through the cache layer, which writes the store synchronously and keeps the cached copy updated: reads after writes are warm, but every write pays both latencies and the cache fills with data that may never be read. It only stays correct if **every** writer goes through that layer.\n- **Write-behind (write-back).** The cache acknowledges the write and flushes to the store later, in batches: very fast writes, but a cache failure loses acknowledged data, and the store is behind.\n- **Write-around.** Writes skip the cache; data enters only on a read miss. Good for write-once, rarely-read data.\n\n## TTL vs explicit invalidation\n\n**TTL** bounds staleness without coordination: correct by construction if the business accepts \"up to N seconds old\", and the only option when data changes in systems you cannot hook (a third-party price feed). **Explicit invalidation** gives freshness, but every write path (every service, every admin script, every migration) must remember to invalidate, and a missed path means a value that is stale **forever**. The robust answer is both: invalidate on known writes **and** keep a TTL as a safety net. Event-driven invalidation (CDC, or domain events through the outbox) helps when several services write the same data.\n\n**Delete, don't set.** Setting the new value on write races: writers A and B update the database in order A, B but their cache writes land as B, A, leaving A's value cached indefinitely. Deleting is idempotent and order-insensitive. Cache-aside still has a rarer race: a reader misses, reads the old row, a writer updates and deletes, then the reader writes the old value back. Mitigations: short TTLs, versioned values or compare-and-set, delayed second delete, or leases (Facebook's memcache paper).\n\n## Distributed cache pitfalls\n\n- **Stampede (dog-piling).** A hot key expires and hundreds of requests miss at once and all hit the database. Use request coalescing / single-flight (one loader per key per node, or a distributed lock), serve stale while revalidating, or probabilistic early refresh.\n- **Avalanche.** Many keys expire together (warmed at deploy with the same TTL) or the cache restarts cold. Add **jitter** to TTLs, warm gradually.\n- **Penetration.** Requests for keys that do not exist bypass the cache every time (scrapers, attacks). Cache negative results with a short TTL or check a Bloom filter.\n- **Hot keys.** One key exceeds one shard's capacity. Add a local in-process L1 tier, or replicate the key under several names.\n- **Cache as a hidden hard dependency.** Decide whether to fail open (go to the database, with a circuit breaker and load shedding because the database was sized for cache-hit traffic) or fail closed.\n- **Two-tier consistency.** A local L1 per instance plus a distributed L2 needs a backplane (pub/sub invalidation), or instances serve different values.\n- **Keys and serialisation.** Version keys (`product:v3:{id}`) so a deploy that changes the shape does not deserialise old payloads; watch big values and serialisation CPU.\n\n## What an interviewer probes\n\nWhich pattern for which workload, how stale is acceptable and who decides, what invalidates the key on every write path, what happens when the cache is empty or down, and stampede protection.\n\n## Common misconceptions\n\n- \"Write-through means the cache is never stale\" only holds if no writer bypasses it.\n- \"A longer TTL is more efficient\" until it is a correctness bug.\n- \"The cache makes the database safe to undersize\": a cold or failed cache then takes the database down.\n\n## Code: cache-aside with invalidation and TTL jitter\n\n```csharp\npublic async Task<Product?> GetAsync(int id, CancellationToken ct)\n{\n    var key = $\"product:v3:{id}\";\n    var cached = await redis.StringGetAsync(key);\n    if (cached.HasValue) return Deserialize(cached!);\n\n    var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);\n    var ttl = product is null\n        ? TimeSpan.FromSeconds(30)                                    // negative caching\n        : TimeSpan.FromMinutes(10) + TimeSpan.FromSeconds(Random.Shared.Next(0, 120)); // jitter\n    await redis.StringSetAsync(key, Serialize(product), ttl);\n    return product;\n}\n\npublic async Task UpdatePriceAsync(int id, decimal price, CancellationToken ct)\n{\n    await db.Products.Where(p => p.Id == id)\n        .ExecuteUpdateAsync(s => s.SetProperty(p => p.Price, price), ct);\n    await redis.KeyDeleteAsync($\"product:v3:{id}\");                  // delete, don't set\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.caching-strategies.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "cache-aside",
+            "write-through"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement correctly contrasts **cache-aside** and **write-through** caching?",
+              "options": [
+                {
+                  "text": "With cache-aside the application loads from the database on a miss and populates the cache, and on writes updates the database and invalidates the key; with write-through every write goes through the cache layer, which updates the store synchronously, so recently written data is warm but writes pay both latencies.",
+                  "correct": true
+                },
+                {
+                  "text": "Write-through guarantees the cache can never be stale, even when another service writes directly to the same database tables.",
+                  "correct": false
+                },
+                {
+                  "text": "Cache-aside requires a cache product with built-in loaders (read-through support); write-through works with any key-value store.",
+                  "correct": false
+                },
+                {
+                  "text": "Write-through and write-behind are synonyms: in both, the cache acknowledges the write and persists it to the database asynchronously.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Cache-aside puts the application in charge of both loading and invalidating; write-through routes writes through the cache tier so the store and the cached copy are updated together, at the cost of write latency and caching data nobody may read. Write-through is only fresh if *every* writer goes through it; a service writing straight to the tables leaves the cache stale. Cache-aside needs nothing from the cache product beyond get/set/delete; built-in loaders define read-through. Write-behind is the asynchronous variant (acknowledge first, persist later, risk of losing acknowledged writes), which is exactly what distinguishes it from synchronous write-through."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.caching-strategies.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "invalidation",
+            "race-condition"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "On every product update, a service runs `UPDATE products ...` and then `SET product:{id}` with the new value (TTL 24 h). Under concurrent updates, what can happen, and what is the better approach?",
+              "options": [
+                {
+                  "text": "Nothing bad: the cache write follows the database write in each request, so the cache always ends up with the latest database value.",
+                  "correct": false
+                },
+                {
+                  "text": "Writers A and B can commit to the database in the order A, B but reach Redis in the order B, A, leaving A's older value cached for up to 24 hours; delete the key after the update instead of setting it, and keep a TTL as a safety net.",
+                  "correct": true
+                },
+                {
+                  "text": "The `SET` should simply happen before the `UPDATE`, which guarantees the cache never holds a value older than the database.",
+                  "correct": false
+                },
+                {
+                  "text": "The issue is the TTL: lowering it to 1 hour removes the race, so no change to the write path is needed.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Two requests interleave between their database write and their cache write; nothing orders the second steps, so the cache can end with the older value while the database has the newer one, and it stays wrong until the TTL. Invalidating (delete) is idempotent and order-insensitive: whichever delete lands last, the next read reloads the current row. A small cache-aside race remains (a reader repopulating with a value read before the update), which TTLs, versioned values or leases mitigate. Setting the cache before the database write is worse: if the database write fails or is reordered the cache holds a value that was never committed. A shorter TTL only shortens the staleness window; it does not remove the race."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.caching-strategies.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "ttl",
+            "invalidation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In which situation is relying on a **TTL alone** (no explicit invalidation) the right design?",
+              "options": [
+                {
+                  "text": "Account balances shown after a transfer, because the TTL guarantees the user never sees a stale balance.",
+                  "correct": false
+                },
+                {
+                  "text": "Data owned by your own service with a single write path, because explicit invalidation is always more complex than a TTL.",
+                  "correct": false
+                },
+                {
+                  "text": "Currency exchange rates pulled from an external provider that you cannot get change notifications from, where the business explicitly accepts values up to a few minutes old.",
+                  "correct": true
+                },
+                {
+                  "text": "Never: TTL-only caching is always a bug, and every cache entry must be invalidated explicitly on change.",
+                  "correct": false
+                }
+              ],
+              "explanation": "TTL-only is correct when staleness up to the TTL is an accepted business property and you have no reliable hook on every change, which is typical for third-party data. Balances after the user's own transfer need read-your-writes; a TTL cannot guarantee freshness, it only bounds staleness. A single write path you own is exactly the case where explicit invalidation is cheap and gives freshness, so dropping it there is a needless trade-off. \"Never TTL-only\" is too absolute; conversely, even with explicit invalidation you normally keep a TTL as a safety net for missed invalidation paths."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.caching-strategies.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "avalanche",
+            "stampede",
+            "ttl-jitter"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After each deployment a warm-up job loads 200,000 product keys into Redis, all with a TTL of exactly 3600 seconds. Every deployment is followed, about one hour later, by a spike of database CPU and timeouts. What is the best fix?",
+              "options": [
+                {
+                  "text": "Increase the database connection pool so the spike is absorbed.",
+                  "correct": false
+                },
+                {
+                  "text": "Switch the Redis eviction policy from `allkeys-lru` to `volatile-ttl`.",
+                  "correct": false
+                },
+                {
+                  "text": "Lower the TTL to 300 seconds so keys refresh more often and each refresh is smaller.",
+                  "correct": false
+                },
+                {
+                  "text": "Add random jitter to each key's TTL so expirations spread out, and add per-key request coalescing (single-flight) so concurrent misses for the same key trigger one database load.",
+                  "correct": true
+                }
+              ],
+              "explanation": "All keys share one expiry instant (a cache avalanche), so the misses arrive together; jitter desynchronises expiry, and coalescing stops many concurrent misses on a hot key from becoming many identical queries (the stampede part). A bigger connection pool lets more simultaneous queries reach an already saturated database, making the spike worse. Eviction policy controls what Redis removes under memory pressure, not when TTLs expire. A shorter uniform TTL keeps the synchronised expiry (now every five minutes) and increases the total miss rate."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.caching-strategies.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "penetration",
+            "negative-caching"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A scraper requests `/products/{id}` for millions of random ids that do not exist. Your cache-aside code caches only found products. What happens, and what is the usual mitigation?",
+              "options": [
+                {
+                  "text": "Every request misses the cache and queries the database (cache penetration); cache the \"not found\" result with a short TTL, or check ids against a Bloom filter before going to the database.",
+                  "correct": true
+                },
+                {
+                  "text": "The cache fills with millions of empty entries and evicts real products, so you should never cache negative results.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing: the database answers a primary-key lookup for a missing id from the index without load, so the cache is irrelevant here.",
+                  "correct": false
+                },
+                {
+                  "text": "Redis rejects keys for missing records, so the application throws and the scraper is blocked automatically.",
+                  "correct": false
+                }
+              ],
+              "explanation": "If only hits are cached, a stream of non-existent keys goes to the database on every request, which is the classic penetration problem; negative caching with a short TTL (and a size budget) or a Bloom filter of valid ids absorbs it, combined with rate limiting at the edge. Negative entries are small and short-lived; the eviction concern is managed with a short TTL and memory limits, not by refusing to cache them, which leaves the database exposed. An index lookup is cheap per request but millions of them still consume connections and CPU that the cache was meant to protect. Redis does not know or care whether a value corresponds to a database row."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.caching-strategies.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "system-design",
+            "invalidation",
+            "consistency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A product catalogue gets 50,000 reads per second and a few hundred price updates per minute, written by two services and an admin tool. Prices shown on the product page may be up to 30 seconds stale, but the price used at checkout must be current. Design the caching: pattern, invalidation and TTLs, consistency at checkout, and the failure modes you protect against.",
+              "explanation": "Model answer: cache-aside (or read-through) in Redis with an in-process L1 for hot items; key versioning in the key name. Writes from all three writers are covered by event-driven invalidation (CDC or outbox events consumed by an invalidator) that deletes keys, rather than each writer setting values, plus a TTL of about 30 s with jitter as the safety net that also enforces the business staleness bound; L1 entries are invalidated through a pub/sub backplane or kept with a very short TTL. Checkout does not trust the cache: it reads the price from the source of truth (or validates a versioned price) inside the order transaction. Failure modes: stampede on hot keys (single-flight, stale-while-revalidate), avalanche (TTL jitter, gradual warm-up), penetration (negative caching), Redis outage (fail open with a circuit breaker and load shedding because the database is sized for hit traffic), delete-vs-set race.",
+              "rubric": [
+                "Chooses a pattern (cache-aside or read-through, optionally L1 + L2) and justifies it for a read-heavy workload.",
+                "Covers every write path: invalidation by deleting keys (not setting values), ideally event-driven (CDC/outbox) because there are several writers, with a TTL near the 30-second bound as a safety net.",
+                "Keeps checkout correct by reading or validating the price against the source of truth rather than the cache.",
+                "Names at least two distributed-cache failure modes with a concrete mitigation each (stampede, avalanche/TTL jitter, penetration/negative caching, hot keys, L1/L2 inconsistency).",
+                "Describes behaviour when the cache is unavailable or cold (fail open with protection such as circuit breaker or load shedding, and the risk that the database is sized for cache-hit traffic)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "resilience",
+      "title": "Resilience: Timeouts, Retries with Jitter, Circuit Breaker, Bulkhead, Backpressure",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Resilience: Timeouts, Retries with Jitter, Circuit Breaker, Bulkhead, Backpressure",
+          "note": "## What it is\n\nIn a distributed system the question is not whether a dependency fails but how your service behaves when it is **slow**, **down** or **overloaded**. Resilience patterns contain failure so that one bad dependency degrades a feature instead of taking the whole system down, and they must avoid the classic trap: protective mechanisms that **amplify** load on something already struggling.\n\n## The patterns and how they work\n\n**Timeouts.** Every remote call needs one; an unbounded wait turns a slow dependency into exhausted threads, sockets and connection pools in *your* service. Distinguish a **per-attempt** timeout from a **total** timeout (the overall budget across retries), and propagate a **deadline** downstream (gRPC deadlines, a `CancellationToken` derived from the caller's budget) so callees stop working on requests the caller has already abandoned. Pick values from measured latency (above p99.9 of healthy calls), not round numbers.\n\n**Retries.** They are only for **transient** faults (connection reset, 503, 429, timeouts) and only for **idempotent** operations or operations protected by an idempotency key; a timed-out `POST /payments` may have succeeded. Use **exponential backoff with jitter**: without jitter, all clients that failed together retry together in synchronised waves. \"Full jitter\" picks a delay uniformly in `[0, min(cap, base * 2^attempt)]`. Honour `Retry-After`. Retry at **one** layer: with 4 attempts at each of three layers, one user request becomes 64 calls to the bottom dependency. Cap retries globally with a **retry budget** (for example, retries at most 10% of requests).\n\n**Circuit breaker.** Tracks failures over a sampling window; when the failure ratio (with a minimum throughput) crosses a threshold it **opens** and fails calls immediately without touching the dependency, for a break duration. Then it goes **half-open**, lets trial calls through, and closes on success or reopens on failure. It gives the dependency room to recover and gives your callers a fast, explicit failure that you can map to a fallback (cached data, a default, a degraded feature).\n\n**Bulkhead.** Isolate resources per dependency so that one slow dependency cannot consume everything: separate connection pools, a concurrency limiter (semaphore) per downstream, separate queues or even separate deployments for critical and non-critical work. A circuit breaker reacts after failures accumulate; a bulkhead caps the blast radius from the first slow call.\n\n**Backpressure and load shedding.** When work arrives faster than it can be processed, something must give. Unbounded in-memory queues only convert overload into memory exhaustion and huge latency (Little's law: queue length = arrival rate x time in system). Use **bounded** queues that make producers wait or reject, concurrency limits, rate limiting, and fast `429`/`503` with `Retry-After` at the edge. Rejecting early is cheaper than timing out late.\n\n**Order matters in a pipeline.** Outer to inner, the .NET standard resilience handler (`Microsoft.Extensions.Http.Resilience`, built on Polly v8) uses: rate limiter, total timeout, retry, circuit breaker, attempt timeout. The total timeout bounds everything; each retry attempt passes through the breaker, so an open breaker stops retries immediately; the attempt timeout lets a hung attempt be retried.\n\n## What an interviewer probes\n\n- Retry vs circuit breaker, and why you need both.\n- Which operations are safe to retry; idempotency keys for the rest.\n- Retry storms and amplification across layers; jitter; budgets.\n- Timeout values and propagation; what happens to work after the caller gives up.\n- Bulkhead vs breaker vs rate limiter: what each one protects.\n\n## Common misconceptions\n\n- \"Retries make a system more reliable\": during an outage they multiply load and delay recovery.\n- \"The circuit breaker retries for you\": it does the opposite, it stops calls.\n- \"A big timeout is the safe choice\": it is the most dangerous default under partial failure.\n- \"Async code removes the need for bulkheads\": connection pools, sockets and downstream capacity are still finite.\n\n## Code: full-jitter backoff and a bounded queue\n\n```csharp\nstatic TimeSpan Backoff(int attempt, TimeSpan baseDelay, TimeSpan cap)\n{\n    double ceiling = Math.Min(cap.TotalMilliseconds, baseDelay.TotalMilliseconds * Math.Pow(2, attempt));\n    return TimeSpan.FromMilliseconds(Random.Shared.NextDouble() * ceiling);   // full jitter\n}\n\n// Backpressure: producers wait (or fail fast with TryWrite) when 1,000 items are pending\nvar queue = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(1_000)\n{\n    FullMode = BoundedChannelFullMode.Wait\n});\nif (!queue.Writer.TryWrite(item))\n    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);       // shed load at the edge\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.resilience.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "resilience",
+            "circuit-breaker",
+            "retry"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between a retry policy and a circuit breaker?",
+              "options": [
+                {
+                  "text": "They are two names for the same mechanism; a circuit breaker is a retry policy with a maximum attempt count.",
+                  "correct": false
+                },
+                {
+                  "text": "A circuit breaker retries failed calls automatically in the background until the dependency recovers, so callers never see the failure.",
+                  "correct": false
+                },
+                {
+                  "text": "A retry re-sends an individual failed call, assuming the fault is transient; a circuit breaker tracks the failure rate across calls and, above a threshold, opens and fails calls immediately for a break period, then half-opens to probe recovery. They are complementary: retries inside, the breaker stopping them when the dependency is clearly down.",
+                  "correct": true
+                },
+                {
+                  "text": "A circuit breaker is a timeout: it cancels any call that takes longer than its threshold.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Retry operates per call and helps with brief blips; a breaker operates on aggregate health and stops calling a dependency that is failing, which protects both your resources and the dependency's recovery. In a pipeline each retry attempt passes through the breaker, so once it opens the remaining retries fail fast. A breaker is not a retry with a cap: it deliberately makes *fewer* calls. It does not retry in the background or hide failures; callers get an immediate `BrokenCircuitException` (or equivalent) that should map to a fallback. Timeouts are a separate pattern; timed-out calls may count as failures toward the breaker, but cancellation is not what a breaker does."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.resilience.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "retry",
+            "jitter",
+            "backoff",
+            "thundering-herd"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why should exponential backoff include **jitter**?",
+              "options": [
+                {
+                  "text": "Clients that failed at the same moment would otherwise retry at the same moments (1 s, 2 s, 4 s...), hitting the recovering dependency in synchronised waves; randomising the delay spreads the retries out.",
+                  "correct": true
+                },
+                {
+                  "text": "Jitter keeps each client's delay below the configured maximum, which plain exponential backoff would exceed after a few attempts.",
+                  "correct": false
+                },
+                {
+                  "text": "Jitter is required by the HTTP specification whenever a server returns `503 Service Unavailable`.",
+                  "correct": false
+                },
+                {
+                  "text": "Jitter prevents the same request from being processed twice, because the randomised delay makes duplicates detectable.",
+                  "correct": false
+                }
+              ],
+              "explanation": "When an outage hits many clients at once, deterministic backoff keeps them in lockstep, so each retry round is a spike that can knock the dependency over again (a thundering herd); jitter decorrelates them so load arrives smoothly. Keeping delays below a maximum is the job of the cap (`min(cap, base * 2^attempt)`), not of jitter; jitter randomises the delay within that bound. HTTP defines `Retry-After` but does not mandate jitter. Jitter does nothing for duplicate processing; that is what idempotency keys and idempotent handlers address."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.resilience.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "retry",
+            "amplification",
+            "retry-budget"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A request flows Gateway → Service A → Service B → Database. Each of the three callers (Gateway, A and B) retries a failed call up to **3 times** (4 attempts in total). The database is down. How many calls reach the database for one user request?",
+              "options": [
+                {
+                  "text": "12, because each of the three layers makes 4 attempts.",
+                  "correct": false
+                },
+                {
+                  "text": "64, because attempts multiply across layers: 4 × 4 × 4. Retries should happen at one layer (with budgets) and other layers should fail fast.",
+                  "correct": true
+                },
+                {
+                  "text": "4, because only Service B talks to the database and the upstream retries are absorbed by B.",
+                  "correct": false
+                },
+                {
+                  "text": "81, because each layer adds its own 3 retries on top of the original call at every level: 3 to the power of 4.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Each attempt by the gateway causes A to make up to 4 attempts, each of which causes B to make up to 4 attempts at the database: 4^3 = 64 database calls for one user request, which is how retry storms turn a partial outage into a total one. The additive 12 ignores that upstream retries re-run the entire downstream chain. \"Only 4\" forgets that every upstream retry re-enters B, which then retries again. 81 is 3^4, the wrong base (3 retries means 4 attempts) and the wrong exponent (three retrying layers, not four). The fix is to retry at a single layer, cap retries with a retry budget, and let breakers fail fast."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.resilience.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "bulkhead",
+            "isolation",
+            "resilience"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service calls a slow, non-critical recommendations API and a critical payments API through the same outbound connection pool. When recommendations starts hanging, payment calls also begin to time out. Which pattern addresses the root cause?",
+              "options": [
+                {
+                  "text": "Retries with exponential backoff on the payment calls.",
+                  "correct": false
+                },
+                {
+                  "text": "A circuit breaker on the payment calls, so they fail fast while the problem lasts.",
+                  "correct": false
+                },
+                {
+                  "text": "Increasing the size of the shared connection pool and the thread pool minimum.",
+                  "correct": false
+                },
+                {
+                  "text": "A bulkhead: give each dependency its own isolated capacity (separate pool or concurrency limiter), combined with a tight timeout on the recommendations call, so hung recommendation calls cannot consume the resources payments need.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The root cause is shared capacity: hung recommendation calls hold the pool's connections, starving payments. A bulkhead partitions that capacity per dependency, and a timeout on the slow dependency stops its calls from holding resources indefinitely. Retrying payments adds more demand on the starved pool. A breaker on payments would trip on a healthy dependency and turn the outage into immediate failures of the critical path, which treats the symptom in the wrong place (a breaker on recommendations would help, but only after failures accumulate). A bigger shared pool just takes longer to fill with hung calls; the coupling remains."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.resilience.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "backpressure",
+            "load-shedding",
+            "channels"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ingestion API accepts events and pushes them into an unbounded in-memory `Channel<T>`; a background worker processes about 2,000 events/s. During a campaign, 5,000 events/s arrive for an hour. What happens, and what is the better design?",
+              "options": [
+                {
+                  "text": "Nothing problematic: the unbounded channel absorbs the burst and the worker catches up after the campaign.",
+                  "correct": false
+                },
+                {
+                  "text": "The worker processes faster as the queue grows, because batching inside `Channel<T>` improves throughput automatically.",
+                  "correct": false
+                },
+                {
+                  "text": "The channel blocks producers automatically once it is large, because channels have a default capacity of 1,000 items.",
+                  "correct": false
+                },
+                {
+                  "text": "The queue grows by about 3,000 items per second until memory runs out or latency becomes useless, and a restart loses everything queued; bound the queue and apply backpressure (make producers wait or reject with `503`/`429` and `Retry-After`), or put a durable broker in front and scale consumers.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Arrival exceeds service rate by 3,000/s, so over an hour about 10.8 million items accumulate; by Little's law the time each item spends queued grows without bound, the process risks running out of memory, and in-memory work is lost on restart. Backpressure makes the overload visible to producers: a bounded channel with `FullMode = Wait` (or `TryWrite` failing fast) at the edge, `429`/`503` with `Retry-After`, or a durable queue with more consumers. An unbounded queue does not \"absorb\" a sustained overload; it only delays the failure. `Channel.CreateUnbounded` has no capacity limit; only `CreateBounded` takes one. Channels do not batch or speed up consumers on their own."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.resilience.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "resilience",
+            "timeouts",
+            "retry",
+            "circuit-breaker",
+            "idempotency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your service calls a third-party payment API that has occasional latency spikes and rare multi-minute outages. Design the resilience strategy for this call: timeouts, retries, circuit breaker, bulkhead, and what the user sees. Be specific about which failures you retry, how you keep retries safe for a payment, and the order of the policies.",
+              "explanation": "Model answer: an attempt timeout derived from measured latency (above healthy p99.9) plus a total timeout aligned with the caller's deadline, with cancellation propagated. Retries only on transient failures (connection errors, 5xx, 429 honouring `Retry-After`, attempt timeouts), never on business rejections (card declined, 4xx validation), at most a few attempts with exponential backoff and full jitter, and only with an idempotency key sent to the provider so a timed-out-but-succeeded charge is not repeated; one retrying layer only. A circuit breaker on failure ratio with minimum throughput opens during outages and fails fast; the fallback is not to fake success but to accept the order as \"payment pending\" (queue via outbox, reconcile later) or tell the user to try again. A bulkhead (dedicated pool/concurrency limit) keeps payment calls from starving or being starved. Order outer to inner: total timeout, retry, circuit breaker, attempt timeout. Monitoring: breaker state changes, retry rates, reconciliation of unknown outcomes.",
+              "rubric": [
+                "Defines timeouts explicitly: a per-attempt timeout based on measured latency and a total timeout/deadline tied to the caller's budget, with cancellation propagated.",
+                "Restricts retries to transient failures (network errors, 5xx, 429 with `Retry-After`, attempt timeouts), excludes business rejections, uses exponential backoff with jitter and a small cap, and retries in only one layer.",
+                "Makes payment retries safe with an idempotency key (and handles the unknown-outcome case, e.g. reconciliation or status lookup) because a timed-out request may have succeeded.",
+                "Adds a circuit breaker (failure ratio, minimum throughput, break duration, half-open probing) and a bulkhead or concurrency limit, and describes a fallback such as accepting the order as payment-pending rather than faking success.",
+                "Orders the policies sensibly (total timeout outermost, then retry, then circuit breaker, then attempt timeout) and explains why that order works."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "observability",
+      "title": "Observability: Logs, Metrics, Traces, Correlation, OpenTelemetry, SLO/SLI, Alerting",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Observability: Logs, Metrics, Traces, Correlation, OpenTelemetry, SLO/SLI, Alerting",
+          "note": "## What it is\n\nMonitoring answers questions you predicted (\"is CPU high?\"); **observability** is the ability to answer questions you did not predict (\"why are checkouts from one region slow since 14:05?\") from the telemetry the system already emits. The three classic signals each answer a different question:\n\n- **Metrics**: numeric time series, aggregated at the source (counters, gauges, histograms). Cheap to store and query over long periods, ideal for dashboards and **alerting**, but only as detailed as their labels, and every distinct label combination is a separate series, so **cardinality** is the cost driver: never label by user id, order id or raw URL.\n- **Traces**: the causal path of **one request** across services, as a tree of **spans** (operation, start, duration, attributes, status, parent). They answer \"where did the time go?\" and \"which downstream call failed?\".\n- **Logs**: discrete, detailed events. Structured (key/value, JSON) so they can be queried, and enriched with `trace_id`/`span_id` so you can jump from a trace to its logs. Expensive at volume; not the right tool for alerting on rates or latency percentiles.\n\nProfiles (continuous profiling) are increasingly treated as a fourth signal.\n\n## Correlation underneath\n\nCorrelation across services relies on **context propagation**. The W3C **Trace Context** standard defines the `traceparent` header: `00-<32-hex trace-id>-<16-hex parent span id>-<flags>` (the flags carry the *sampled* bit), plus `tracestate` for vendor data; the separate W3C `baggage` header carries application key/values. Instrumentation extracts the context from an incoming request, makes it current (in .NET, `Activity.Current`, flowing through `async` via `ExecutionContext`), and injects it into outgoing HTTP calls and message headers. Messaging is where correlation usually breaks: the producer must write the context into message headers and the consumer must restore it (a link or a child span).\n\n**OpenTelemetry** (OTel) is the vendor-neutral standard: an API, SDKs per language, semantic conventions for attribute names, the **OTLP** protocol, and the **Collector**, which receives, processes (batching, attribute scrubbing, tail sampling) and exports to any backend. In .NET the API is the BCL itself: `ActivitySource`/`Activity` are OTel tracers/spans and `Meter` produces OTel metrics.\n\n**Sampling.** *Head* sampling decides at the root (cheap, but it may drop the one slow trace you need); *tail* sampling decides after the trace completes (keep all errors and slow traces, a percentage of the rest) in the Collector, at the cost of buffering. Exemplars link a metric data point to a sample trace.\n\n## SLI, SLO, SLA, error budgets\n\n- **SLI**: a measured ratio of good events to valid events, from the user's point of view (requests answered successfully within 300 ms / all requests).\n- **SLO**: the target for that SLI over a window (99.9% over 30 days).\n- **SLA**: a contract with consequences; it should be looser than the SLO.\n- **Error budget**: `1 - SLO`. At 99.9% over 30 days, 0.1% of 43,200 minutes is **43.2 minutes** of full outage equivalent. Spending policy: when the budget is exhausted, reliability work wins over features.\n\n## Alerting hygiene\n\nPage on **symptoms users feel** (SLO burn), not on causes (CPU 80%). Use **multi-window, multi-burn-rate** alerts (Google SRE Workbook): page when the budget burns at 14.4x over 1 hour *and* over the last 5 minutes (2% of a 30-day budget gone in an hour); open a ticket on slow burns. Every page must be actionable, link a runbook and have an owner; anything else is a dashboard or a ticket. Track alert noise: alert fatigue is how real incidents get missed.\n\n## What an interviewer probes\n\nWhich signal answers which question, how a trace id crosses HTTP and a message broker, metric cardinality, head vs tail sampling, defining an SLI for a real endpoint, computing an error budget, and what makes a good page. RED (rate, errors, duration) for services and USE (utilisation, saturation, errors) for resources are useful vocabulary.\n\n## Common misconceptions\n\n- \"Traces replace logs\": traces are sampled and structured around spans; logs still carry detail.\n- \"Correlation id = trace id\": a custom `X-Correlation-ID` is fine for business correlation, but tooling understands `traceparent`.\n- \"Average latency is a good SLI\": averages hide the tail; use thresholds or percentiles.\n\n## Code: .NET wiring (OpenTelemetry.Extensions.Hosting)\n\n```csharp\nbuilder.Services.AddOpenTelemetry()\n    .ConfigureResource(r => r.AddService(\"orders-api\"))\n    .WithTracing(t => t\n        .AddAspNetCoreInstrumentation()\n        .AddHttpClientInstrumentation()\n        .AddSource(\"Orders\")                 // your ActivitySource\n        .AddOtlpExporter())\n    .WithMetrics(m => m\n        .AddAspNetCoreInstrumentation()\n        .AddMeter(\"Orders\")                  // your Meter\n        .AddOtlpExporter());\nbuilder.Logging.AddOpenTelemetry(o => o.AddOtlpExporter());   // logs carry trace_id/span_id\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.observability.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "observability",
+            "logs",
+            "metrics",
+            "traces"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between logs, metrics and traces, and which statement is correct?",
+              "options": [
+                {
+                  "text": "Traces are a strict superset of logs, so once distributed tracing is in place, application logs can be removed.",
+                  "correct": false
+                },
+                {
+                  "text": "Metrics are the best place for per-user detail, because labels such as `user_id` make it possible to alert on individual customers.",
+                  "correct": false
+                },
+                {
+                  "text": "Metrics are aggregated numeric time series suited to dashboards and alerting, constrained by label cardinality; traces show the causal path and timing of a single request across services; logs record detailed discrete events for context and debugging.",
+                  "correct": true
+                },
+                {
+                  "text": "Logs are the best basis for latency alerts, because each log line contains an exact duration while metrics only store averages.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The three signals answer different questions: metrics for \"is something wrong and how much\" at low cost over long periods; traces for \"where in this request did the time go or the error happen\"; logs for detailed context of individual events, correlated with traces through `trace_id`. Traces are usually sampled and organised around spans, so they do not carry all the detail logs hold, and dropping logs loses unsampled requests. Labelling metrics with `user_id` creates one time series per user per label combination (a cardinality explosion); per-user detail belongs in traces and logs. Metric histograms store bucketed distributions from which percentiles are computed, so they are the right basis for latency alerts; computing them from logs is expensive and slow."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.observability.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "opentelemetry",
+            "trace-context",
+            "correlation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Service A calls Service B over HTTP, and both use OpenTelemetry instrumentation with default settings. How does B's span become part of the same trace as A's?",
+              "options": [
+                {
+                  "text": "The OpenTelemetry Collector matches spans from A and B by timestamp and host name after they are exported.",
+                  "correct": false
+                },
+                {
+                  "text": "B generates a new trace id and logs A's request id; the backend joins them at query time.",
+                  "correct": false
+                },
+                {
+                  "text": "A's HTTP client instrumentation injects the W3C `traceparent` header (trace id, parent span id, sampled flag); B's server instrumentation extracts it and starts its span as a child in the same trace.",
+                  "correct": true
+                },
+                {
+                  "text": "OpenTelemetry requires each service to send an `X-Correlation-ID` header, which it uses as the trace id.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Trace correlation is done by context propagation, not by post-hoc matching: the client side injects `traceparent` (format `00-<trace-id>-<parent-id>-<flags>`), and the server side extracts it, so B's span carries the same trace id and A's span id as parent; W3C Trace Context is the default propagator in OpenTelemetry SDKs (together with W3C Baggage). The Collector does not stitch spans by time; it only processes and exports what the SDKs produced. Generating a new trace id in B would break the trace into two. `X-Correlation-ID` is a common custom convention for business correlation, but OpenTelemetry neither requires nor uses it."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.observability.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "slo",
+            "error-budget",
+            "sre"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An API has an availability SLO of **99.9% over a rolling 30-day window**. What is its error budget expressed as time of full unavailability?",
+              "options": [
+                {
+                  "text": "About 8.76 hours",
+                  "correct": false
+                },
+                {
+                  "text": "About 4.3 minutes",
+                  "correct": false
+                },
+                {
+                  "text": "About 7.2 hours",
+                  "correct": false
+                },
+                {
+                  "text": "About 43.2 minutes",
+                  "correct": true
+                }
+              ],
+              "explanation": "30 days = 43,200 minutes; 0.1% of that is 43.2 minutes. 8.76 hours is 0.1% of a *year*, a common mix-up when quoting \"three nines\". 4.32 minutes is the budget for 99.99% over 30 days. 7.2 hours is 1% of 30 days, i.e. a 99% SLO. In practice the budget is consumed by partial failures too (failed or too-slow requests as a fraction of all requests), so \"minutes of full outage\" is only an equivalent measure."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.observability.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "alerting",
+            "slo",
+            "burn-rate",
+            "on-call"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which of these is the best condition to **page** an on-call engineer for a user-facing API?",
+              "options": [
+                {
+                  "text": "CPU utilisation above 80% for 5 minutes on any instance.",
+                  "correct": false
+                },
+                {
+                  "text": "The SLO error budget is burning at 14.4x the sustainable rate over the last hour **and** over the last 5 minutes.",
+                  "correct": true
+                },
+                {
+                  "text": "Any log line at `Error` level appears in production.",
+                  "correct": false
+                },
+                {
+                  "text": "p99 latency exceeds 500 ms in any single one-minute interval.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Pages should fire on user-visible symptoms that threaten the SLO and require action now. A multi-window burn-rate alert does exactly that: 14.4x over one hour means 2% of a 30-day budget is gone in an hour, and the 5-minute window confirms it is still happening, so the alert resets quickly after recovery. High CPU is a cause, not a symptom; it often has no user impact and belongs on a dashboard or in autoscaling. Paging on any error log is the classic recipe for alert fatigue; individual errors are expected within the budget. A single one-minute p99 spike is too noisy and not tied to the budget; latency belongs in the SLI with a burn-rate alert too."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.observability.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "metrics",
+            "cardinality",
+            "prometheus"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A developer adds `user_id` and the raw request path (including ids, e.g. `/orders/91823`) as labels on the request-duration histogram. What is the main consequence?",
+              "options": [
+                {
+                  "text": "A cardinality explosion: every unique combination of labels creates new time series (multiplied by the histogram buckets), so memory, storage and query cost of the metrics backend grow with the number of users and orders; use the route template as a label and put user and order ids in traces and logs.",
+                  "correct": true
+                },
+                {
+                  "text": "Nothing significant: labels are stored once per data point, like log fields, so cost grows only with request volume.",
+                  "correct": false
+                },
+                {
+                  "text": "The histogram becomes more accurate, because percentiles are now computed per user and then averaged into the global percentile.",
+                  "correct": false
+                },
+                {
+                  "text": "Prometheus rejects the metric at scrape time because labels may not contain numbers.",
+                  "correct": false
+                }
+              ],
+              "explanation": "In metric systems each unique label set is its own series with its own memory and index entries, and a histogram multiplies that by its bucket count, so unbounded labels such as user ids or raw paths grow the series count with your data rather than your code, eventually overwhelming the backend (and bills). Use bounded labels (route template `/orders/{id}`, status class, method) and keep high-cardinality identifiers in traces, logs or exemplars. Labels are not per-point fields like log attributes; that mental model is what causes the mistake. Averaging per-user percentiles does not produce a correct global percentile. Prometheus accepts digits in label values; it does not protect you from cardinality."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.observability.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "observability",
+            "opentelemetry",
+            "slo",
+            "tracing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Users report that checkout is sometimes slow. The request crosses an API gateway, three .NET services and a message broker. How would you instrument this system so you can find the cause, and how would you define the SLO and alerting so that next time you hear about it before users do?",
+              "explanation": "Model answer: instrument every service with OpenTelemetry (ASP.NET Core, HttpClient, database and messaging instrumentation plus custom `ActivitySource` spans for business steps), propagate W3C `traceparent` over HTTP and inject/extract it in broker message headers so consumer spans join the trace; structured logs with trace_id/span_id; RED metrics with bounded labels (route template). Export via OTLP to a Collector that does tail sampling to keep all errors and slow traces. Investigation: from a latency metric spike, use exemplars to jump to a slow trace, find the span that dominates, then the correlated logs. SLI: proportion of checkout requests that succeed within e.g. 800 ms measured at the gateway; SLO 99.5% over 30 days; error budget; multi-window burn-rate alerts (fast burn pages, slow burn tickets), actionable with runbooks; avoid cause-based pages such as CPU.",
+              "rubric": [
+                "Describes tracing across all hops with OpenTelemetry, including W3C `traceparent` propagation over HTTP and explicitly through message headers for the broker hop.",
+                "Correlates signals: structured logs enriched with trace and span ids, metrics with bounded-cardinality labels, and a way to move from a metric anomaly to example traces (exemplars or trace search).",
+                "Addresses sampling: explains head vs tail sampling and chooses tail sampling (or equivalent) to keep slow and failed traces.",
+                "Defines a user-centric SLI (good events / valid events, e.g. successful checkouts under a latency threshold) and an SLO with a window, and derives the error budget.",
+                "Proposes symptom-based burn-rate alerting (fast burn pages, slow burn tickets) with actionable, runbook-linked alerts, and rejects cause-based paging such as CPU thresholds."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "api-gateway-bff",
+      "title": "API Gateway & BFF: Edge Responsibilities, Rate Limiting, Auth at the Edge",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "API Gateway & BFF: Edge Responsibilities, Rate Limiting, Auth at the Edge",
+          "note": "## What it is\n\nAn **API gateway** is the single entry point in front of a set of backend services. It owns **cross-cutting edge concerns**: routing, TLS termination, authentication (token validation), rate limiting and quotas, request size limits, CORS, response caching, header normalisation and sometimes simple aggregation. Examples: YARP (a .NET reverse-proxy library you build a gateway with), Azure API Management, AWS API Gateway, Kong, Envoy-based gateways.\n\nA **Backend for Frontend (BFF)** (Sam Newman's term) is a backend built for **one** client experience: the Angular SPA gets one, the mobile app another. It aggregates and shapes data from downstream services into exactly what that screen needs, so the client avoids chatty calls and over-fetching, and it is typically owned by the team that owns the frontend. Gateways and BFFs coexist: the gateway at the edge handles generic policy, BFFs sit behind it with client-specific logic.\n\n## The BFF as a security pattern\n\nFor browser apps, \"BFF\" also names a specific **security architecture**, recommended by the IETF *OAuth 2.0 for Browser-Based Applications* draft as the most secure option: the BFF is a confidential OAuth client that runs the authorization-code flow, **keeps access and refresh tokens server-side**, and gives the browser only an `HttpOnly`, `Secure`, `SameSite` session cookie (ideally with the `__Host-` prefix). API calls go SPA → BFF (cookie) → APIs (BFF attaches the access token). XSS can no longer steal tokens, although it can still issue requests while the page is open. Because cookies are sent automatically, the BFF needs CSRF protection: `SameSite` plus a required custom header (e.g. `X-CSRF: 1`), which a cross-site form cannot set without a CORS preflight. Duende BFF is a common .NET implementation.\n\n## Rate limiting at the edge\n\nAlgorithms:\n\n- **Fixed window**: N requests per calendar window; simple, but a client can send N at the end of one window and N at the start of the next (2N in a moment).\n- **Sliding window** (log or weighted counter): smooths the boundary effect.\n- **Token bucket**: tokens refill at a steady rate up to a capacity; allows bursts up to the capacity while enforcing the average rate. The usual API choice.\n- **Leaky bucket** / concurrency limiters: smooth output rate or cap in-flight requests.\n\nPartition by the right key (API key, user, tenant, IP as a last resort), return **`429 Too Many Requests` with `Retry-After`**, and remember that in-memory limiters are per instance: N gateway replicas behind a load balancer allow up to N times the configured limit unless the state is shared (Redis) or the limit is divided per instance.\n\n## Auth at the edge\n\nValidate tokens (signature, issuer, audience, expiry) at the gateway to reject garbage early, but **do not make the gateway the only check**. Services still authorise access to their own resources (zero trust, defence in depth), and must not trust identity headers such as `X-User-Id` that anything inside the network could forge. Either forward the original token for services to validate, or have the gateway exchange it for a short-lived internal token (OAuth token exchange).\n\n## What an interviewer probes\n\n- Gateway vs BFF vs service mesh: edge policy vs client-shaped API vs east-west traffic.\n- Where aggregation belongs, and when a gateway becomes a \"god service\" holding business logic.\n- Token storage in SPAs and why BFF beats tokens in `localStorage`.\n- Rate-limit algorithm choice, distributed limits, and client behaviour on `429`.\n- The gateway as a single point of failure and latency hop: redundancy, timeouts, health checks.\n\n## Common misconceptions\n\n- \"The gateway authenticated the request, so services can skip authorisation.\"\n- \"A BFF is just a gateway per client\": it contains client-specific composition logic; a gateway should not.\n- \"Rate limiting is DDoS protection\": volumetric attacks are stopped earlier (CDN/WAF); rate limits enforce fair use.\n\n## Code: per-client token bucket in ASP.NET Core (also usable from YARP routes)\n\n```csharp\nbuilder.Services.AddRateLimiter(o =>\n{\n    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;\n    o.AddPolicy(\"per-client\", ctx => RateLimitPartition.GetTokenBucketLimiter(\n        partitionKey: ctx.User.FindFirst(\"client_id\")?.Value ?? \"anonymous\",\n        factory: _ => new TokenBucketRateLimiterOptions\n        {\n            TokenLimit = 100,                         // burst capacity\n            TokensPerPeriod = 20,                     // sustained 20 req/s\n            ReplenishmentPeriod = TimeSpan.FromSeconds(1),\n            QueueLimit = 0,\n            AutoReplenishment = true\n        }));\n});\napp.UseRateLimiter();\napp.MapGroup(\"/api\").RequireRateLimiting(\"per-client\");\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.distributed.api-gateway-bff.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "api-gateway",
+            "bff",
+            "architecture"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between an API gateway and a Backend for Frontend (BFF)?",
+              "options": [
+                {
+                  "text": "A BFF is the data-access layer behind the gateway: the gateway handles HTTP and the BFF talks to the database for every service.",
+                  "correct": false
+                },
+                {
+                  "text": "An API gateway is a generic edge entry point that applies cross-cutting policy (routing, TLS, token validation, rate limiting) for all clients; a BFF is a backend dedicated to one client experience that aggregates and shapes downstream APIs for it, usually owned by that frontend's team. They can coexist, with BFFs behind the gateway.",
+                  "correct": true
+                },
+                {
+                  "text": "They are the same thing; \"BFF\" is the name used when the gateway is written in Node.js.",
+                  "correct": false
+                },
+                {
+                  "text": "A BFF is only for mobile apps, because browsers can call microservices directly and do not need a dedicated backend.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The distinction is generic edge policy versus client-specific composition: the gateway should stay free of per-screen logic, while a BFF exists precisely to hold it (aggregation, shaping, client-specific auth handling), which is why a common topology is edge gateway → web BFF / mobile BFF → services. A BFF does not replace services' own data access; it calls services' APIs. The technology used is irrelevant to the pattern. Browsers benefit from BFFs as much as mobile apps do, both for avoiding chatty calls and, specifically, for the BFF security pattern that keeps OAuth tokens out of the browser."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.api-gateway-bff.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "rate-limiting",
+            "algorithms",
+            "fixed-window"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A gateway enforces **100 requests per minute** per API key with a **fixed window** that resets at the start of each minute. A client sends 100 requests at 12:00:59 and another 100 at 12:01:00. What happens?",
+              "options": [
+                {
+                  "text": "The second batch is rejected, because the limiter counts the last 60 seconds of traffic.",
+                  "correct": false
+                },
+                {
+                  "text": "Only 100 requests are accepted in total, because fixed windows carry unused capacity and overruns into the next window.",
+                  "correct": false
+                },
+                {
+                  "text": "The first batch is throttled to about 1.7 requests per second, because a fixed window spreads the allowance evenly over the minute.",
+                  "correct": false
+                },
+                {
+                  "text": "All 200 requests are accepted: they fall into two different windows, so the client gets twice the limit within about one second. A sliding-window or token-bucket limiter avoids this boundary burst.",
+                  "correct": true
+                }
+              ],
+              "explanation": "A fixed-window counter resets at the boundary, so 100 requests at 12:00:59 count against the 12:00 window and 100 at 12:01:00 against the 12:01 window; both are allowed, which is the well-known boundary burst of the algorithm. Counting the last 60 seconds is what a *sliding* window does. Spreading requests evenly over time is the behaviour of a leaky bucket (a smoothing queue), not a fixed window, which admits requests immediately until the count is reached. Fixed windows carry nothing over between windows. A token bucket bounds bursts by its capacity while enforcing the average rate."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.api-gateway-bff.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "auth",
+            "api-gateway",
+            "zero-trust",
+            "jwt"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The API gateway validates the JWT on every request and then forwards it to internal services together with an `X-User-Id` header extracted from it. What should the internal services do?",
+              "options": [
+                {
+                  "text": "Trust `X-User-Id` without further checks: the gateway is the only entry point, so anything arriving inside the network is already authenticated.",
+                  "correct": false
+                },
+                {
+                  "text": "Redirect the user to the identity provider again, because a token used at the gateway cannot be reused downstream.",
+                  "correct": false
+                },
+                {
+                  "text": "Validate the forwarded token themselves (or a short-lived internal token issued by the gateway) and enforce authorisation for their own resources, rather than trusting a plain identity header that any caller inside the network could set.",
+                  "correct": true
+                },
+                {
+                  "text": "Skip authentication entirely and rely on network policies; authorisation is the gateway's job because it has the user's claims.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Edge validation rejects bad traffic early, but services own their data and must decide who may do what with it; that requires a verifiable identity (validate the JWT's signature, issuer, audience and expiry, or a token-exchange token minted for internal use), not a plain header that a compromised pod, a misconfigured route or an SSRF bug can forge. \"The network is trusted\" is the perimeter model zero trust rejects. A bearer token remains valid for any API whose audience it includes; services do not restart the login flow. Network policies are a useful extra layer, but they cannot express resource-level permissions such as \"this user may read only their own orders\"."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.api-gateway-bff.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "bff",
+            "oauth",
+            "spa-security",
+            "cookies"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why is the BFF pattern recommended for Angular SPAs that call OAuth-protected APIs?",
+              "options": [
+                {
+                  "text": "It lets the SPA store the refresh token in `localStorage` safely, because the BFF re-validates it on every call.",
+                  "correct": false
+                },
+                {
+                  "text": "It removes the need for CSRF protection, because requests come from the BFF rather than from the browser.",
+                  "correct": false
+                },
+                {
+                  "text": "It allows the SPA to use the implicit flow, which avoids exposing an authorization code in the browser.",
+                  "correct": false
+                },
+                {
+                  "text": "The BFF acts as a confidential OAuth client and keeps access and refresh tokens server-side; the browser holds only an `HttpOnly`, `Secure`, `SameSite` session cookie, so XSS cannot exfiltrate tokens. Because cookies are sent automatically, the BFF must still defend against CSRF (`SameSite` plus a required custom header).",
+                  "correct": true
+                }
+              ],
+              "explanation": "Keeping tokens out of JavaScript-accessible storage is the point: the BFF runs the authorization-code flow (with PKCE) as a confidential client and proxies API calls, attaching tokens itself, while the browser only has an `HttpOnly` cookie that scripts cannot read; XSS can still act within the session but cannot steal long-lived credentials. Storing a refresh token in `localStorage` is exactly the exposure the pattern removes. Cookie-based sessions *introduce* CSRF risk rather than removing it, because the browser attaches the cookie automatically, hence `SameSite` and an anti-forgery header. The implicit flow is deprecated by OAuth 2.0 Security Best Current Practice and is not part of the BFF approach."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.api-gateway-bff.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "rate-limiting",
+            "distributed",
+            "scaling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Four gateway replicas sit behind a round-robin load balancer. Each replica uses an in-memory token bucket configured for **100 requests per second per API key**. What effective limit does one API key get?",
+              "options": [
+                {
+                  "text": "Exactly 100 requests per second, because the replicas share the same configuration.",
+                  "correct": false
+                },
+                {
+                  "text": "Up to about 400 requests per second, because each replica tracks its own bucket; share the limiter state (for example in Redis), use sticky routing by key, or divide the configured limit by the replica count and accept the approximation.",
+                  "correct": true
+                },
+                {
+                  "text": "25 requests per second, because the load balancer splits the 100-request limit across the four replicas.",
+                  "correct": false
+                },
+                {
+                  "text": "It depends on the client: requests are rejected unpredictably, because replicas forward excess requests to each other.",
+                  "correct": false
+                }
+              ],
+              "explanation": "In-memory limiters know only the traffic that reaches their own instance; with round-robin balancing a client can consume 100 rps on each of four replicas, so roughly 400 rps get through. Options: a shared store (Redis with atomic scripts), consistent routing by API key so one replica owns each key, or per-instance limits of `limit / replicas` (approximate, and wrong when replicas scale). Identical configuration does not imply shared state. The load balancer knows nothing about rate limits and does not split them. Replicas do not forward requests to each other in a standard gateway setup."
+            }
+          }
+        },
+        {
+          "id": "architecture.distributed.api-gateway-bff.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "api-gateway",
+            "bff",
+            "auth",
+            "rate-limiting"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are designing the edge for an Angular web app and a mobile app over about ten .NET microservices. Explain where you would put an API gateway and where BFFs, what responsibilities each has, how authentication and authorisation work end to end, and how you would rate-limit.",
+              "explanation": "Model answer: an edge gateway (e.g. YARP or a managed gateway) handles TLS, routing, coarse token validation, request limits, CORS and rate limiting for all traffic; behind it a web BFF and a mobile BFF compose downstream APIs for their clients and are owned by the respective frontend teams, with no business rules that belong in services. The web BFF follows the BFF security pattern: confidential client running authorization code + PKCE, tokens kept server-side, `HttpOnly` `Secure` `SameSite` cookie for the browser, CSRF defence with a custom header; the mobile app uses authorization code + PKCE with tokens in secure OS storage. Services validate tokens (or exchanged internal tokens) and enforce resource-level authorisation themselves. Rate limiting with a token bucket per client/tenant at the gateway, 429 with Retry-After, shared state or per-key routing across replicas. Mention avoiding a god-gateway, redundancy and timeouts at the edge.",
+              "rubric": [
+                "Places a generic API gateway at the edge with cross-cutting responsibilities (routing, TLS, token validation, rate limiting, CORS) and keeps business logic out of it.",
+                "Places a BFF per client type behind the gateway, explains that it aggregates/shapes APIs for that client and is owned by the frontend team.",
+                "Describes the browser BFF security pattern: tokens held server-side, `HttpOnly`/`Secure`/`SameSite` cookie to the SPA, CSRF protection; and an appropriate flow for mobile (authorization code with PKCE).",
+                "States that downstream services still validate tokens (or exchanged internal tokens) and enforce resource-level authorisation instead of trusting forwarded identity headers.",
+                "Chooses a rate-limiting algorithm and key (e.g. token bucket per client or tenant), returns `429` with `Retry-After`, and addresses multiple gateway replicas (shared state or per-key routing)."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1367 @@
+{
+  "domain": "architecture",
+  "topic": "system-design",
+  "concepts": [
+    {
+      "slug": "design-process",
+      "title": "The System Design Interview Process",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "The System Design Interview Process",
+          "note": "## What it is\n\nA system design interview is a 45–60 minute, deliberately underspecified conversation (\"Design a URL shortener\", \"Design a notification service\"). There is no single right answer. The interviewer is grading *how* you get to a design: whether you scope the problem, ground decisions in numbers, keep the big picture coherent, go deep where it matters and say out loud what each choice costs. For a senior candidate the bar is that you drive the conversation; the interviewer should not have to pull the next step out of you.\n\n## How a strong session is structured\n\n1. **Requirements (5–8 min).** Split them into *functional* (what the system does: \"create short link, redirect, custom alias; analytics is out of scope\") and *non-functional* (scale, latency target, availability, consistency, durability, cost, compliance). Write both down and state assumptions explicitly: \"I'll assume 100M DAU and that a few seconds of staleness on counts is acceptable.\" Agreeing on what is *out* of scope is as valuable as what is in.\n2. **Estimation (3–5 min).** Back-of-the-envelope numbers whose only job is to tell you which order of magnitude you are in: requests per second (average and peak), read/write ratio, storage growth, bandwidth, working-set size for a cache. Round aggressively (1 day ≈ 10^5 s) and stop as soon as a number changes a decision.\n3. **API and data model (5 min).** A handful of endpoints or events with their key fields, and the core entities with the access patterns that will drive storage choice.\n4. **High-level design (10 min).** Boxes and arrows end to end: clients, edge/LB, stateless services, storage, cache, queues, async workers. Walk one request through it to prove it works before optimising anything.\n5. **Deep dive (15 min).** Pick, ideally with the interviewer, the one or two components that are hard *for this problem*: key generation for a shortener, fan-out for a feed, idempotent retries for payments. This is where senior signal lives.\n6. **Bottlenecks, failure modes, evolution (5 min).** What breaks first at 10x, what happens when a dependency is down, how you would observe it, what you deliberately did not build yet.\n\n## Estimation cheat sheet\n\n```text\n1 day  ≈ 86,400 s ≈ 1e5 s          1M req/day   ≈ 12 req/s\npeak   ≈ 2–5x average (state it)   100M req/day ≈ 1,200 req/s\n1 KB x 1M rows = 1 GB              1 KB x 1B rows = 1 TB\nOne Postgres primary: thousands of simple writes/s, tens of thousands of indexed reads/s (hardware-dependent)\nOne Redis node: ~100k simple ops/s\n```\n\n## Trade-off narration\n\nEvery decision should be spoken as *choice → reason → cost → trigger to revisit*: \"One Postgres primary with read replicas, because writes are ~200/s; the cost is replica lag, which I handle by reading a user's own writes from the primary; I'd revisit if writes approach a few thousand per second.\" This pattern shows you know there are alternatives, you picked one deliberately, and you know when it stops being right.\n\n## What an interviewer probes\n\n- Do you ask before you draw? Jumping straight to \"load balancer, three app servers, Kafka\" is the most common failure.\n- Do your numbers drive the design, or are they ritual? If you compute 40 writes/s and then shard the database, the estimate was wasted.\n- Can you handle a curveball (\"now it must work across regions\", \"the cache is down\") by adjusting the design rather than restarting it?\n- Do you know what you are trading: consistency vs availability, latency vs cost, simplicity vs flexibility?\n- Can you name operational concerns unprompted: monitoring, deployments, data migrations, abuse?\n\n## Common misconceptions\n\n- \"Design for Google scale to look senior.\" Over-engineering for traffic you estimated you will not have is a negative signal; scale to the numbers and describe the next step.\n- \"There is a correct architecture the interviewer is waiting for.\" They are waiting for justified decisions.\n- \"Estimation must be precise.\" Within 2–3x is fine; the order of magnitude is what matters.\n- \"Deep dive means listing more technologies.\" It means explaining one mechanism precisely: data flow, failure handling, the edge cases.\n- \"It depends\" as a final answer. It is the start of an answer; finish with a decision under stated assumptions.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.design-process.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "system-design",
+            "interview-process",
+            "requirements"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The interviewer says: \"Design a ride-hailing service.\" What is the best first move?",
+              "options": [
+                {
+                  "text": "Draw the standard high-level architecture (clients, load balancer, stateless API tier, database, cache) so there is something concrete to refine together.",
+                  "correct": false
+                },
+                {
+                  "text": "Start with capacity estimation using publicly known numbers for Uber, because scale determines every later decision.",
+                  "correct": false
+                },
+                {
+                  "text": "Clarify functional scope and non-functional requirements (scale, latency, consistency), state assumptions and agree what is out of scope.",
+                  "correct": true
+                },
+                {
+                  "text": "Choose the primary datastore first, since a ride-hailing system is dominated by geospatial queries (nearby drivers) and that choice constrains every other component.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The prompt is deliberately vague; the first signal the interviewer looks for is whether you scope it: which features (matching, pricing, payments, ratings?), which scale, which latency and consistency guarantees, and what you will explicitly not cover. The generic diagram is the most common mistake: it looks productive but commits to a shape before you know what the system must do, and the interviewer reads it as pattern-matching. Estimation is important but comes after requirements, because you cannot estimate traffic for features you have not agreed on, and borrowing Uber's real-world numbers may not match the scale the interviewer has in mind. Picking the datastore first is premature optimisation of one component; geospatial indexing may well be the deep dive later, but only after requirements show it is the hard part."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-process.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "system-design",
+            "capacity-planning"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service has 100 million daily active users, each performing about 10 reads per day. Roughly what is the **average** read rate?",
+              "options": [
+                {
+                  "text": "About 1,200 requests per second",
+                  "correct": false
+                },
+                {
+                  "text": "About 12,000 requests per second",
+                  "correct": true
+                },
+                {
+                  "text": "About 120,000 requests per second",
+                  "correct": false
+                },
+                {
+                  "text": "About 1.2 million requests per second",
+                  "correct": false
+                }
+              ],
+              "explanation": "100M x 10 = 1 billion reads/day; a day has 86,400 s (round to 1e5), so 1e9 / 1e5 ≈ 10,000, more precisely ≈ 11,600/s, i.e. about 12k/s on average. You would then state a peak factor (2–5x, so 25–60k/s) because peak, not average, sizes the system. 1,200/s is what you get for 100M requests per day, forgetting the 10 reads per user. 120,000/s and 1.2M/s are off by one and two orders of magnitude, typically from dividing by hours or minutes instead of seconds or from applying a peak multiplier twice. The point of the exercise is the order of magnitude: ~10k reads/s is comfortably served by a cache plus a few replicas, not a reason for exotic infrastructure."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-process.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "estimation",
+            "system-design",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about back-of-the-envelope estimation in a system design interview is most accurate?",
+              "options": [
+                {
+                  "text": "It should be precise to within about 10%, because capacity and cost decisions built on a rough estimate are unreliable and interviewers check the arithmetic.",
+                  "correct": false
+                },
+                {
+                  "text": "It exists to find the order of magnitude of load, storage and bandwidth, so you can decide whether a component fits on one node, needs a cache or needs partitioning.",
+                  "correct": true
+                },
+                {
+                  "text": "It only matters for storage; request rates follow directly from storage growth and the average object size, so they need not be estimated separately.",
+                  "correct": false
+                },
+                {
+                  "text": "Average load is the right sizing figure, because autoscaling absorbs peaks automatically and sizing for peak wastes money for most of the day.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Estimates are decision tools: 40 writes/s means a single relational primary is fine; 500 TB/year means object storage or partitioning; a 20 GB hot set fits in one Redis node. Precision within 2–3x is acceptable because the decisions change at order-of-magnitude boundaries, so chasing 10% is wasted interview time. Storage and request rate are independent dimensions: a read-heavy shortener has tiny writes and huge read QPS, a logging pipeline the opposite, so deriving one from the other is wrong. Sizing to the average is a classic mistake: peaks are often 2–10x the average, autoscaling reacts in minutes (and cannot scale a single database primary at all), so you size the steady-state for peak and use autoscaling for headroom."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-process.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "trade-offs",
+            "communication",
+            "system-design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement best demonstrates the trade-off narration interviewers expect from a senior candidate?",
+              "options": [
+                {
+                  "text": "\"I'll use Cassandra: it scales horizontally, has no single point of failure and handles massive write throughput, so we won't need to re-architect when we grow.\"",
+                  "correct": false
+                },
+                {
+                  "text": "\"I'll use Postgres because it's what our team knows best; familiarity reduces operational risk, and we can always migrate later if it becomes a problem.\"",
+                  "correct": false
+                },
+                {
+                  "text": "\"SQL and NoSQL both have pros and cons here: SQL gives us transactions and NoSQL gives us scale, so the right choice really depends on the requirements.\"",
+                  "correct": false
+                },
+                {
+                  "text": "\"One Postgres primary plus replicas: ~200 writes/s fits one node. The cost is replica lag, so a user's own reads hit the primary briefly. I'd revisit at thousands of writes/s.\"",
+                  "correct": true
+                }
+              ],
+              "explanation": "The strong answer has all four parts: the choice, the reason tied to an estimated number, the cost it accepts with a concrete mitigation, and the condition under which it would change. The Cassandra answer is a capability, not a trade-off: it never says why horizontal write scale is needed at this load or what is given up (query flexibility, joins, transactions, tunable consistency complexity). Team familiarity is a legitimate factor in real life, but on its own it does not show you evaluated the requirements. \"It depends\" is the opening of an answer; ending there signals an inability to decide under uncertainty, which is exactly what the interview tests."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-process.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "system-design",
+            "interview-process",
+            "estimation",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You get an unfamiliar system design prompt and 45 minutes. Walk me through how you run the session: the phases, roughly how much time each gets, what you produce in each, and how you decide what to deep-dive into.",
+              "explanation": "Model answer: start with requirements, separating functional scope (including what is explicitly out of scope) from non-functional ones (scale, latency, availability, consistency, durability), and state assumptions aloud (~5–8 min). Then a quick estimation of peak QPS, read/write ratio, storage growth and bandwidth, rounded to orders of magnitude and used to justify later choices (~5 min). Sketch the API and core data model with access patterns (~5 min), then an end-to-end high-level design walked through with one request (~10 min). Spend the biggest block (~15 min) on a deep dive into the one or two components that are genuinely hard for this problem, chosen with the interviewer, and finish with bottlenecks at 10x, failure modes, observability and what you would build next (~5 min). Throughout, narrate each decision as choice, reason, cost, and revisit trigger, and adapt the design when the interviewer adds constraints.",
+              "rubric": [
+                "Starts with clarifying requirements, explicitly distinguishing functional from non-functional requirements and agreeing on out-of-scope items and stated assumptions before drawing anything.",
+                "Includes a back-of-the-envelope estimation (peak QPS, read/write ratio, storage, possibly bandwidth) and says the numbers are used to justify concrete design decisions, not as a ritual.",
+                "Orders the remaining phases sensibly: API/data model, end-to-end high-level design, then a deep dive on the component(s) that are hardest for this specific problem, chosen with or confirmed by the interviewer.",
+                "Covers bottlenecks, failure modes and evolution (what breaks at higher scale, what happens when a dependency fails, monitoring) near the end.",
+                "Describes narrating trade-offs (choice, reason, cost, when to revisit) and gives a plausible time budget in which the deep dive gets the largest share."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "scaling-basics",
+      "title": "Scaling Basics: Vertical vs Horizontal, Statelessness, Load Balancing, Read Replicas",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Scaling Basics: Vertical vs Horizontal, Statelessness, Load Balancing, Read Replicas",
+          "note": "## What it is\n\nScaling is adding capacity so a system keeps its latency and availability targets as load grows. **Vertical scaling** (scale up) means a bigger machine: more cores, RAM, faster disks. **Horizontal scaling** (scale out) means more machines behind a load balancer. Vertical is operationally trivial and keeps everything in one process (no network hops, no coordination) but has a hard ceiling, non-linear cost at the top end, and keeps a single point of failure. Horizontal gives near-linear capacity and fault tolerance, but only if the tier is **stateless** or its state is externalised.\n\n## How it works underneath\n\n**Statelessness.** Any instance must be able to serve any request. Everything that used to live in process memory has to move: sessions (to Redis, a database, or a self-contained signed token), cached data (a per-instance `IMemoryCache` becomes N incoherent caches; use a distributed or hybrid cache with invalidation), uploaded files on local disk (to object storage), scheduled jobs (a timer in every instance now runs N times; use a distributed lock, a leader, or a dedicated worker). ASP.NET Core adds a trap: the **Data Protection key ring**, which encrypts auth cookies, antiforgery tokens and TempData, is per instance by default; behind a round-robin balancer a cookie issued by instance A cannot be decrypted by instance B.\n\n```csharp\n// Shared key ring + SignalR backplane for a scaled-out ASP.NET Core app\nvar redis = ConnectionMultiplexer.Connect(builder.Configuration[\"Redis\"]!);\n\nbuilder.Services.AddDataProtection()\n    .SetApplicationName(\"spine\")                       // same name on every instance\n    .PersistKeysToStackExchangeRedis(redis, \"dp-keys\");\n\nbuilder.Services.AddSignalR()\n    .AddStackExchangeRedis(builder.Configuration[\"Redis\"]!); // broadcasts reach clients on other instances\n```\n\n**Load balancing.** An L4 balancer routes TCP/UDP connections by IP and port; it is fast but blind to HTTP. An L7 balancer terminates HTTP(S) and can route by path, host or header, retry idempotent requests, and set affinity cookies. Algorithms: round-robin (fine for uniform, short requests), least connections / least outstanding requests (better when request cost varies), and hashing (consistent hashing when you want cache locality per key). Health checks remove dead instances; distinguish *liveness* (restart me) from *readiness* (do not send me traffic: warming up, draining, dependency down). Graceful shutdown means: fail readiness, let in-flight requests finish, then exit.\n\n**Sticky sessions** (session affinity) pin a client to one instance, usually via an LB cookie. They let an app with in-memory state run on several nodes, but load becomes uneven (one heavy user pins one box), a crashed or scaled-in instance loses its users' state, and deployments must drain longer. Treat affinity as a crutch, with one legitimate exception: protocols that are inherently connection-bound. SignalR needs affinity whenever the negotiate request and the subsequent connection (especially long polling or SSE) might land on different servers; a Redis backplane solves cross-server *broadcast*, not that.\n\n**Database read replicas.** The database is usually the first real bottleneck, because the app tier scales by copying and the primary does not. Read replicas receive the primary's write-ahead log asynchronously and serve reads, scaling read throughput but not writes. The cost is **replication lag**: a user who writes and immediately reads from a replica may see old data. Fixes are targeted: read-your-writes by routing that user's reads to the primary for a short window, or waiting until the replica has replayed a known log position. Also watch the connection count: 20 instances x a pool of 100 connections is 2,000 connections, far beyond what a Postgres primary handles well; a pooler such as PgBouncer sits in front.\n\n## What an interviewer probes\n\n- \"Your app works on one node and fails on two. What do you check?\" Sessions, data protection keys, local files, in-memory caches, timers.\n- When vertical scaling is the *right* answer: it is cheaper in engineering time until you hit the ceiling or need redundancy anyway.\n- Why horizontal scaling of the API does not scale the database, and what does (caching, replicas, partitioning, CQRS read models, eventually sharding).\n- How you scale in and deploy without dropping requests: readiness, draining, connection draining timeouts.\n\n## Common misconceptions\n\n- \"Stateless means no database.\" It means no per-instance state that the next request depends on.\n- \"JWTs make everything stateless.\" They remove session lookups but complicate revocation; you trade state for a denylist or short expiry.\n- \"Sticky sessions are free.\" They undermine both load distribution and fault tolerance.\n- \"Read replicas are consistent because replication is fast.\" Lag is usually milliseconds and occasionally seconds or minutes under load; design for the bad case.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.scaling-basics.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "scaling",
+            "horizontal-scaling",
+            "vertical-scaling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the key difference between vertical and horizontal scaling, and which statement is true?",
+              "options": [
+                {
+                  "text": "Horizontal scaling is always cheaper than vertical scaling, so a senior engineer should design for it from day one, even for a service with modest, predictable load.",
+                  "correct": false
+                },
+                {
+                  "text": "Vertical grows one machine (hard ceiling, single point of failure); horizontal adds machines for capacity and redundancy but needs stateless or externalised state.",
+                  "correct": true
+                },
+                {
+                  "text": "Scaling the stateless API tier horizontally also scales the database, because each new instance brings its own connection pool and spreads queries over more connections.",
+                  "correct": false
+                },
+                {
+                  "text": "Vertical scaling never requires downtime because cloud VMs resize live, while horizontal scaling always does because the load balancer must be reconfigured.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Vertical scaling (bigger CPU/RAM) is simple and avoids coordination but is capped by the largest available machine, gets expensive non-linearly, and leaves one box whose failure takes the service down. Horizontal scaling adds nodes behind a load balancer, which only works if any node can serve any request, hence statelessness. \"Always cheaper\" ignores engineering and operational cost: for many systems a larger instance is the cheapest correct answer until the ceiling or redundancy needs force a change. More API instances do not add database capacity; they add connections and load to the same primary, which is why the database usually becomes the bottleneck. The downtime claim is backwards in practice: resizing a VM usually needs a restart, while adding nodes behind a balancer is routine and done live."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.scaling-basics.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "data-protection",
+            "statelessness",
+            "load-balancing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core app using cookie authentication works fine on one container. After scaling to three replicas behind a round-robin load balancer, users are randomly logged out and form posts fail antiforgery validation. Nothing else changed. What is the most likely cause?",
+              "options": [
+                {
+                  "text": "The Data Protection key ring is stored per container, so a cookie or antiforgery token protected by one replica cannot be unprotected by another.",
+                  "correct": true
+                },
+                {
+                  "text": "Cookie authentication requires sticky sessions by design: the load balancer must pin each user to the replica that issued the cookie, because the session lives in that replica's memory.",
+                  "correct": false
+                },
+                {
+                  "text": "The JWT signing key is generated randomly at startup on each replica, so tokens issued by one replica fail signature validation on the others.",
+                  "correct": false
+                },
+                {
+                  "text": "The authentication cookie grows beyond the browser's 4 KB limit once requests are spread across replicas, so the browser silently drops it.",
+                  "correct": false
+                }
+              ],
+              "explanation": "ASP.NET Core encrypts auth cookies, antiforgery tokens and TempData with the Data Protection system. By default the key ring lives on the local file system (in a container, an ephemeral per-replica directory), so each replica has different keys and rejects payloads protected by its siblings. The fix is a shared key ring (`PersistKeysToStackExchangeRedis`, `PersistKeysToDbContext`, blob storage, with key encryption at rest) plus the same `SetApplicationName` everywhere. Sticky sessions would hide the symptom but are not required by cookie auth: the cookie itself carries the principal, and affinity would still break on scale-in or redeploy. The JWT option describes a different auth scheme; the scenario uses cookies. Cookie size is unrelated to the number of replicas, and ASP.NET Core already chunks large cookies."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.scaling-basics.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "read-replicas",
+            "replication-lag",
+            "consistency",
+            "databases"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Reads go to asynchronous Postgres read replicas, writes to the primary. Users report that after saving their profile, the page reloads with the old values; a second refresh shows the new ones. What is the most proportionate fix?",
+              "options": [
+                {
+                  "text": "Add more read replicas so each one is less loaded, replays the WAL faster and the lag between primary and replica shrinks below the page reload time.",
+                  "correct": false
+                },
+                {
+                  "text": "Switch all replicas to synchronous replication, so a commit returns only after every replica has applied it and reads are always up to date.",
+                  "correct": false
+                },
+                {
+                  "text": "Put a Redis cache in front of the replicas so the profile is served from memory, which is faster than reading from both the primary and the replicas.",
+                  "correct": false
+                },
+                {
+                  "text": "Read-your-writes: for a short window after a user writes, route that user's reads to the primary (or wait until the replica has replayed the write's log position).",
+                  "correct": true
+                }
+              ],
+              "explanation": "The symptom is replication lag observed by the writer. Read-your-writes targets exactly that path: only the user who just wrote needs fresh data, so routing their reads to the primary for a few seconds (tracked in the session or a cookie), or waiting for the replica to reach the commit's LSN, fixes it without changing the system's overall consistency model. More replicas add read capacity, but lag stems from the asynchronous protocol and the replay speed of each replica, and adding replicas even adds load on the primary's WAL senders. Synchronous replication does remove staleness for committed data, but every write then waits for replicas, raising write latency and making a slow or failed replica block commits; it is a sledgehammer for a per-user problem. A cache in front of replicas adds another stale layer and makes the problem worse unless it is invalidated on write."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.scaling-basics.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sticky-sessions",
+            "load-balancing",
+            "signalr",
+            "scaling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about sticky sessions (session affinity) is true?",
+              "options": [
+                {
+                  "text": "With sticky sessions an app that keeps sessions in memory scales horizontally with no real downside, because each user always reaches the instance holding their state.",
+                  "correct": false
+                },
+                {
+                  "text": "Adding a Redis backplane to SignalR removes the need for sticky sessions, because any server can then serve any request belonging to any connection.",
+                  "correct": false
+                },
+                {
+                  "text": "They skew load and lose pinned state when an instance dies or scales in, but are legitimate for connection-bound protocols such as SignalR negotiate plus long polling.",
+                  "correct": true
+                },
+                {
+                  "text": "An L4 (TCP) load balancer can implement cookie-based stickiness, as long as TLS is terminated on the backend servers rather than on the balancer.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Affinity concentrates heavy users on particular instances, and the pinned state disappears with the instance on crash, scale-in or deploy, so it trades fault tolerance and balance for not refactoring state. It is still the right tool when the protocol itself is stateful per connection: SignalR's negotiate step and a long-polling or SSE connection must reach the same server unless every client uses WebSockets with negotiation skipped or a managed service handles it. The 'no downside' option ignores those failure modes. A Redis backplane distributes *messages* between servers so a broadcast reaches clients connected elsewhere; it does nothing to route a client's requests to the server holding its connection. Cookie-based stickiness requires reading HTTP headers, which an L4 balancer cannot do (and if TLS terminates on the backends it cannot see them at all); L4 can only offer source-IP affinity."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.scaling-basics.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "scaling",
+            "statelessness",
+            "load-balancing",
+            "databases"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A monolithic ASP.NET Core + Postgres application runs on one large VM and saturates CPU at peak. You are asked to run it as N instances behind a load balancer. Walk through what must change in the application and the infrastructure, what typically breaks, and what becomes the next bottleneck.",
+              "explanation": "Model answer: first confirm with metrics that the app tier, not the database, is the bottleneck, and note that a bigger VM may be the cheapest short-term step. To scale out, make the app stateless: move sessions to a shared store or self-contained tokens, share the Data Protection key ring, replace per-instance in-memory caches with a distributed/hybrid cache with invalidation, move local file storage to object storage, and stop timers or hosted jobs from running N times (distributed lock, leader election or a separate worker). Put an L7 load balancer in front with readiness and liveness checks, graceful shutdown and connection draining, and avoid sticky sessions except where a protocol needs them (SignalR negotiate/long polling). The next bottleneck is the database: total connections grow with N (use a pooler such as PgBouncer), and read load can move to replicas only with a plan for replication lag (read-your-writes); writes still hit one primary.",
+              "rubric": [
+                "Lists the per-instance state that must be externalised or shared: sessions, in-memory caches (coherence/invalidation), local files, and the ASP.NET Core Data Protection key ring for cookies/antiforgery.",
+                "Identifies that scheduled/background work running in every instance executes N times and proposes a fix (distributed lock, leader election, or a dedicated worker).",
+                "Describes the load balancer setup: health checks (readiness vs liveness), graceful shutdown/draining during deploys and scale-in, and a reasoned stance on sticky sessions.",
+                "Explains that the database becomes the bottleneck: connection count multiplies with instances (pooling/PgBouncer), reads can move to replicas with a replication-lag strategy, and writes still go to a single primary.",
+                "Mentions measuring first and that vertical scaling can be a valid or cheaper interim option."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "data-modeling-choices",
+      "title": "Data Modeling Choices: SQL vs NoSQL, Partitioning, Sharding, Hot Keys",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Data Modeling Choices: SQL vs NoSQL, Partitioning, Sharding, Hot Keys",
+          "note": "## What it is\n\nThe storage decision in a design interview is really a decision about **access patterns**: what you look up by, what must change atomically together, how much data there is, how fast it grows and how much write throughput one node must absorb. \"SQL vs NoSQL\" is shorthand for a set of trade-offs, and partitioning, sharding and hot-key handling are what you reach for once one node is no longer enough.\n\n## SQL vs NoSQL, properly framed\n\nA relational database (Postgres, SQL Server) gives you a flexible query model (joins, ad-hoc filters, aggregates), multi-row ACID transactions, constraints and mature tooling. Its limit is that writes go through one primary; scaling writes beyond a single node requires sharding, which the database does not do for you (outside distributed SQL systems such as Citus, CockroachDB, Spanner or YugabyteDB).\n\n\"NoSQL\" covers different families: **key-value** (Redis, DynamoDB) for lookups by key, **document** (MongoDB, Cosmos DB) for aggregates read and written as a unit, **wide-column** (Cassandra, ScyllaDB) for very high write throughput with queries designed per table, and **graph** databases for relationship traversal. Most are built to partition horizontally from the start, which is their real advantage, and they pay for it: you design tables around known queries, cross-partition transactions are limited or expensive, and secondary access paths cost extra writes.\n\nA good rule: default to a relational database, and choose a NoSQL store when the access patterns are known and key-based, the data model is aggregate-shaped, and the required write throughput or data volume clearly exceeds one node. \"We need flexible JSON\" is not such a reason; Postgres `jsonb` covers it.\n\n## Partitioning vs sharding\n\n**Partitioning** splits a large table into smaller pieces by a key. In Postgres (declarative partitioning since 10, hash partitioning since 11) all partitions live on the same server: you gain partition pruning for queries that filter on the key, cheap retention (`DROP` or detach an old partition instead of a huge `DELETE`), smaller indexes and faster vacuum, but not more write capacity. **Sharding** distributes partitions across nodes, so each node owns a subset of keys; that adds capacity and costs cross-shard queries, transactions, global uniqueness and rebalancing.\n\n```sql\nCREATE TABLE events (\n    tenant_id  bigint      NOT NULL,\n    id         bigint      NOT NULL,\n    created_at timestamptz NOT NULL,\n    payload    jsonb,\n    PRIMARY KEY (tenant_id, id, created_at)      -- must include the partition key\n) PARTITION BY RANGE (created_at);\n\nCREATE TABLE events_2026_10 PARTITION OF events\n    FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');\n-- Retention: ALTER TABLE events DETACH PARTITION events_2025_10; DROP TABLE events_2025_10;\n```\n\n**Choosing a shard key** is the decision that is hardest to undo. It needs high cardinality, an even distribution of both data and traffic, and locality: the queries you run most should hit one shard. Strategies: **range** (good for range scans, but sequential keys such as timestamps send every new write to the last shard), **hash** (even spread, but range queries become scatter-gather), and **directory/lookup** (a mapping table from key to shard, which lets you move a big tenant to its own shard). Consistent hashing or a large fixed number of logical shards mapped onto fewer physical nodes makes rebalancing incremental instead of a full reshuffle.\n\n## Hot keys and hot partitions\n\nEven a good key distribution can have one key that receives a disproportionate share of traffic: a celebrity's post, a flash-sale product, a giant tenant. One partition's limits then cap the whole system (DynamoDB documents per-partition limits of 3,000 read and 1,000 write capacity units per second, regardless of the table's total). Mitigations depend on the direction:\n\n- **Hot reads:** cache in front (with request coalescing so a miss does not stampede), replicate the hot item, serve from a CDN.\n- **Hot writes:** split the key into N sub-keys (`post#42#7`), write to a random one and sum on read; or buffer and aggregate increments in memory or a stream before writing.\n- **Hot tenants:** isolate them via a directory to dedicated shards, or sub-shard by a composite key.\n\n## What an interviewer probes\n\n- Justify the store from access patterns and numbers, not fashion.\n- What happens to a query that does not include the shard key? (Scatter-gather to every shard; latency is the slowest shard.)\n- How do you generate unique IDs across shards? (Snowflake-style IDs, UUIDv7, or per-shard ranges.)\n- How would you reshard without downtime? (Logical shards, dual writes or change data capture, backfill, cut-over.)\n\n## Common misconceptions\n\n- \"NoSQL has no schema, so no migrations.\" The schema moves into application code, and old documents still need handling.\n- \"SQL databases cannot scale.\" Replicas, partitioning and caching carry most systems far; sharding is a later step.\n- \"Partitioning always makes queries faster.\" Queries without the partition key scan every partition.\n- \"More total capacity fixes a hot key.\" Per-partition limits stay the same.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.data-modeling-choices.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sql",
+            "nosql",
+            "databases",
+            "data-modeling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In a design interview you are asked: \"SQL or NoSQL for this service, and why?\" Which justification for choosing a NoSQL (key-value/document) store is the strongest?",
+              "options": [
+                {
+                  "text": "NoSQL databases are schemaless, so the team avoids database migrations entirely as the domain model evolves over time.",
+                  "correct": false
+                },
+                {
+                  "text": "Relational databases cannot scale beyond a single server, so any system that expects significant growth should start on NoSQL.",
+                  "correct": false
+                },
+                {
+                  "text": "The service stores semi-structured JSON attributes that vary per record, which relational tables cannot represent without many nullable columns.",
+                  "correct": false
+                },
+                {
+                  "text": "Access is key-based and known up front, entities are self-contained aggregates, and estimated writes clearly exceed one relational primary.",
+                  "correct": true
+                }
+              ],
+              "explanation": "NoSQL stores earn their place when their trade-off matches the workload: designing tables or documents around known key-based queries, giving up joins and multi-entity transactions, in exchange for built-in horizontal partitioning and write scale. That only pays off when the numbers say one node is not enough and the access patterns are stable. \"Schemaless\" means schema-on-read: the schema lives in application code, old document shapes must still be handled, and data migrations do not disappear. Relational databases scale reads with replicas, data volume with partitioning, and writes with sharding or distributed SQL; many very large systems run on them, so \"cannot scale\" is false. Varying JSON attributes are well served by Postgres `jsonb` (indexable with GIN), so that alone is not a reason to change database family."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.data-modeling-choices.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "partitioning",
+            "sharding"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about Postgres declarative partitioning is true?",
+              "options": [
+                {
+                  "text": "It spreads the partitions of a table across multiple servers, which is how Postgres scales write throughput horizontally without extensions.",
+                  "correct": false
+                },
+                {
+                  "text": "Partitions stay on one server: you get partition pruning and cheap retention (detach/drop a partition), but no write capacity beyond that node.",
+                  "correct": true
+                },
+                {
+                  "text": "It speeds up every query on the table, because each partition has smaller indexes and the planner always scans fewer pages.",
+                  "correct": false
+                },
+                {
+                  "text": "With hash partitioning on `customer_id`, a range query such as `customer_id BETWEEN 1000 AND 2000` touches only the partitions that hold that range.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Partitioning is a single-node feature: one logical table, many physical tables on the same server. Its benefits are pruning (the planner skips partitions that cannot match the key predicate), retention (dropping a monthly partition is a metadata operation instead of a massive `DELETE` plus vacuum) and smaller per-partition indexes. Spreading data across servers is sharding, which needs an extension (Citus) or application-level routing; vanilla Postgres partitioning does not do it, although partitions can technically be foreign tables. Queries that do not filter on the partition key must visit every partition and can be slower than on an unpartitioned table, so 'every query' is wrong. Hash partitioning distributes values pseudo-randomly, so a range on the key maps to all partitions; range pruning needs range (or list) partitioning."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.data-modeling-choices.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sharding",
+            "shard-key",
+            "multi-tenancy",
+            "hot-partitions"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A multi-tenant SaaS `orders` table must be sharded. Almost every query filters by `tenant_id`; three tenants generate about 40% of all traffic. Which sharding approach fits best?",
+              "options": [
+                {
+                  "text": "Range sharding by `created_at`, so recent orders are co-located on the newest shard and older shards can be archived or moved to cheaper storage.",
+                  "correct": false
+                },
+                {
+                  "text": "Hash sharding by `order_id`, which gives a perfectly even distribution of rows and writes regardless of how large individual tenants are.",
+                  "correct": false
+                },
+                {
+                  "text": "Directory-based sharding by `tenant_id`: a lookup table maps tenants to shards, and the big tenants get dedicated or sub-sharded capacity.",
+                  "correct": true
+                },
+                {
+                  "text": "Plain hash sharding by `tenant_id`, which keeps each tenant's queries on one shard and balances load automatically as tenants grow.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The shard key must give both locality (the dominant query hits one shard) and an even load. `tenant_id` gives locality; a directory adds the ability to place tenants deliberately, so the three heavy tenants can be isolated or split further while small ones are packed together, and tenants can be moved without rehashing everyone. Range sharding by time sends all current writes to the newest shard (a moving hot spot) and every tenant query spans shards. Hashing `order_id` spreads data evenly but turns every per-tenant query into a scatter-gather across all shards. Plain hashing by `tenant_id` keeps locality but is not self-balancing: whichever shards the three big tenants hash to become hot, and you cannot move one tenant without changing the hash scheme."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.data-modeling-choices.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "hot-keys",
+            "dynamodb",
+            "write-sharding",
+            "data-modeling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A like counter for one viral post is stored as a single item in a DynamoDB-style store and receives ~50,000 increments per second; writes are being throttled even though the table's total provisioned throughput is far from used. Which fix addresses the root cause?",
+              "options": [
+                {
+                  "text": "Increase the table's provisioned write capacity tenfold, so the throttled increments fit comfortably within the table's total throughput.",
+                  "correct": false
+                },
+                {
+                  "text": "Split the counter into N sub-keys (`post#42#0`..`post#42#99`), increment a random one, and sum them (or a cached total) on read.",
+                  "correct": true
+                },
+                {
+                  "text": "Add a global secondary index on the post id, so writes for that post are spread over the index's partitions.",
+                  "correct": false
+                },
+                {
+                  "text": "Switch counter reads to strongly consistent reads, so concurrent increments are serialised and stop conflicting.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The bottleneck is a single partition key, and per-partition throughput is capped (DynamoDB documents 1,000 WCU/s per partition) no matter how much capacity the table has; adaptive capacity can shift capacity between partitions but cannot split one item's key. Write sharding turns one hot key into N keys that land on different partitions, trading a cheap multi-key read (or a periodically refreshed cached total) for write scalability; buffering and aggregating increments before writing is the other common answer. Raising table capacity does not raise the per-partition ceiling. A secondary index does not distribute writes to the base item; it adds write amplification, because every write must also update the index. Read consistency is unrelated to write throttling."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.data-modeling-choices.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sharding",
+            "databases",
+            "scaling",
+            "data-modeling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When would you shard a relational database, what would you try before that, and what does sharding cost you? Describe how you would choose the shard key and how you would add shards later.",
+              "explanation": "Model answer: sharding is a last resort for write throughput or data volume beyond one primary. Before it: scale vertically, add read replicas, cache, partition and archive cold data, move analytics to a separate store, build read models, and fix queries and indexes. Choose a shard key with high cardinality, even data and traffic distribution, and locality for the dominant queries (e.g. tenant id), and plan for hot keys (directory placement or sub-sharding of big tenants). Costs: cross-shard queries become scatter-gather, cross-shard transactions need sagas or two-phase commit, global unique constraints and IDs need a scheme (Snowflake/UUIDv7), schema migrations and backups run per shard, and operations get heavier. To add shards, use many logical shards mapped onto fewer physical nodes, or consistent hashing, so only a fraction of data moves, migrated with backfill plus change data capture or dual writes and a cut-over.",
+              "rubric": [
+                "Lists alternatives to try first: vertical scaling, read replicas, caching, partitioning/archiving, offloading analytics or read models, query/index tuning.",
+                "Gives shard-key criteria: high cardinality, even distribution of data and traffic, and locality so the most frequent queries hit a single shard.",
+                "Names concrete costs: scatter-gather queries, cross-shard transactions, global uniqueness/ID generation, and operational overhead (migrations, backups, monitoring per shard).",
+                "Addresses hot keys or hot shards with a mitigation (directory-based placement, isolating or sub-sharding large keys/tenants).",
+                "Explains a rebalancing approach: logical shards mapped to physical nodes or consistent hashing, plus an online data migration (backfill + CDC or dual writes, then cut-over)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "design-url-shortener",
+      "title": "Design a URL Shortener",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Design a URL Shortener",
+          "note": "## What it is\n\n\"Design a URL shortener\" (TinyURL, bit.ly) is the classic warm-up: small enough to finish, rich enough to show requirements, estimation, key generation, caching and the read path. The interviewer expects you to finish the basic design quickly and spend the time on the one hard part: generating short, unique keys at scale.\n\n## Requirements and estimates\n\nFunctional: create a short link for a long URL, redirect on visit, optional custom alias and expiry. Often out of scope or secondary: click analytics, user accounts, link editing. Non-functional: redirects must be fast (low tens of ms at p99) and highly available; creation can be slower; links must never collide or change target unexpectedly.\n\n```text\nWrites: 100M new links/month ≈ 100e6 / 2.6e6 s ≈ 40/s (peak ~200/s)\nReads:  100:1 read/write      ≈ 4,000/s (peak ~20k/s)\nStorage: 100M x 12 months x 5 years x ~500 B ≈ 3 TB\nKey space: base62 (a-z A-Z 0-9); 62^6 ≈ 5.7e10, 62^7 ≈ 3.5e12 → 7 characters is ample\n```\n\nThe numbers say: tiny write load, moderate read load, a few terabytes total. One relational database or a key-value store is enough; the read path wants a cache.\n\n## Key generation: the deep dive\n\n1. **Hash and truncate.** Hash the long URL (MD5/SHA-256), base62-encode, take 7 characters. Same URL yields the same key (free deduplication, which may be unwanted across users), but truncation makes collisions real: by the birthday bound, with 3.5e12 possible keys there is a 50% chance of at least one collision after only about 2.2 million links. You must check-and-retry (append a salt, rehash) using a unique constraint or conditional insert.\n2. **Counter + base62.** A unique integer encoded in base62 never collides. A single database sequence is a bottleneck and a single point of failure only if every write goes to it; instead, each app node leases a **range** (for example 1M ids) from a ticket service or ZooKeeper/etcd and hands them out locally. Raw counters are sequential and therefore enumerable (anyone can walk your links); scramble them with a bijective function over the key space (multiply by a constant coprime to 62^7 modulo 62^7, or a small Feistel network) to keep uniqueness while hiding order.\n3. **Pre-generated key service.** A separate service pre-generates random unique keys into a table and hands out batches; nodes mark keys used. Simple uniqueness, at the cost of another stateful component.\n\nCustom aliases go through the same uniqueness check (unique index) and need validation (reserved words, profanity, length).\n\n```csharp\nstatic string ToBase62(ulong value)\n{\n    const string Alphabet = \"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\";\n    Span<char> buffer = stackalloc char[11];        // ulong.MaxValue needs 11 base62 digits\n    int pos = buffer.Length;\n    do\n    {\n        buffer[--pos] = Alphabet[(int)(value % 62)];\n        value /= 62;\n    } while (value > 0);\n    return new string(buffer[pos..]);\n}\n```\n\n## Read path\n\n`GET /{key}` looks the key up in a cache (Redis, cache-aside with a long TTL since mappings rarely change), falls back to the database and responds with a redirect. The status code is a product decision: **301 Moved Permanently** is cached by browsers, so repeat visits never reach you (less load, no analytics, and you can never change or expire the target for that browser); **302 Found / 307 Temporary Redirect** keeps every click flowing through you. Most commercial shorteners use 302/307 (or 301 with short cache headers) for analytics. Click analytics must not slow the redirect: emit an event to a queue or log stream and aggregate asynchronously.\n\n## What an interviewer probes\n\n- Key length math and collision handling, not just \"use a hash\".\n- How you avoid the single-sequence bottleneck (range leasing).\n- 301 vs 302 and what it means for analytics and link changes.\n- Hot links (one link shared in a viral post): cache, CDN or edge redirect.\n- Abuse: rate limits on creation, malware/phishing URL scanning, expiry and deletion.\n\n## Common misconceptions\n\n- \"MD5 is 128 bits, so collisions are impossible.\" You keep only ~42 bits after truncation.\n- \"Base62 of a counter is random-looking.\" It is sequential and guessable.\n- \"We need Cassandra for this.\" 40 writes/s and 3 TB do not demand it; justify the store from the numbers.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.design-url-shortener.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "url-shortener",
+            "http",
+            "redirects",
+            "analytics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your URL shortener must report click counts per link and allow owners to change a link's destination later. Which redirect status should `GET /{key}` return, and why?",
+              "options": [
+                {
+                  "text": "301 Moved Permanently, because it is the SEO-correct choice for short links and browsers then avoid an unnecessary round trip on every later click.",
+                  "correct": false
+                },
+                {
+                  "text": "302 Found (or 307): not cached by browsers by default, so every click reaches the service to be counted and resolved to the current target.",
+                  "correct": true
+                },
+                {
+                  "text": "301, because 302 responses are cached permanently by browsers while 301 responses are revalidated with the server on every visit.",
+                  "correct": false
+                },
+                {
+                  "text": "Either: browsers always contact the shortener first anyway, so the status code has no effect on caching, analytics or later target changes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A 301 is cacheable by default and browsers keep it aggressively, so after the first visit the browser jumps straight to the target: you lose every subsequent click for analytics and can no longer change or expire the destination for that browser. 302/307 are not cached unless explicit cache headers say so, keeping the service in the path for each click. The first option names a real trade-off (less load, permanent signal to search engines) but it violates the stated requirements. The third option reverses the caching semantics of the two codes. The fourth is wrong because the browser must first visit the short URL to learn the target at all, and the status code determines whether it ever needs to again."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-url-shortener.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "url-shortener",
+            "estimation",
+            "base62"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Short keys use base62 characters (`a-z`, `A-Z`, `0-9`). The system must be able to issue about 1 trillion unique keys over its lifetime. What is the minimum fixed key length?",
+              "options": [
+                {
+                  "text": "6 characters",
+                  "correct": false
+                },
+                {
+                  "text": "7 characters",
+                  "correct": true
+                },
+                {
+                  "text": "8 characters",
+                  "correct": false
+                },
+                {
+                  "text": "10 characters",
+                  "correct": false
+                }
+              ],
+              "explanation": "62^6 ≈ 5.7 x 10^10 (about 57 billion), which is too small for 10^12. 62^7 ≈ 3.5 x 10^12 (about 3.5 trillion), which covers a trillion keys with headroom, so 7 is the minimum. 8 characters (≈ 2.2 x 10^14) works but is not minimal and wastes length, the product's main feature. 10 characters is what you get by reasoning in base 10 or by assuming hex-like alphabets; it also ignores that each base62 character carries about 5.95 bits. If you hash-and-truncate instead of using a counter, the key space must be much larger than the number of keys to keep collisions rare, which is a separate argument from this minimum."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-url-shortener.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "url-shortener",
+            "hashing",
+            "collisions",
+            "key-generation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A design generates the short key as the first 7 base62 characters of `MD5(longUrl)` and inserts it without checking. Which statement is correct?",
+              "options": [
+                {
+                  "text": "Collisions are practically impossible, because MD5 produces 128-bit digests and the chance of two URLs sharing a digest is negligible.",
+                  "correct": false
+                },
+                {
+                  "text": "The design is unsafe mainly because MD5 is cryptographically broken, which lets attackers craft URLs that predict or hijack other users' keys.",
+                  "correct": false
+                },
+                {
+                  "text": "Collisions come early: with ~3.5 x 10^12 keys the birthday bound reaches ~50% after about two million links, so inserts need a uniqueness check and retry.",
+                  "correct": true
+                },
+                {
+                  "text": "Collisions cannot occur as long as the same long URL is never shortened twice, because distinct inputs produce distinct digests.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Truncation keeps only 7 base62 characters (about 42 bits), so the 128-bit size of MD5 is irrelevant. The birthday bound says a 50% collision probability arrives at roughly 1.18 x sqrt(N) items; sqrt(3.5e12) ≈ 1.9e6, so around 2.2 million links, a tiny fraction of the key space. The design therefore needs a conditional insert or unique constraint plus a retry strategy. MD5's cryptographic weaknesses (deliberate collision construction) are not the main problem here; predictability comes from the fact that anyone can compute the hash of a known URL, which is a property of any unsalted hash. Distinct long URLs can and do map to the same truncated prefix, so never shortening the same URL twice does not prevent collisions; it only explains why identical URLs map to identical keys."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-url-shortener.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "url-shortener",
+            "key-generation",
+            "id-generation",
+            "scalability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You choose \"unique counter + base62 encoding\" for key generation across 20 app instances. Which refinement addresses the two classic objections to this approach?",
+              "options": [
+                {
+                  "text": "Use a single database sequence for every request; base62 encoding already makes consecutive keys look random, and one sequence is simple to operate.",
+                  "correct": false
+                },
+                {
+                  "text": "Replace the counter with a random 128-bit UUID and encode it in base62, which keeps 7-character keys while making them unguessable.",
+                  "correct": false
+                },
+                {
+                  "text": "Use the current Unix timestamp in milliseconds as the counter, so instances need no coordination and keys are still unique and ordered.",
+                  "correct": false
+                },
+                {
+                  "text": "Each instance leases ID blocks (e.g. 1M) from a coordinator and passes each ID through a bijective scramble before base62 encoding.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The objections are a central bottleneck/single point of failure (one sequence hit per write) and enumerability (sequential keys let anyone crawl all links). Range leasing removes the per-write coordination: an instance contacts the coordinator once per million IDs, and a crashed instance only wastes the rest of its block. A bijection (multiplication by a constant coprime to 62^7 modulo 62^7, or a Feistel network) maps the counter to a scrambled value with no collisions. Base62 of consecutive integers stays consecutive (…abc, …abd), so encoding hides nothing. A 128-bit UUID needs about 22 base62 characters; truncating it to 7 brings back the collision problem. Millisecond timestamps collide whenever two instances (or two requests on one instance) create links in the same millisecond, and they are as enumerable as a counter."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-url-shortener.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "url-shortener",
+            "system-design",
+            "caching",
+            "key-generation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design a URL shortener like bit.ly. Cover requirements, rough capacity estimates, the API, key generation, storage, the redirect path and analytics. Explain the main trade-offs you make.",
+              "explanation": "Model answer: functional requirements are create short link (optional custom alias, expiry) and redirect; analytics is secondary. Estimate e.g. ~40 writes/s, ~4k reads/s (100:1), ~3 TB over 5 years: tiny writes, read-heavy, modest data. API: `POST /links {url, alias?, expiresAt?} -> {key}`, `GET /{key} -> 302`. Keys: 7 base62 characters (62^7 ≈ 3.5e12); either counter with range leasing plus scrambling (no collisions, needs a coordinator) or hash/random with a unique constraint and retry (birthday collisions). Storage: one relational DB or KV store keyed by short key with a unique index; a Redis cache-aside layer on the read path, CDN/edge for hot links. Use 302/307 if analytics or editable targets matter (301 lets browsers bypass you). Record clicks asynchronously via a queue/stream and aggregate offline so the redirect path stays fast. Add rate limiting on creation, URL safety scanning, expiry clean-up.",
+              "rubric": [
+                "States functional and non-functional requirements and produces read/write and storage estimates showing a read-heavy workload, using them to justify a modest storage choice and a cache.",
+                "Justifies the key length with base62 key-space math and picks a key-generation strategy, addressing either collisions (hash/random with uniqueness check and retry) or coordination and enumerability (counter with range leasing and scrambling).",
+                "Describes the redirect read path with a cache (cache-aside, long TTL) in front of the store, and handles hot links.",
+                "Discusses 301 vs 302/307 and its consequences for analytics and changing or expiring targets.",
+                "Keeps analytics off the hot path (asynchronous events/queue and aggregation) and mentions abuse controls such as rate limiting on creation or malicious-URL checks."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "design-notification-service",
+      "title": "Design a Notification Service",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Design a Notification Service",
+          "note": "## What it is\n\nA notification service is a shared platform that lets many product services send messages to users through several channels (email, SMS, mobile push, in-app, sometimes webhooks or chat) without each team integrating providers, templates and preferences on its own. In an interview it tests asynchronous pipelines, fan-out, retries with idempotency, prioritisation and rate limiting.\n\n## Requirements to pin down\n\n- **Who sends what:** transactional (OTP, password reset, order shipped: low volume, urgent) vs bulk (marketing, digests: huge volume, deferrable). These need different latency targets and must not interfere.\n- **Channels and providers:** SES/SendGrid for email, Twilio for SMS, APNs/FCM for push, plus an in-app inbox.\n- **User preferences:** per category and channel opt-outs, quiet hours and time zones, frequency caps, legal unsubscribe rules. Transactional security messages usually bypass marketing opt-outs.\n- **Guarantees:** at-least-once delivery towards providers with deduplication; delivery status tracking; templates with localisation.\n\n## Architecture\n\n1. **Ingestion API** (`POST /notifications`) accepts `{eventType, recipients or audience, data, idempotencyKey, priority}`, validates, stores a record and enqueues. Producers can also publish domain events that the service subscribes to (an outbox on the producer side makes that reliable).\n2. **Fan-out.** One event can target one user or a million (a newsletter, \"your followed artist posted\"). A fan-out stage expands audiences in batches into per-recipient, per-channel jobs, so a huge audience becomes many small, retryable units instead of one giant transaction.\n3. **Resolution at send time:** load preferences, quiet hours and locale, render the template. Resolving late matters because preferences can change between enqueue and send, and scheduled messages may wait hours.\n4. **Per-channel, per-priority queues and worker pools.** Separate queues (and provider quota) for transactional vs bulk mean a 5M-email campaign cannot delay a login code. Workers scale independently per channel.\n5. **Provider adapters** with timeouts, retries using exponential backoff with jitter, a dead-letter queue for poison or permanently failing messages, and failover to a secondary provider for critical channels.\n6. **Status tracking:** provider callbacks (delivered, bounced, opened, unsubscribed) update the notification record; hard bounces and invalid tokens feed back into the contact data so you stop sending to them.\n\n## Retries, idempotency and duplicates\n\nQueues give at-least-once delivery, so a worker may process the same job twice, and a provider call that times out has an **unknown outcome**: the SMS may already have been sent. Use the notification id as a deduplication key in your own store (skip if already marked sent), pass it to providers that support an idempotency key or client reference, and for an ambiguous timeout prefer checking status (status API or callback) before resending. Some duplicates remain possible; decide per message type whether a duplicate or a loss is worse.\n\n```csharp\npublic async Task HandleAsync(SendJob job, CancellationToken ct)\n{\n    // Dedup: the queue is at-least-once; claim the job atomically.\n    if (!await _store.TryMarkSendingAsync(job.NotificationId, job.Channel, ct)) return;\n\n    var prefs = await _preferences.GetAsync(job.UserId, ct);              // resolved at send time\n    if (!prefs.Allows(job.Category, job.Channel) && !job.IsTransactional)\n    {\n        await _store.MarkSuppressedAsync(job.NotificationId, job.Channel, ct);\n        return;\n    }\n\n    await _limiter.WaitAsync(job.Channel, job.UserId, ct);              // per-provider and per-user limits\n    var result = await _provider.SendAsync(job, idempotencyKey: job.NotificationId.ToString(), ct);\n    await _store.RecordAsync(job.NotificationId, job.Channel, result, ct);\n}\n```\n\n## Rate limits\n\nTwo directions: **outbound** limits imposed by providers (SMS throughput per number, push quotas, email sending rates) enforced with a shared token bucket per provider account; and **per-user** caps that protect users from being spammed by buggy producers (\"at most 3 marketing pushes per day\"). Bulk traffic should absorb throttling; transactional traffic gets reserved capacity.\n\n## What an interviewer probes\n\n- How a million-recipient campaign is fanned out without blocking urgent messages.\n- Exactly what happens when a provider times out, and how you avoid both loss and duplicates.\n- Where preferences are enforced and why there.\n- How you know a notification was delivered, and what you do with bounces.\n\n## Common misconceptions\n\n- \"The queue guarantees exactly-once delivery.\" Brokers are at-least-once; the external call is outside any transaction.\n- \"More workers fix delays.\" If the shared provider quota is the limit, more workers only add 429s.\n- \"Producers should check preferences.\" It duplicates logic across teams and reads stale data.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.design-notification-service.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "queues",
+            "async-processing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why do notification services put a message queue between the API that accepts notification requests and the workers that call email/SMS/push providers?",
+              "options": [
+                {
+                  "text": "The queue provides exactly-once delivery end to end, so users never receive the same notification twice even when a worker crashes mid-send.",
+                  "correct": false
+                },
+                {
+                  "text": "Delivery becomes faster, because the broker pushes messages to the providers' APIs directly, without the overhead of application workers.",
+                  "correct": false
+                },
+                {
+                  "text": "It decouples producers from slow, unreliable providers: requests are acked fast, bursts buffered, failures retried, and each channel throttled and scaled independently.",
+                  "correct": true
+                },
+                {
+                  "text": "Providers such as Twilio and SendGrid only accept traffic from a message broker integration, never from direct HTTP calls by an application.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Provider calls are slow, rate-limited and sometimes failing; coupling them to the producer's request would make producers wait and fail along with the provider. A queue lets the API persist and acknowledge the request, absorbs bursts, supports retries with backoff and dead-lettering, and allows per-channel concurrency and throttling. Exactly-once is the classic misconception: brokers deliver at least once, and the external HTTP call to the provider can never be part of a broker transaction, so deduplication is still needed. A queue adds latency rather than removing it; its value is reliability and isolation, and brokers do not call third-party APIs themselves. Providers expose ordinary HTTP APIs and have no requirement about where calls originate."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-notification-service.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "priority",
+            "isolation",
+            "rate-limiting"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A marketing campaign enqueues 5 million emails and push notifications on the same queue and worker pool used for one-time passcodes (OTP). OTP delivery now takes 20 minutes. Which change fixes the problem structurally?",
+              "options": [
+                {
+                  "text": "Scale the shared worker pool up by 10x for the duration of campaigns, so the backlog drains before OTPs have to wait behind it.",
+                  "correct": false
+                },
+                {
+                  "text": "Split transactional and bulk traffic into separate queues with their own workers and reserved provider capacity, so bulk backlogs cannot delay OTPs.",
+                  "correct": true
+                },
+                {
+                  "text": "Retry OTP messages more aggressively with a shorter backoff, so they overtake the campaign messages that are already waiting in the queue.",
+                  "correct": false
+                },
+                {
+                  "text": "Set a short time-to-live on campaign messages so stale ones are dropped from the queue and the OTPs behind them are reached sooner.",
+                  "correct": false
+                }
+              ],
+              "explanation": "This is a head-of-line blocking problem: OTPs wait behind millions of bulk messages in a FIFO queue and compete for the same provider quota. Isolation by priority (separate queues or topics, separate consumers, and a reserved share of provider rate limits) is the structural fix; it is the bulkhead pattern applied to notifications. Scaling workers helps only until the provider's rate limit is reached, after which extra workers just collect 429 responses, and it does not change the queue order. Retrying faster does nothing for a message that has not been dequeued yet, and aggressive retries increase load. A TTL drops campaign messages that took too long, losing them silently, and does not move OTPs ahead of the backlog."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-notification-service.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "idempotency",
+            "retries",
+            "timeouts"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A worker calls the SMS provider; the HTTP call times out after 10 s. The job is retried, and the user receives the same code twice. What is the best way to handle this class of failure?",
+              "options": [
+                {
+                  "text": "Treat the timeout as an unknown outcome: pass the notification id as the provider's idempotency key or reference, check status before resending, and dedupe by id.",
+                  "correct": true
+                },
+                {
+                  "text": "Never retry after a timeout; mark the notification as failed so the user can request a new code, which guarantees the user never receives a duplicate.",
+                  "correct": false
+                },
+                {
+                  "text": "Enable exactly-once delivery in the message broker, so the job cannot be processed twice and the provider is therefore called only once.",
+                  "correct": false
+                },
+                {
+                  "text": "Reduce the HTTP timeout to 2 seconds, so the retry happens before the provider has had time to deliver the first message.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A timeout means you do not know whether the provider accepted the request. Making the request idempotent at the provider (where an idempotency key or reference is supported), reconciling via status before resending, and keeping your own record keyed by notification id reduces duplicates while still retrying genuinely lost sends; where no idempotency is available you choose consciously between a rare duplicate and a rare loss. Never retrying turns every slow response into a lost notification, which is worse for most transactional messages. Broker-level exactly-once (where it exists) covers the broker's own delivery to the consumer, not the side effect of an external HTTP call. A shorter timeout makes ambiguous outcomes more frequent, not less: the provider may still process the original request after you give up."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-notification-service.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "user-preferences",
+            "architecture"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Where should user notification preferences (channel opt-outs, quiet hours) be enforced?",
+              "options": [
+                {
+                  "text": "In each producer service before it publishes a request, so unwanted notifications never enter the pipeline and no queue capacity is wasted on them.",
+                  "correct": false
+                },
+                {
+                  "text": "Once, at enqueue time inside the notification service, by filtering the recipient list before any per-channel jobs are created.",
+                  "correct": false
+                },
+                {
+                  "text": "On the client devices, which can hide notifications the user has disabled, so the server can stay simple and preference-agnostic.",
+                  "correct": false
+                },
+                {
+                  "text": "In the notification service at send time, so later preference changes and delayed messages are respected, with exceptions for mandatory messages.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Preferences are owned by the notification platform and must be evaluated as late as possible: a user can unsubscribe between enqueue and send, quiet hours depend on the moment of delivery, and scheduled digests may wait hours. The send-time check also centralises the rules, including the explicit exceptions (security codes and legally required notices bypass marketing opt-outs). Pushing the check into producers duplicates the logic in every team's code and reads preferences that may already be stale. Checking only at enqueue time misses changes during the wait and makes quiet-hours logic wrong for delayed messages. Client-side hiding still sends (and pays for) SMS and email, only works for push and in-app, and does not honour opt-out obligations."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-notification-service.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "fan-out",
+            "scalability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A user with 2 million followers posts, and every follower should get an in-app and push notification. Which approach to fan-out is most robust?",
+              "options": [
+                {
+                  "text": "Expand the audience inside the API request that accepts the event, inserting 2 million rows in one transaction so the fan-out either fully succeeds or fully fails.",
+                  "correct": false
+                },
+                {
+                  "text": "Accept the event, then fan-out workers page through followers in batches (e.g. 1,000) and enqueue independently retryable, idempotent jobs at bulk priority.",
+                  "correct": true
+                },
+                {
+                  "text": "Send one push request per follower synchronously from the producer service, so it knows exactly when delivery has finished for every follower.",
+                  "correct": false
+                },
+                {
+                  "text": "Skip fan-out: clients poll the poster's activity feed instead, which covers push notifications as well as the in-app inbox.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Large fan-out must be broken into small, resumable, idempotent units: a batch can fail and be retried without redoing or duplicating the rest, workers scale horizontally, and the bulk queue keeps it from starving transactional traffic. Recording progress (a cursor over the follower list) lets a crashed fan-out resume. A single 2M-row transaction holds locks and log space for a long time, times out the API request and fails as one huge unit, making retries expensive and duplication-prone. Synchronous calls from the producer couple it to provider latency and rate limits for hours. Fan-out on read (clients fetching the feed) is a valid technique for in-app feeds, especially for celebrity accounts, but push notifications must be sent by the server to each device, so it does not solve the push requirement."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-notification-service.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "notifications",
+            "system-design",
+            "queues",
+            "rate-limiting"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design a notification service used by many internal product teams to send email, SMS and mobile push notifications to users. Cover the API, the processing pipeline, user preferences, retries and failures, rate limiting and delivery tracking.",
+              "explanation": "Model answer: an ingestion API (or event subscription) accepting event type, recipients or an audience, template data, priority and an idempotency key; requests are persisted and enqueued. Fan-out workers expand audiences in batches into per-recipient, per-channel jobs on separate queues by channel and priority (transactional vs bulk). Channel workers resolve preferences, quiet hours and locale at send time, render templates and call providers through adapters, with timeouts, exponential backoff with jitter, a DLQ, dedupe by notification id, idempotency keys where providers support them, and failover to a secondary provider for critical channels. Rate limits: a shared token bucket per provider account plus per-user frequency caps, with reserved capacity for transactional traffic. Provider webhooks update delivery status (delivered, bounced, unsubscribed), feeding bounces and invalid push tokens back into contact data; metrics per channel and provider for alerting.",
+              "rubric": [
+                "Defines an ingestion contract (API or events) including an idempotency key, priority/category and template data, and makes processing asynchronous via a queue.",
+                "Separates traffic by channel and by priority (transactional vs bulk) with independent queues/worker pools, and handles large-audience fan-out in batches.",
+                "Enforces user preferences (opt-outs, quiet hours, frequency caps) centrally at send time, with explicit handling of mandatory transactional messages.",
+                "Handles failures: timeouts as unknown outcomes, retries with exponential backoff and jitter, deduplication by notification id, a dead-letter queue, and optionally provider failover.",
+                "Covers rate limiting towards providers (shared across workers) and per user, plus delivery tracking via provider callbacks feeding bounces and invalid tokens back into the system."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "design-carrier-integration-platform",
+      "title": "Design a Carrier Integration Platform",
+      "level": "L",
+      "translations": {
+        "en": {
+          "title": "Design a Carrier Integration Platform",
+          "note": "## What it is\n\nA carrier integration platform puts many shipping carriers (global express carriers, national posts, regional couriers) behind one API, so that merchants or internal systems can get rates, create shipments and labels, schedule pickups, cancel, and track parcels without caring which carrier is involved. It is a strong lead-level story because it combines integration design, protecting third parties from your traffic, failure semantics of non-idempotent external calls, inbound webhooks, and developer experience (test mode). Tell it as your own: the business context, the decisions you made, what went wrong, and measurable outcomes.\n\n## Architecture\n\n**Canonical model plus adapters.** The public API speaks one model: `Shipment`, `Parcel`, `Address`, `Rate`, `Label`, `TrackingEvent`, with a normalised status set (`InfoReceived`, `InTransit`, `OutForDelivery`, `Delivered`, `Exception`, `Returned`). Each carrier gets an adapter (an anti-corruption layer) that maps to and from the carrier's protocol: REST, SOAP, SFTP manifests, OAuth client credentials or API keys, multi-step flows. A **capability matrix** per carrier and service (supports pickups? returns? multi-parcel? customs documents? webhooks or polling?) drives validation up front instead of failing deep inside an adapter. Credentials are per tenant and per carrier account, stored in a secret store.\n\n```csharp\npublic interface ICarrierAdapter\n{\n    string CarrierCode { get; }\n    CarrierCapabilities Capabilities { get; }\n    Task<IReadOnlyList<Rate>> GetRatesAsync(RateRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult> CreateLabelAsync(ShipmentRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult?> FindByReferenceAsync(string clientReference, CarrierAccount account, CancellationToken ct);\n    Task<IReadOnlyList<TrackingEvent>> TrackAsync(string trackingNumber, CarrierAccount account, CancellationToken ct);\n}\n```\n\n**Rate limiting per carrier.** Carriers enforce quotas per account or per client ID (requests per second or per day) and answer 429 or, worse, temporarily block you. The limit is a property of the *carrier account*, not of your instance, so an in-process limiter (`System.Threading.RateLimiting`) is only correct with one instance. Across a scaled-out fleet you need a shared budget: a token bucket in Redis keyed by `carrier:account`, or routing all calls for a carrier through queue consumers with bounded concurrency. Honour `Retry-After`, and keep separate budgets so bulk tracking polls cannot starve label creation.\n\n**Isolation.** One carrier's outage must not take the platform down: separate `HttpClient` handlers, timeouts, concurrency limits (bulkheads) and circuit breakers per carrier, per-carrier dashboards and alerts (error rate, p95 latency, 429 rate).\n\n## Failure semantics: retries\n\nClassify each outcome: **transient** (5xx, 429, connection reset) → retry with backoff and jitter within a budget; **permanent** (validation error, invalid postcode, unsupported service) → fail fast with a normalised error; **ambiguous** (timeout after the request was sent) → do not blindly retry. Label creation is usually *not idempotent* at the carrier: a blind retry can create two shipments and two charges. Mitigate with a client reference you generate and store before the call, a lookup by that reference (where the carrier supports it) before retrying, or marking the shipment `PendingReconciliation` for a background job. Read-only calls (rates, tracking) can be retried freely and cached briefly.\n\nLong-running or batch operations (end-of-day manifests, pickups) run asynchronously from a queue; the API returns `202 Accepted` with a resource to poll or a webhook to the client.\n\n## Inbound webhooks and tracking\n\nCarriers push tracking events by webhook; others must be polled. For webhooks: verify the signature or shared secret (and source restrictions), persist the raw payload with a deduplication key, return 2xx immediately, and process asynchronously. Carriers retry on non-2xx or slow responses, so duplicates are normal. Events also arrive **out of order**; apply them idempotently by carrier event id, order by event timestamp, and never let a late `InTransit` overwrite `Delivered`. For polling carriers, schedule polls adaptively (more frequent near expected delivery, stop after a terminal status) within the carrier's quota. Re-emit normalised events to your own customers as signed webhooks with their own retry policy.\n\n## Test mode\n\nMerchants need to integrate without creating real shipments. Model it like Stripe test keys: a test API key routes the same request through the same pipeline, but adapters switch to the carrier sandbox where one exists and reliable, otherwise to an internal **carrier simulator** with deterministic scenarios (magic postcodes or references trigger \"address invalid\", \"timeout\", \"delivered after 3 events\"). Test data is isolated, labels are watermarked, and nothing ever reaches a production carrier account or billing. Sandboxes are often flaky, slow or rate-limited, so your own CI uses recorded fixtures and contract tests per adapter.\n\n## What an interviewer probes\n\n- How you add carrier number 31 without touching the core (adapter, capabilities, mapping tests).\n- What exactly happens on a timeout during label creation.\n- How per-carrier limits are enforced across N instances.\n- How you handle duplicate and out-of-order webhooks.\n- What you would do differently now and how you measured success (onboarding time per carrier, label success rate, incident counts).\n\n## Common misconceptions\n\n- \"A generic JSON-configured mapper can integrate any carrier.\" It covers simple REST carriers and collapses on auth flows, multi-step processes and quirks; configuration is good for mappings, code for behaviour.\n- \"Retries with Polly make it reliable.\" Retrying a non-idempotent call creates duplicates.\n- \"Return 500 for a duplicate webhook so the carrier stops.\" Non-2xx makes it retry.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.mcq.1",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "integrations",
+            "adapter-pattern",
+            "anti-corruption-layer",
+            "carriers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "How should a platform integrate 30+ shipping carriers with very different APIs (REST, SOAP, SFTP manifests; API keys, OAuth; single- and multi-step flows) behind a single public API?",
+              "options": [
+                {
+                  "text": "Expose the union of all carriers' fields on the public API as optional properties, so no carrier-specific capability or option is ever lost to clients.",
+                  "correct": false
+                },
+                {
+                  "text": "A canonical model, one adapter (anti-corruption layer) per carrier behind a common interface, and a per-carrier capability matrix for up-front validation.",
+                  "correct": true
+                },
+                {
+                  "text": "Build one generic HTTP mapper driven by per-carrier JSON configuration, so adding a carrier needs only configuration, no code and no deployment.",
+                  "correct": false
+                },
+                {
+                  "text": "Publish a carrier-specific SDK for each carrier and let clients call carriers directly, keeping the platform out of the latency-critical request path.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A canonical model keeps the public contract stable while adapters absorb each carrier's protocol, auth and quirks; the capability matrix makes differences explicit (pickups, returns, customs, webhook vs polling) so requests fail fast with clear errors instead of deep inside an adapter. Exposing the union of all fields leaks carrier specifics into every client, makes the contract unbounded and couples clients to individual carriers, which is exactly what the platform should hide. A configuration-driven generic mapper is tempting and works for simple REST carriers, but breaks down on OAuth token flows, SOAP, multi-step label creation, SFTP manifests and error quirks; configuration suits field mappings, code suits behaviour. Sending clients directly to carriers removes the platform's value (one integration, rate limiting, normalised tracking, test mode) and spreads credentials to clients."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.mcq.2",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "rate-limiting",
+            "distributed-systems",
+            "carriers",
+            "redis"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A carrier allows 50 requests/second per account. The integration API runs 6 instances, each with an in-process token bucket limiter set to 50 requests/second for that carrier. During peaks the carrier returns 429 responses and once temporarily blocked the account. What is the right fix?",
+              "options": [
+                {
+                  "text": "Keep the per-instance limiter: the load balancer spreads requests evenly across the six instances, so the combined rate stays at 50 requests/second.",
+                  "correct": false
+                },
+                {
+                  "text": "Add a retry policy that retries 429 responses immediately up to three times, so throttled requests are eventually accepted without user-visible errors.",
+                  "correct": false
+                },
+                {
+                  "text": "Enforce one shared budget per carrier account (a Redis-backed token bucket or a bounded queue consumer) and honour `Retry-After` on 429.",
+                  "correct": true
+                },
+                {
+                  "text": "Replace rate limiting with a circuit breaker on 429 responses, so calls stop automatically whenever the carrier signals the limit was hit.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The limit belongs to the carrier account, so it must be enforced against a single shared budget; six independent 50/s buckets allow up to 300/s in total. A distributed token bucket (Redis with an atomic script) or funnelling calls through a queue with bounded consumers gives one budget regardless of instance count or autoscaling, and `Retry-After` tells you when to resume. Even load balancing does not divide each instance's limit by six; each limiter allows its own 50/s. Immediate retries on 429 multiply traffic against an already exceeded quota and are how accounts get blocked. A circuit breaker reacts after you have already exceeded the limit and then blocks all traffic, including the share that would have been within quota; it complements, not replaces, proactive limiting."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.mcq.3",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "retries",
+            "idempotency",
+            "timeouts",
+            "carriers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The call to a carrier's \"create shipment and label\" endpoint times out after 30 s. The carrier does not support idempotency keys but lets you search shipments by a client reference you send. What should the platform do?",
+              "options": [
+                {
+                  "text": "Look up the shipment by the stored client reference before retrying; reuse it if found, retry if not, and mark it for reconciliation if the lookup also fails.",
+                  "correct": true
+                },
+                {
+                  "text": "Retry immediately with exponential backoff; timeouts are transient network errors, and the carrier will simply process the second request as the real one.",
+                  "correct": false
+                },
+                {
+                  "text": "Return an error to the merchant so they can retry the request themselves, which keeps the platform from ever creating duplicate shipments.",
+                  "correct": false
+                },
+                {
+                  "text": "Increase the timeout to 120 s, so the platform always waits long enough to receive the carrier's real answer instead of guessing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A timeout after sending is an ambiguous outcome: the carrier may have created the shipment (and charged for it). Generating and persisting a client reference before the call, then checking by that reference before retrying, turns a non-idempotent operation into an effectively idempotent one; when the check cannot be made, a reconciliation state with a background job avoids both duplicates and lost labels. Blind retries are exactly how duplicate labels and charges happen. Pushing the error to the merchant does not prevent duplicates, it moves the blind retry to the merchant (who knows even less). A longer timeout reduces but never eliminates ambiguous outcomes (the connection can still drop) and ties up resources during carrier slowdowns, risking thread/connection exhaustion."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "webhooks",
+            "idempotency",
+            "ordering",
+            "tracking"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Carriers push tracking updates to your webhook endpoint. Which handling is correct?",
+              "options": [
+                {
+                  "text": "Process each event synchronously (map it, update the shipment, notify the merchant) and only then return 200, so the carrier retries whenever any step fails.",
+                  "correct": false
+                },
+                {
+                  "text": "Return HTTP 500 for events you have already processed, so the carrier recognises them as duplicates and stops sending them again.",
+                  "correct": false
+                },
+                {
+                  "text": "Apply events in the order they arrive, since carriers emit tracking scans chronologically and the HTTP deliveries preserve that order.",
+                  "correct": false
+                },
+                {
+                  "text": "Verify the signature, store the raw payload with a dedup key, return 2xx fast and process async, applying events idempotently and by event time, not arrival order.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Webhook senders retry on non-2xx responses and on timeouts, so the endpoint should do the minimum (authenticate, store durably, ack) and move the work to a queue; deduplication by carrier event id handles the inevitable retries, and timestamp or status-precedence rules handle out-of-order arrival. Synchronous processing makes response time depend on your database and downstream calls; slow responses trigger carrier retries and duplicate floods during incidents, and a downstream failure means the carrier keeps resending. Returning 500 for duplicates does the opposite of the intent: it tells the carrier delivery failed, so it retries. Carriers do not guarantee ordering: retries, parallel senders and scan uploads from devices regularly deliver events out of sequence."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.mcq.5",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "test-mode",
+            "developer-experience",
+            "carriers",
+            "integrations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Merchants need a test mode to integrate against your carrier platform without creating real shipments. Which design is best?",
+              "options": [
+                {
+                  "text": "A `\"test\": true` flag in the request body; each adapter checks it and returns a canned success response instead of calling the carrier, so no real shipment is created.",
+                  "correct": false
+                },
+                {
+                  "text": "Always route test traffic to the carriers' own sandbox environments, since they are the most faithful replica of each carrier's production behaviour and errors.",
+                  "correct": false
+                },
+                {
+                  "text": "Test API keys that run the same pipeline and adapters against a reliable sandbox or an internal simulator with deterministic scenarios, never production accounts.",
+                  "correct": true
+                },
+                {
+                  "text": "A separate staging deployment of the whole platform at a different URL, with its own database, that merchants use while integrating before switching to production.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Keying test mode off the credential (as Stripe does with test keys) means merchants switch modes without changing code, the same validation, mapping and pipeline run in both modes, and isolation is enforced centrally. The simulator gives deterministic, fast scenarios for errors that sandboxes cannot reproduce on demand. A body flag checked in each adapter duplicates logic in every adapter, bypasses most of the real code path and is one forgotten check away from leaking test traffic to production. Carrier sandboxes are useful but frequently flaky, slow, rate-limited, incomplete or missing entirely, so depending on them alone gives merchants a poor and inconsistent experience. A separate staging environment differs from production in configuration and version, and merchants want test mode against the production API they will go live on."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.open.1",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "integrations",
+            "system-design",
+            "carriers",
+            "webhooks"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Walk me through the design of a multi-carrier shipping integration platform you built (or would build): one API for rates, labels, pickups and tracking across many carriers. Cover the integration architecture, per-carrier rate limiting, retries, webhooks/tracking and test mode, and the trade-offs you made.",
+              "explanation": "Model answer: a canonical shipment/tracking model with normalised statuses, an adapter per carrier behind a common interface, and a capability matrix for up-front validation; per-tenant carrier accounts with secrets in a vault. Per-carrier-account rate limits enforced with a shared budget (Redis token bucket or bounded queue consumers), honouring `Retry-After`, with separate budgets for tracking polls and label creation. Error classification: transient (retry with backoff/jitter), permanent (fail fast with normalised errors), ambiguous timeouts on non-idempotent calls (client reference lookup or reconciliation, never blind retry). Webhooks: signature verification, store-then-ack, async processing, dedupe by event id, ordering by timestamp/status precedence, polling fallback for carriers without webhooks, and outbound signed webhooks to merchants. Test mode via test keys routed to sandboxes or an internal simulator with deterministic scenarios, isolated from production. Per-carrier bulkheads, circuit breakers and dashboards, with concrete outcomes such as onboarding time per carrier or label success rate.",
+              "rubric": [
+                "Describes a canonical model with an adapter (anti-corruption layer) per carrier behind a common interface, and a way to express carrier differences (capabilities) so new carriers do not change the core.",
+                "Enforces rate limits per carrier account with a budget shared across instances (distributed token bucket or queue-based throttling) and honours 429/`Retry-After`.",
+                "Classifies failures (transient, permanent, ambiguous) and explains how non-idempotent operations such as label creation are protected from duplicates on timeout (client reference lookup, reconciliation).",
+                "Handles inbound tracking via webhooks (signature verification, store-then-ack, async processing, dedupe, out-of-order tolerance) and polling for carriers without webhooks.",
+                "Provides a test mode that keeps the same code path (test credentials, sandbox or internal simulator with deterministic scenarios, isolated data) and per-carrier isolation/observability (bulkheads, circuit breakers, metrics)."
+              ]
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-carrier-integration-platform.open.2",
+          "type": "open",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "resilience",
+            "bulkhead",
+            "circuit-breaker",
+            "carriers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "One of your largest carriers degrades: p99 latency rises to 25 seconds and 30% of label requests return 5xx. What happens to a platform without protections, and what should your design do so this incident stays contained to that carrier?",
+              "explanation": "Model answer: without protections, requests to the slow carrier hold connections, threads and database transactions; shared `HttpClient` pools, worker concurrency and queues fill up, so other carriers' requests and even tracking webhooks slow down or fail (cascading failure), and naive retries multiply load on the degraded carrier. Containment: per-carrier bulkheads (separate concurrency limits, connection pools and queues), aggressive per-carrier timeouts, a circuit breaker that opens on the error/latency threshold and fails fast with a clear normalised error or switches label creation to asynchronous processing (accept with 202, create when the carrier recovers), and a retry budget with backoff and jitter instead of unbounded retries. Ambiguous timeouts on label creation go to reconciliation. Operationally: per-carrier alerts and dashboards, a status page or merchant notification, and optionally rerouting merchants to an alternative carrier where business rules allow.",
+              "rubric": [
+                "Explains the cascading failure mechanism: slow calls exhaust shared resources (connection pools, worker concurrency, threads, queues), affecting unrelated carriers, and retries amplify load on the struggling carrier.",
+                "Proposes per-carrier bulkheads (separate concurrency limits, connection pools or queues) and per-carrier timeouts.",
+                "Uses a per-carrier circuit breaker and a bounded retry policy (backoff with jitter, retry budget) to fail fast and reduce pressure on the carrier.",
+                "Offers a degraded mode for label creation (accept asynchronously and complete later, or reroute to an alternative carrier) and keeps ambiguous timeouts in reconciliation rather than blind retry.",
+                "Covers detection and communication: per-carrier metrics/alerts and informing merchants (status page or notifications)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "design-file-upload-processing",
+      "title": "Design File Upload and Processing",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Design File Upload and Processing",
+          "note": "## What it is\n\n\"Users upload files (images, videos, CSVs, PDFs) that the system processes: virus scan, thumbnails, transcoding, parsing, and the UI shows progress until the result is ready.\" The interviewer is looking for three decisions: do not stream bytes through your API servers, process asynchronously with a reliable trigger, and choose how the client learns the status.\n\n## Upload: presigned URLs\n\nProxying uploads through the API ties up app server bandwidth, memory and connections for the full duration of a slow mobile upload, and needs large body limits (Kestrel's `MaxRequestBodySize` defaults to about 30 MB). Instead, the API authorises the upload and the client sends bytes **directly to object storage** using a **presigned URL** (S3, GCS) or **SAS token** (Azure Blob): a URL carrying a signature that allows exactly one operation on one key until a short expiry.\n\nFlow:\n\n1. `POST /uploads {fileName, size, contentType}`: the API checks permissions and quotas, creates an `Upload` record (`Pending`), generates the object key itself (`tenants/42/uploads/{uuid}`, never the client's file name) and returns a presigned PUT (or POST) URL valid for minutes.\n2. The client uploads directly. Large files use **multipart upload**: S3 accepts at most 5 GB in a single PUT, so bigger files are split into parts (5 MiB to 5 GiB each, up to 10,000 parts) that are presigned individually, uploaded in parallel, resumed after failures and then completed. A lifecycle rule aborts incomplete multipart uploads, which otherwise keep costing storage.\n3. Constraints: a presigned POST policy can enforce `content-length-range` and a content-type prefix; for PUT, sign the expected content type and verify size after upload. Never trust client metadata: detect the real type from the bytes.\n\n```csharp\n// AWSSDK.S3: short-lived, key-scoped upload URL\nvar key = $\"tenants/{tenantId}/uploads/{uploadId:N}\";\nvar url = await _s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest\n{\n    BucketName  = _options.QuarantineBucket,\n    Key         = key,\n    Verb        = HttpVerb.PUT,\n    ContentType = request.ContentType,               // client must send the same header\n    Expires     = DateTime.UtcNow.AddMinutes(10),\n});\nawait _db.Uploads.AddAsync(new Upload(uploadId, tenantId, key, UploadStatus.Pending), ct);\nawait _db.SaveChangesAsync(ct);\nreturn new UploadTicket(uploadId, url);\n```\n\n## Processing: a reliable trigger\n\nUpload completion must start processing even if the browser closes immediately after the last byte. The robust trigger is the storage's own **event notification** (S3 Event Notifications or EventBridge, Azure Event Grid `BlobCreated`) delivered to a queue. A client `POST /uploads/{id}/complete` call is a useful fast path and a place to validate, but not the only trigger. Workers pick up the job, move the `Upload` through a state machine (`Pending → Uploaded → Processing → Ready | Failed | Rejected`), and must be **idempotent**, because events are delivered at least once and a job may be retried after a crash halfway through. Use a DLQ for files that repeatedly fail, and a sweeper for `Pending` records whose URLs expired without an upload.\n\nSecurity: upload into a **quarantine** bucket or prefix, scan for malware and validate format before promoting to the clean location; keep buckets private and serve downloads through short-lived presigned GET URLs or a CDN with signed URLs. Treat files as untrusted input for parsers (zip bombs, huge images, CSV injection).\n\n## Status: polling vs push\n\n- **Polling** `GET /uploads/{id}`: simplest, stateless, works through every proxy and with load balancers, cacheable with `ETag`. Costs: latency up to the poll interval and wasted requests; use backoff (1 s, 2 s, 5 s...) and stop at a terminal state.\n- **Push** via SSE, WebSockets or SignalR: the server sends the change immediately. Costs: long-lived connections, a backplane when the worker and the connection are on different instances, reconnection handling. Push is a notification channel, not the source of truth: after reconnecting, the client must still fetch current state, so a status endpoint is needed anyway.\n- **Webhooks** for server-to-server integrations: the API client registers a callback URL instead of polling.\n\nMany designs combine them: push for the interactive UI with polling as a fallback, webhooks for API customers. Upload *progress* (bytes sent) is measured in the client itself (XHR/`HttpClient` progress events), not by the server.\n\n## What an interviewer probes\n\n- Why presigned URLs, and how the API still controls who uploads what and how big.\n- Large files: multipart, resumability, abandoned uploads.\n- What triggers processing if the client disappears, and what happens if processing crashes halfway.\n- Where scanning happens and how unscanned files are kept from being served.\n- Polling vs push trade-offs and why both often coexist.\n\n## Common misconceptions\n\n- \"Presigned URLs bypass authorisation.\" The API decides who gets a URL, for which key, for how long.\n- \"The storage event fires exactly once.\" It is at-least-once; processing must be idempotent.\n- \"With WebSockets I don't need a status endpoint.\" Reconnects and missed messages require one.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.system-design.design-file-upload-processing.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "file-upload",
+            "presigned-urls",
+            "object-storage",
+            "scalability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why do designs for large user uploads typically hand the client a presigned URL (or SAS token) instead of uploading through the application API?",
+              "options": [
+                {
+                  "text": "Presigned URLs are more secure, because object storage automatically scans every uploaded object for malware before it becomes readable.",
+                  "correct": false
+                },
+                {
+                  "text": "ASP.NET Core cannot accept request bodies larger than about 30 MB, so any large file must bypass the application servers entirely.",
+                  "correct": false
+                },
+                {
+                  "text": "Presigned URLs let the client choose its own bucket and object key, which removes the need for server-side bookkeeping of uploads.",
+                  "correct": false
+                },
+                {
+                  "text": "Bytes go straight to storage, sparing app servers bandwidth and connections, while the API still authorises each upload with a short-lived, key-scoped URL.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The point is to offload the data path to a service built for it, while keeping the control path (who may upload, what key, how big, how long) in the API. Object storage does not scan for malware by default; scanning is something you add (quarantine bucket plus scanner). Kestrel's `MaxRequestBodySize` defaults to about 30 MB but is configurable, and ASP.NET Core can stream bodies without buffering; the reason for presigned URLs is efficiency and scalability, not a hard limit. The URL's signature covers a specific bucket, key, operation and expiry chosen by the server; letting clients pick keys would allow overwriting other users' objects, and the server still needs an upload record to track processing."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-file-upload-processing.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "file-upload",
+            "multipart-upload",
+            "s3",
+            "resumability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Users must upload video files of up to 20 GB over unreliable connections, directly to S3. What is the right approach?",
+              "options": [
+                {
+                  "text": "One presigned PUT URL with a long expiry (for example 24 hours), so that even slow, frequently interrupted connections have enough time to finish.",
+                  "correct": false
+                },
+                {
+                  "text": "Multipart upload: presign each part, upload parts in parallel, retry only failed parts, complete with the ETags, and expire abandoned uploads by lifecycle rule.",
+                  "correct": true
+                },
+                {
+                  "text": "Upload through the API in 1 MB base64-encoded chunks stored in the database, then assemble the final file in a background job and copy it to S3.",
+                  "correct": false
+                },
+                {
+                  "text": "Raise Kestrel's request body limit to 20 GB and stream the upload through the API to S3, so the API keeps full control over every byte.",
+                  "correct": false
+                }
+              ],
+              "explanation": "S3 caps a single PUT at 5 GB, so a 20 GB file must use multipart upload (parts of 5 MiB to 5 GiB, at most 10,000 parts). Multipart also brings what unreliable connections need: parallelism and resumption at part granularity instead of restarting from zero. Incomplete multipart uploads keep their stored parts (and cost) until aborted, hence the lifecycle rule. A single PUT cannot exceed 5 GB however long the URL lives, and any interruption restarts the whole transfer. Base64 chunks in a database inflate size by a third, put large objects into the relational store and route all bytes through the API, defeating the purpose. Streaming 20 GB through the API is possible but ties up app servers and connections for the whole transfer and still restarts from zero on failure."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-file-upload-processing.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "file-upload",
+            "event-driven",
+            "idempotency",
+            "async-processing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After a client uploads a file to object storage via a presigned URL, processing (scan, thumbnail) must start. Which trigger design is most robust?",
+              "options": [
+                {
+                  "text": "Rely solely on the client calling `POST /uploads/{id}/complete` after the last byte is sent; the API then validates the object and enqueues the job.",
+                  "correct": false
+                },
+                {
+                  "text": "Have a background worker list the bucket every few seconds and process any new objects it finds that do not yet have a processing record.",
+                  "correct": false
+                },
+                {
+                  "text": "Storage object-created events feed a queue consumed by idempotent workers; a client 'complete' call is an optional fast path, plus a sweeper for stale uploads.",
+                  "correct": true
+                },
+                {
+                  "text": "Start processing in the same API request that issues the presigned URL, waiting until the object appears in storage before responding.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The storage event fires whenever the object is actually written, independent of whether the client survives, and a queue gives durability and retries. Because notifications are at-least-once, workers must be idempotent (state machine on the upload record, conditional transitions). A sweeper catches records that never received an upload. Relying only on the client call loses work when the browser closes, the tab crashes or the network drops right after the last byte, leaving orphan files that are never processed. Polling bucket listings scales poorly with object count, adds latency and costs per request, and needs its own bookkeeping to avoid reprocessing. Waiting inside the request that issues the URL holds a server request open for the whole upload, which is precisely what presigned URLs were meant to avoid."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-file-upload-processing.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "polling",
+            "server-sent-events",
+            "websockets",
+            "status-updates"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The UI must show when an uploaded file has finished processing (typically 5–60 seconds). Which statement about polling vs push is accurate?",
+              "options": [
+                {
+                  "text": "Polling is simple and stateless but adds latency and requests; push is immediate but needs long-lived connections, and clients still need a status endpoint to resync.",
+                  "correct": true
+                },
+                {
+                  "text": "Server-Sent Events require a WebSocket connection underneath, so they carry the same infrastructure cost and proxy issues as WebSockets themselves.",
+                  "correct": false
+                },
+                {
+                  "text": "Polling never scales and should not be used in production systems; push is always preferable once more than a few hundred users are online.",
+                  "correct": false
+                },
+                {
+                  "text": "With WebSocket or SignalR push, a status endpoint is unnecessary, because the server delivers every state change to the client reliably and in order.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Both approaches are legitimate; the trade-off is latency and request volume (polling, mitigated by backoff and ETags) against connection state, backplanes and reconnect logic (push). Push is a notification mechanism, not a durable log: messages sent while a client is disconnected are lost, so the client must fetch current state on reconnect, which means the status endpoint exists either way. SSE is plain HTTP with a streaming `text/event-stream` response, one-directional and simpler than WebSockets, not built on them. Polling with sensible intervals scales well for short-lived jobs (many large services use it, and HTTP caching helps); dismissing it outright is dogma. SignalR does not guarantee delivery of messages across disconnects, so the 'no status endpoint' claim is false."
+            }
+          }
+        },
+        {
+          "id": "architecture.system-design.design-file-upload-processing.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "file-upload",
+            "system-design",
+            "presigned-urls",
+            "async-processing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design a feature where users upload files of up to several GB that are virus-scanned and then processed (thumbnails or parsing), with the UI showing the status until the result is available. Cover the upload path, processing pipeline, security and status updates.",
+              "explanation": "Model answer: the API authorises the upload, creates an upload record in `Pending` and returns a short-lived presigned URL (or SAS) for a server-generated key in a quarantine bucket; large files use multipart upload with per-part presigned URLs, parallel and resumable parts, and a lifecycle rule to abort incomplete uploads. Object-created events (plus an optional client 'complete' call) feed a queue; idempotent workers drive a state machine (`Uploaded → Scanning → Processing → Ready/Failed/Rejected`), with retries, a DLQ and a sweeper for stale pending uploads. Security: verify size and real content type server-side, scan before promoting to the clean bucket, keep buckets private and serve downloads with short-lived presigned GET URLs, and treat files as hostile input for parsers. Status: polling with backoff on `GET /uploads/{id}`, or SSE/SignalR push with polling or refetch as fallback, and webhooks for API clients; upload progress itself is tracked client-side.",
+              "rubric": [
+                "Uses presigned URLs or SAS tokens for direct-to-storage uploads with short expiry and server-generated keys, and multipart (resumable, parallel) upload for multi-GB files, including cleanup of incomplete uploads.",
+                "Models the upload as a persisted state machine (pending → uploaded → processing → ready/failed) and triggers processing reliably via storage events and a queue, not only via the client.",
+                "Makes workers idempotent and handles failures with retries, a dead-letter queue and a sweeper for abandoned or stuck uploads.",
+                "Covers security: quarantine plus malware scanning before files are served, validation of real size and type, private buckets with short-lived download URLs.",
+                "Compares polling and push (SSE/WebSockets/SignalR) for status, explains the trade-offs and keeps a status endpoint for resynchronisation."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

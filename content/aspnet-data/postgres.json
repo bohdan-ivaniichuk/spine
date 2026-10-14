@@ -1,0 +1,1598 @@
+{
+  "domain": "aspnet-data",
+  "topic": "postgres",
+  "concepts": [
+    {
+      "slug": "indexes",
+      "title": "Indexes: B-tree, Composite Order, Covering, Partial, GIN, and When Indexes Hurt",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Indexes: B-tree, Composite Order, Covering, Partial, GIN, and When Indexes Hurt",
+          "note": "## What it is\n\nAn index is a separate, redundant data structure that lets PostgreSQL find rows without reading the whole heap (the table file). Every index costs disk, memory in `shared_buffers`, and write amplification on every `INSERT`/`UPDATE`/`DELETE`, and the planner is free to ignore it. Index design is therefore a trade-off driven by the actual query shapes, not a checklist of \"index every foreign key and every filter column\".\n\n## How it works underneath\n\n- **B-tree** (the default) stores keys in sorted order in a balanced tree; leaf entries hold the key plus a TID (`ctid`, the physical row address). It supports `=`, `<`, `<=`, `>`, `>=`, `BETWEEN`, `IN`, `IS NULL`, prefix `LIKE 'abc%'` (only with the `C` collation or a `text_pattern_ops` index) and, because it is sorted, it can satisfy `ORDER BY` and `LIMIT` without a sort node, in either direction.\n- **Composite order matters.** An index on `(customer_id, created_at)` is sorted by `customer_id` first, then by `created_at` within each customer. It serves `WHERE customer_id = $1`, `WHERE customer_id = $1 AND created_at > $2`, and `WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 20` (a backward scan, no sort). For `WHERE created_at > $2` alone it is a poor fit: before PostgreSQL 18 the planner could only scan the whole index; PostgreSQL 18 added **B-tree skip scan**, which helps only when the leading column has few distinct values. Rule of thumb: equality columns first, then the range or sort column.\n- **Covering indexes** (`INCLUDE`, PostgreSQL 11+) store extra non-key columns in the leaf pages so the query can run as an **Index Only Scan**. Index-only scans still consult the **visibility map**: for pages not marked all-visible (recently modified, not yet vacuumed) the executor must visit the heap anyway, which `EXPLAIN ANALYZE` reports as `Heap Fetches`.\n- **Partial indexes** (`... WHERE status = 'open'`) index only the matching rows. They are small and cheap to maintain, but the planner uses one only when it can prove the query's `WHERE` implies the index predicate.\n- **Expression indexes** (`ON users (lower(email))`) are used only when the query contains exactly that expression. Wrapping an indexed column in a function, or comparing it to a value of a different type that forces a cast on the column, makes a plain index unusable.\n- **GIN** is an inverted index (element -> list of TIDs) for multi-valued data: `jsonb` containment and key existence, arrays, `tsvector`, trigrams via `pg_trgm`. **GiST/SP-GiST** cover ranges, geometry and nearest-neighbour search; **BRIN** stores min/max per block range and is tiny and effective for naturally ordered, append-only data such as time-series `created_at`; **Hash** supports only `=`.\n\n## When indexes hurt\n\n- **Writes.** Every index is updated on insert and on any non-HOT update. A **HOT** (heap-only tuple) update avoids touching indexes, but only when no indexed column changes and the new version fits on the same page; indexing a frequently updated column such as `last_seen_at` silently disables HOT for those updates and bloats every index on the table.\n- **Low selectivity.** If a predicate matches a large share of the table, random heap access through an index is slower than a sequential scan; the planner will (correctly) ignore the index.\n- **Bloat and memory.** Unused or duplicate indexes (an index on `(a)` next to one on `(a, b)`) compete for cache. Check `pg_stat_user_indexes.idx_scan` before keeping them.\n- **DDL locks.** `CREATE INDEX` blocks writes for its duration; production uses `CREATE INDEX CONCURRENTLY`, which takes longer, cannot run inside a transaction block and, on failure, leaves an `INVALID` index that must be dropped and rebuilt.\n\n## What an interviewer probes\n\n- Why the index on `(a, b)` is not used for `WHERE b = ?`, and what the column order should be for a given query.\n- Why a query still does a `Seq Scan` with a \"perfect\" index (selectivity, stale statistics, function on the column, type mismatch).\n- Covering vs partial vs expression indexes, and the visibility map caveat for index-only scans.\n- The write-side cost: HOT updates, fillfactor, how many indexes are too many on an OLTP table.\n- How to roll an index out safely (`CONCURRENTLY`, checking `indisvalid`).\n\n## Common misconceptions\n\n- \"Foreign keys are indexed automatically\" -- PostgreSQL indexes primary keys and unique constraints, not the referencing column; an unindexed FK makes `DELETE` on the parent scan the child table.\n- \"The planner always uses an index if one exists\" -- it costs both options and often prefers a seq scan.\n- \"`INCLUDE` columns can be used for filtering like key columns\" -- they are stored only in the leaves and cannot drive the search.\n- \"More indexes is safer\" -- each one slows writes and can disable HOT updates.\n\n## Example\n\n```sql\n-- Query: latest 20 open orders of a customer\nSELECT id, created_at, total\nFROM orders\nWHERE customer_id = $1 AND status = 'open'\nORDER BY created_at DESC\nLIMIT 20;\n\n-- Equality first, then the sort column; partial (only open orders);\n-- INCLUDE makes an index-only scan possible.\nCREATE INDEX CONCURRENTLY orders_open_customer_created_idx\n    ON orders (customer_id, created_at DESC)\n    INCLUDE (total)\n    WHERE status = 'open';\n\n-- Expression index for case-insensitive lookups; the query must use lower(email).\nCREATE UNIQUE INDEX CONCURRENTLY users_email_lower_uq ON users (lower(email));\nSELECT id FROM users WHERE lower(email) = lower($1);\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.indexes.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "indexes",
+            "btree",
+            "composite-index"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Table `orders` has a B-tree index on `(customer_id, created_at)` and no other secondary indexes. Which statement is true (PostgreSQL 16)?",
+              "options": [
+                {
+                  "text": "`WHERE created_at > now() - interval '1 day'` uses the index as efficiently as a dedicated index on `created_at`, because the planner can reorder the columns of a composite index.",
+                  "correct": false
+                },
+                {
+                  "text": "The index cannot serve `WHERE customer_id = 42` alone; that query needs its own single-column index on `customer_id`.",
+                  "correct": false
+                },
+                {
+                  "text": "Because the index is ascending on `created_at`, `ORDER BY created_at DESC` always requires an explicit sort after the index scan.",
+                  "correct": false
+                },
+                {
+                  "text": "`WHERE customer_id = 42 ORDER BY created_at DESC LIMIT 10` can be answered by scanning the index backwards and stopping after 10 entries, with no `Sort` node.",
+                  "correct": true
+                }
+              ],
+              "explanation": "A composite B-tree is sorted by `customer_id`, then by `created_at` within each customer, so fixing `customer_id` by equality yields entries already ordered by `created_at`; B-trees can be scanned in either direction, so the `DESC ... LIMIT 10` query reads ten leaf entries and stops, without a `Sort` node. The 'planner reorders columns' option is wrong: the order is physical; a predicate on only the second column cannot narrow the search range, so at best the planner scans the whole index (PostgreSQL 18's skip scan helps only when `customer_id` has few distinct values). The 'needs its own index on `customer_id`' option is wrong: a leading-column prefix is fully usable, which is why a single-column index on `customer_id` next to this one is usually redundant. The 'DESC always needs a sort' option is wrong because backward scans are supported; a `DESC` key only matters for mixed directions such as `ORDER BY a ASC, b DESC`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.indexes.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "indexes",
+            "partial-index"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You create `CREATE INDEX orders_open_idx ON orders (customer_id) WHERE status = 'open';`. The `status` column is `text` and only ever holds lowercase values. Which query can the planner answer with this index?",
+              "options": [
+                {
+                  "text": "`SELECT * FROM orders WHERE status = 'open' AND customer_id = 7 AND total > 100;`",
+                  "correct": true
+                },
+                {
+                  "text": "`SELECT * FROM orders WHERE customer_id = 7;`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT * FROM orders WHERE customer_id = 7 AND status IN ('open', 'pending');`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT * FROM orders WHERE customer_id = 7 AND lower(status) = 'open';`",
+                  "correct": false
+                }
+              ],
+              "explanation": "A partial index contains only rows satisfying its predicate, so the planner may use it only when it can prove that the query's `WHERE` clause implies `status = 'open'`; the last query contains that exact condition (order of conjuncts is irrelevant, and the extra `total > 100` is applied as a filter afterwards). The `customer_id = 7` query would miss non-open orders, so the index cannot answer it. The `IN ('open', 'pending')` query also needs `pending` rows, which the index does not contain. The `lower(status) = 'open'` query is logically equivalent given the data, but the planner's implication prover works on the expressions, not on what values happen to be stored, and it cannot prove `lower(status) = 'open'` implies `status = 'open'`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.indexes.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "indexes",
+            "covering-index",
+            "index-only-scan",
+            "vacuum"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You add `CREATE INDEX ON events (account_id) INCLUDE (kind, created_at);` so that `SELECT kind, created_at FROM events WHERE account_id = $1` can run as an index-only scan. `EXPLAIN (ANALYZE, BUFFERS)` shows `Index Only Scan using events_account_id_kind_created_at_idx` with `Heap Fetches: 48210` for 48,500 returned rows on a table with heavy insert/update traffic. What explains this?",
+              "options": [
+                {
+                  "text": "Columns in `INCLUDE` are stored only in the heap, so they always require a heap fetch; they must be key columns for a true index-only scan.",
+                  "correct": false
+                },
+                {
+                  "text": "Index-only scans must check row visibility; for heap pages not marked all-visible in the visibility map the executor fetches the heap tuple, and frequent writes plus infrequent vacuuming keep most pages not all-visible.",
+                  "correct": true
+                },
+                {
+                  "text": "`Heap Fetches` counts index pages read from disk rather than shared buffers, so it indicates a cold cache, not heap access.",
+                  "correct": false
+                },
+                {
+                  "text": "Index-only scans are disabled when the table has more than one index, so PostgreSQL silently falls back to regular index lookups.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Index entries carry no MVCC visibility information, so an index-only scan can skip the heap only for pages the visibility map marks all-visible (set by `VACUUM`); for every other page it visits the heap to check the tuple, counted as `Heap Fetches`. On a write-heavy table that autovacuum does not keep up with, that is nearly every row, so the plan degrades to a regular index scan; tuning autovacuum for that table (or vacuuming after bulk loads) fixes it. The 'INCLUDE columns live in the heap' option is wrong: `INCLUDE` columns are stored in the leaf tuples precisely to enable index-only scans; they just cannot be used as search keys. The 'cold cache' option misreads the metric: disk vs cache reads appear in the `Buffers: shared read/hit` line, not in `Heap Fetches`. The 'more than one index' option is invented; the number of indexes on a table has no effect on index-only scan eligibility."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.indexes.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "indexes",
+            "hot-update",
+            "write-amplification",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`sessions` (5 M rows, 4 indexes) receives ~3,000 `UPDATE sessions SET last_seen_at = now() WHERE id = $1` per second. To support a cleanup job you add `CREATE INDEX ON sessions (last_seen_at)`. Shortly after, update latency doubles, WAL volume jumps and all indexes on the table start to bloat. What is the most accurate explanation?",
+              "options": [
+                {
+                  "text": "Updates now hold an `ACCESS EXCLUSIVE` lock on the new index while it is maintained, serialising all writers.",
+                  "correct": false
+                },
+                {
+                  "text": "B-tree indexes on timestamp columns are rebuilt on every update because their keys change; switching to a BRIN index fixes the problem without any trade-off.",
+                  "correct": false
+                },
+                {
+                  "text": "Because the updated column is now indexed, the updates can no longer be HOT (heap-only tuple) updates, so each update inserts new entries into all five indexes instead of none.",
+                  "correct": true
+                },
+                {
+                  "text": "The new index makes the planner switch the `WHERE id = $1` lookup to a sequential scan, which explains the latency.",
+                  "correct": false
+                }
+              ],
+              "explanation": "PostgreSQL's MVCC writes a new tuple version for every update. If no indexed column changes and the new version fits on the same heap page, it is a HOT update: the new version is chained from the old one and no index is touched. Indexing `last_seen_at` breaks the first condition, so each update now writes a new entry into every index on the table (the primary key included), multiplying WAL, I/O and dead index entries; the usual fixes are not indexing a hot-updated column, moving it to a narrow side table, or reconsidering the cleanup query. The `ACCESS EXCLUSIVE` option is wrong: index maintenance takes no table-level lock beyond the `ROW EXCLUSIVE` an `UPDATE` already holds. The 'rebuilt on every update' option exaggerates (one entry per index is inserted, nothing is rebuilt) and the BRIN suggestion is not trade-off free (it is lossy and only useful for physically correlated data, although BRIN columns no longer block HOT since PostgreSQL 16). The 'switch to sequential scan' option is wrong: an extra index on another column does not change the cost of a primary-key equality lookup."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.indexes.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "indexes",
+            "index-design",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are asked to \"add the right indexes\" to a slow PostgreSQL table behind an ASP.NET Core API. How do you decide which indexes to create (type, column order, covering/partial/expression), how do you roll them out safely in production, and when would adding an index make things worse?",
+              "explanation": "Model answer: start from the real query shapes (`pg_stat_statements`, slow-query log, `EXPLAIN (ANALYZE, BUFFERS)`), not from the schema. For each hot query pick a B-tree with equality columns first and the range/sort column last so it can satisfy `ORDER BY ... LIMIT` without a sort; add `INCLUDE` columns when an index-only scan is worthwhile (remembering it depends on the visibility map, i.e. vacuum), a partial index when queries always target a small subset (`WHERE status = 'open'`, `WHERE deleted_at IS NULL`), and an expression index when the query filters on an expression such as `lower(email)`. Use GIN for `jsonb` containment, arrays, full-text and trigram search, BRIN for huge append-only time-ordered tables. Index FK columns that are joined or used for cascading deletes. Roll out with `CREATE INDEX CONCURRENTLY` (outside a transaction, so a separate migration step), verify `indisvalid`, confirm with `EXPLAIN` that the plan changed, and later drop unused indexes found via `pg_stat_user_indexes.idx_scan`. Indexes hurt on write-heavy tables: each one adds write amplification and WAL, indexing a frequently updated column disables HOT updates, redundant indexes waste cache, and an index on a low-selectivity column will simply be ignored by the planner.",
+              "rubric": [
+                "Starts from measured query shapes (`pg_stat_statements`, slow log, `EXPLAIN (ANALYZE, BUFFERS)`) rather than indexing every column or FK by reflex.",
+                "Explains composite column order: equality predicates first, then the range or `ORDER BY` column, so the index can also serve `ORDER BY ... LIMIT` without a sort; notes that a predicate only on a non-leading column cannot use the index efficiently.",
+                "Correctly applies at least three specialised forms with their conditions: `INCLUDE`/index-only scan (needs the visibility map, i.e. vacuum), partial index (query must imply the predicate), expression index (query must use the same expression), and GIN/BRIN for the data types they fit.",
+                "Describes safe rollout: `CREATE INDEX CONCURRENTLY` outside a transaction block, checking for and dropping an `INVALID` index after a failure, verifying the new plan, and removing unused indexes via `pg_stat_user_indexes`.",
+                "Names concrete costs of indexes: write amplification and WAL, lost HOT updates when an indexed column is updated frequently, bloat and cache pressure, and being ignored for low-selectivity predicates."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "explain-analyze",
+      "title": "EXPLAIN ANALYZE: Reading Plans, Seq vs Index Scan, Estimated vs Actual Rows",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "EXPLAIN ANALYZE: Reading Plans, Seq vs Index Scan, Estimated vs Actual Rows",
+          "note": "## What it is\n\n`EXPLAIN` shows the plan the optimizer chose for a statement: a tree of nodes (scans, joins, sorts, aggregates) with **estimated** costs and row counts. `EXPLAIN ANALYZE` **executes** the statement and adds the **actual** time, rows and loop counts per node; `BUFFERS` adds how many 8 kB pages each node found in `shared_buffers` (`hit`) or had to read (`read`). Since PostgreSQL 18, `EXPLAIN ANALYZE` includes buffer statistics by default. Reading plans is the core skill behind every \"this endpoint is slow\" investigation.\n\n## How it works underneath\n\nThe planner enumerates access paths and join orders, estimates each node's row count from statistics in `pg_statistic` (most common values, histograms, `n_distinct`, null fraction, gathered by `ANALYZE`/autovacuum), and prices it with cost constants (`seq_page_cost = 1`, `random_page_cost = 4`, `cpu_tuple_cost`, ...). The cheapest total plan wins. Everything therefore hinges on **row estimates**: a wrong estimate early in the tree propagates upwards and leads to the wrong join algorithm or join order.\n\nReading a node:\n\n```text\nIndex Scan using orders_customer_idx on orders  (cost=0.43..8.45 rows=3 width=48)\n                                                (actual time=0.021..0.034 rows=4 loops=2500)\n  Index Cond: (customer_id = c.id)\n  Buffers: shared hit=9875 read=125\n```\n\n- `cost=startup..total` is in arbitrary planner units, not milliseconds; `rows` and `width` are estimates.\n- `actual time=first..last` is in milliseconds **per loop**, and `rows` is the **average per loop**. Multiply by `loops`: this inner side of a nested loop returned about 10,000 rows and took about 85 ms in total.\n- `Rows Removed by Filter` reveals predicates applied after fetching rows, i.e. work the index did not do.\n- Plans read inside-out: the deepest, most indented nodes run first and feed their parents.\n\nCommon nodes and what they suggest:\n\n- **Seq Scan** -- reads the whole table. Correct for small tables or predicates matching a large fraction of rows; suspicious when it returns a handful of rows from millions (`Rows Removed by Filter` is huge).\n- **Index Scan / Index Only Scan** -- B-tree traversal plus heap access (or not, with `Heap Fetches` showing visibility-map misses).\n- **Bitmap Index Scan + Bitmap Heap Scan** -- collects matching TIDs, then reads heap pages in physical order; the middle ground for medium selectivity, and the way several indexes are combined (`BitmapAnd`/`BitmapOr`). `Recheck Cond` and `lossy` blocks appear when the bitmap exceeds `work_mem`.\n- **Nested Loop** -- great when the outer side is small and the inner side is an index lookup; catastrophic when the planner expected 1 outer row and got 50,000.\n- **Hash Join** -- builds a hash table on the smaller input; `Batches > 1` means it spilled to disk.\n- **Merge Join** -- both inputs sorted on the join key.\n- **Sort** -- `Sort Method: external merge Disk: 210000kB` means `work_mem` was too small; `top-N heapsort` means a `LIMIT` helped.\n\n## Diagnosing\n\n1. Find the node where most time is spent (exclusive of its children).\n2. Compare estimated vs actual rows on every node; a 10x+ mismatch is the usual root cause.\n3. Fix the cause, not the symptom: run `ANALYZE` (stale stats after bulk loads), raise `ALTER TABLE ... ALTER COLUMN ... SET STATISTICS` for skewed columns, add `CREATE STATISTICS` (dependencies, ndistinct, mcv) for correlated columns such as `(city, zip_code)`, rewrite non-sargable predicates (`date(created_at) = ...` -> range), or add the missing index.\n4. On SSD-backed servers, `random_page_cost` near 1.1 is often more realistic than the default 4.\n\n## What an interviewer probes\n\n- `EXPLAIN` vs `EXPLAIN ANALYZE` -- and that the latter really runs `INSERT`/`UPDATE`/`DELETE` (wrap in `BEGIN ... ROLLBACK`).\n- Why the planner chose a seq scan although an index exists.\n- Multiplying per-loop numbers by `loops`; spotting estimate/actual mismatches.\n- When to reach for `enable_*` settings: only as a diagnostic in a session, never as a production fix.\n- Getting the plan of a query issued by EF Core: log the SQL (or `ToQueryString()`), then run `EXPLAIN` with the same parameter values; `auto_explain` captures plans of slow statements on the server.\n\n## Common misconceptions\n\n- \"`cost` is milliseconds\" -- it is a unitless planner estimate.\n- \"`EXPLAIN ANALYZE` updates statistics\" -- that is the separate `ANALYZE` command.\n- \"Seq scan means a missing index\" -- often the seq scan is the cheapest plan.\n- \"`actual rows` is the total\" -- it is per loop.\n\n## Example\n\n```sql\nBEGIN;\nEXPLAIN (ANALYZE, BUFFERS, SETTINGS)\nDELETE FROM sessions WHERE last_seen_at < now() - interval '30 days';\nROLLBACK;  -- EXPLAIN ANALYZE executed the DELETE; roll it back\n\n-- Correlated columns: let the planner know zip_code determines city\nCREATE STATISTICS addr_city_zip (dependencies) ON city, zip_code FROM addresses;\nANALYZE addresses;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.explain-analyze.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "explain",
+            "query-plans",
+            "dml"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A colleague runs `EXPLAIN ANALYZE DELETE FROM audit_log WHERE created_at < '2024-01-01';` on production \"just to see the plan\". Which statement is true?",
+              "options": [
+                {
+                  "text": "Nothing is deleted: `EXPLAIN ANALYZE` only plans the statement and refreshes the table statistics used for the estimates.",
+                  "correct": false
+                },
+                {
+                  "text": "The `DELETE` is executed and, under autocommit, committed; `EXPLAIN ANALYZE` runs the statement to measure actual times and rows, so DML must be wrapped in `BEGIN ... ROLLBACK`.",
+                  "correct": true
+                },
+                {
+                  "text": "The `DELETE` runs, but `EXPLAIN` always executes inside an implicit transaction that is rolled back afterwards, so the data is safe.",
+                  "correct": false
+                },
+                {
+                  "text": "`EXPLAIN ANALYZE` refuses to run data-modifying statements unless `SET explain_dml = on` is issued first.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`EXPLAIN` alone only plans; adding `ANALYZE` actually executes the statement so it can report actual times, rows and loops, and with autocommit that `DELETE` is committed. The safe pattern for DML is `BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;`. The 'refreshes statistics' option confuses the `ANALYZE` option of `EXPLAIN` with the separate `ANALYZE` command that samples tables into `pg_statistic`; `EXPLAIN ANALYZE` neither skips execution nor updates statistics. The 'implicit rollback' option is wrong: there is no such protection; the statement behaves exactly as if run normally. The `explain_dml` setting does not exist; PostgreSQL happily executes DML under `EXPLAIN ANALYZE`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.explain-analyze.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "explain",
+            "query-plans",
+            "nested-loop",
+            "loops"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Part of an `EXPLAIN (ANALYZE, BUFFERS)` output:\n\n```text\nNested Loop  (cost=0.86..1250.40 rows=120 width=64) (actual time=0.040..412.900 rows=96000 loops=1)\n  ->  Index Scan using customers_region_idx on customers c  (cost=0.43..95.10 rows=40 width=16) (actual time=0.020..18.300 rows=32000 loops=1)\n        Index Cond: (region = 'EU')\n  ->  Index Scan using orders_customer_idx on orders o  (cost=0.43..28.80 rows=3 width=48) (actual time=0.009..0.011 rows=3 loops=32000)\n        Index Cond: (customer_id = c.id)\n```\n\nWhich reading is correct?",
+              "options": [
+                {
+                  "text": "The inner `orders` scan is cheap: it took 0.011 ms and returned 3 rows in total, so the bottleneck must be the outer scan's 18.3 ms.",
+                  "correct": false
+                },
+                {
+                  "text": "The plan is optimal because both sides use an index scan; index scans are always faster than a hash join, so only adding memory would help.",
+                  "correct": false
+                },
+                {
+                  "text": "The inner scan's figures are per loop: it ran 32,000 times, returned about 96,000 rows and took roughly 350 ms overall; the root cause is the outer estimate of 40 rows vs 32,000 actual, which made a nested loop look cheap.",
+                  "correct": true
+                },
+                {
+                  "text": "The `cost` of 1250.40 means the planner predicted about 1.25 seconds, so the plan ran faster than expected and needs no change.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`actual time` and `rows` are averages per loop, so the inner scan returned about 3 x 32,000 = 96,000 rows and spent about 0.011 ms x 32,000 = 352 ms, most of the 413 ms total. The real defect is upstream: the planner expected 40 EU customers and got 32,000; at 40 iterations a nested loop with an index lookup is the cheapest plan, at 32,000 a hash join on `orders` would be far better. The fix is better statistics for `region` (`ANALYZE`, a higher statistics target, or extended statistics if it correlates with another filtered column). The 'inner scan is cheap' option ignores the `loops` multiplier. The 'index scans are always faster' option is wrong: thousands of random index probes lose to one sequential pass plus hashing at this volume, and memory is not the constraint here. The 'cost is milliseconds' option is wrong: cost is in unitless planner units and cannot be compared with actual time."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.explain-analyze.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "explain",
+            "seq-scan",
+            "selectivity",
+            "planner"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`tickets` has 2 M rows and a B-tree index on `status`. `EXPLAIN ANALYZE SELECT * FROM tickets WHERE status = 'closed'` shows a `Seq Scan` returning 1.4 M rows, with estimated rows close to the actual count. Why does the planner ignore the index?",
+              "options": [
+                {
+                  "text": "Because the index is probably corrupted or invalid; a valid index on a filtered column is always used, so it should be rebuilt with `REINDEX`.",
+                  "correct": false
+                },
+                {
+                  "text": "Because `SELECT *` prevents index usage; selecting only indexed columns would force an Index Scan.",
+                  "correct": false
+                },
+                {
+                  "text": "Because statistics are stale; running `ANALYZE tickets` will make the planner switch to the index.",
+                  "correct": false
+                },
+                {
+                  "text": "Because the predicate matches about 70% of the table; reading the whole table sequentially is cheaper than 1.4 M index lookups followed by random heap reads, so the seq scan is the correct choice.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The planner compares costs: an index scan pays a B-tree descent plus a mostly random heap read per matching row, while a seq scan reads every page once in sequential order. With 70% of rows matching and estimates already accurate, the seq scan is genuinely cheaper; a low-selectivity column like `status` is a poor index candidate except as a partial index for the rare values (`WHERE status = 'open'`). The 'corrupted index' option assumes a valid index is always used, which is false. The `SELECT *` option is wrong: the column list affects only whether an index-only scan is possible, and even an index-only scan over 70% of the table would rarely beat a seq scan here. The stale statistics option is ruled out by the question: estimated and actual row counts already match, so `ANALYZE` would not change the decision."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.explain-analyze.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "explain",
+            "statistics",
+            "estimates",
+            "extended-statistics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A query filters `WHERE city = 'Kyiv' AND zip_code = '01001'` on `addresses`. The plan shows `rows=3` estimated vs `rows=4100` actual on that scan, which then drives a nested loop that takes seconds. Statistics are fresh. Which fix addresses the root cause?",
+              "options": [
+                {
+                  "text": "`CREATE STATISTICS addr_city_zip (dependencies) ON city, zip_code FROM addresses; ANALYZE addresses;` so the planner stops multiplying the two selectivities as if the columns were independent.",
+                  "correct": true
+                },
+                {
+                  "text": "`SET enable_nestloop = off;` in `postgresql.conf`, so the planner can never pick a nested loop for this kind of query again.",
+                  "correct": false
+                },
+                {
+                  "text": "Increase `work_mem` so that the nested loop can keep the inner relation in memory.",
+                  "correct": false
+                },
+                {
+                  "text": "Run `VACUUM FULL addresses` to rewrite the table and reset its statistics.",
+                  "correct": false
+                }
+              ],
+              "explanation": "By default the planner assumes column predicates are independent and multiplies their selectivities; a zip code almost determines the city, so the product drastically underestimates the row count. Extended statistics (`CREATE STATISTICS ... (dependencies)`, optionally `ndistinct`/`mcv`) teach it the functional dependency, after `ANALYZE` the estimate becomes realistic and the planner picks a suitable join. Disabling nested loops globally hides the symptom for this query and harms every query where a nested loop is the right choice; `enable_*` settings are diagnostic tools for a session. `work_mem` affects sorts, hashes and bitmaps, not the per-row cost of a nested loop driven by a wrong estimate. `VACUUM FULL` rewrites the table and takes an `ACCESS EXCLUSIVE` lock but does nothing about the independence assumption; statistics were already fresh."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.explain-analyze.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "explain",
+            "query-plans",
+            "performance",
+            "diagnostics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An endpoint backed by a single EF Core query became slow in production. Walk me through how you capture and read its execution plan in PostgreSQL: what you run, which parts of the `EXPLAIN` output you look at first, what typical problems look like in the plan, and how you fix the root cause rather than the symptom.",
+              "explanation": "Model answer: capture the exact SQL and parameter values (EF Core logging or `ToQueryString()`, or `pg_stat_statements` / `auto_explain` on the server), then run `EXPLAIN (ANALYZE, BUFFERS)` with the same values, wrapping DML in `BEGIN ... ROLLBACK` because `ANALYZE` executes it. Read the tree inside-out, find the node with the largest exclusive time, remembering that `actual time` and `rows` are per loop and must be multiplied by `loops`, and compare estimated vs actual rows on each node; a large mismatch usually explains a bad join choice (nested loop over thousands of rows). Typical signatures: `Seq Scan` with a huge `Rows Removed by Filter` (missing or unusable index, non-sargable predicate such as a function on the column or a type cast), `Sort Method: external merge Disk` or hash `Batches > 1` (insufficient `work_mem`), `Index Only Scan` with many `Heap Fetches` (vacuum lagging), high `shared read` (cold or oversized working set). Fix causes: add or reshape an index, rewrite the predicate, `ANALYZE` or raise the statistics target, `CREATE STATISTICS` for correlated columns, adjust `work_mem` per role or query, tune autovacuum; use `enable_*` only to test hypotheses in a session. Verify with a new plan and watch the query in `pg_stat_statements` afterwards.",
+              "rubric": [
+                "Captures the real SQL with real parameter values (EF Core logging/`ToQueryString()`, `pg_stat_statements`, or `auto_explain`) and runs `EXPLAIN (ANALYZE, BUFFERS)`, noting that `ANALYZE` executes the statement so DML is wrapped in a rolled-back transaction.",
+                "Reads the plan correctly: inside-out, per-loop `actual time`/`rows` multiplied by `loops`, cost as unitless estimate, and finds the node with the largest exclusive time.",
+                "Uses estimated-vs-actual row mismatches as the primary diagnostic and connects them to wrong join algorithms or join order.",
+                "Recognises at least three plan signatures and their causes, e.g. seq scan with large `Rows Removed by Filter`, sort/hash spilling to disk (`work_mem`), index-only scan with many `Heap Fetches`, large `shared read` counts.",
+                "Proposes root-cause fixes (index, sargable rewrite, `ANALYZE`/statistics target/`CREATE STATISTICS`, autovacuum or `work_mem` tuning) and rejects global `enable_*` toggles or hints as production fixes, then verifies with a new plan."
+              ]
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "aspnet-data.postgres.explain-analyze.kata.1",
+          "title": "Diagnose and fix a slow query plan",
+          "language": "sql",
+          "reviewed": false,
+          "timeLimitMinutes": 30,
+          "translations": {
+            "en": {
+              "task": "You are given this table (PostgreSQL 16, ~10 M rows, statistics fresh), its only indexes, an API query and its plan.\n\n```sql\nCREATE TABLE orders (\n    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    customer_id bigint      NOT NULL,\n    status      text        NOT NULL CHECK (status IN ('open', 'paid', 'shipped', 'cancelled')),\n    created_at  timestamptz NOT NULL,\n    total       numeric(12,2) NOT NULL\n);\nCREATE INDEX orders_status_idx ON orders (status);\n\n-- Query issued by the API (EF Core translated a case-insensitive comparison):\nSELECT id, created_at, total\nFROM orders\nWHERE customer_id = 4711\n  AND lower(status) = 'open'\n  AND created_at::date >= DATE '2026-01-01'\nORDER BY created_at DESC\nLIMIT 20;\n```\n\n```text\nLimit  (cost=236102.44..236102.45 rows=1 width=26) (actual time=1912.408..1912.415 rows=20 loops=1)\n  Buffers: shared hit=2112 read=81240\n  ->  Sort  (cost=236102.44..236102.45 rows=1 width=26) (actual time=1912.406..1912.410 rows=20 loops=1)\n        Sort Key: created_at DESC\n        Sort Method: top-N heapsort  Memory: 27kB\n        ->  Seq Scan on orders  (cost=0.00..236102.43 rows=1 width=26) (actual time=0.044..1911.870 rows=61 loops=1)\n              Filter: ((customer_id = 4711) AND (lower(status) = 'open'::text) AND ((created_at)::date >= '2026-01-01'::date))\n              Rows Removed by Filter: 9999939\nPlanning Time: 0.210 ms\nExecution Time: 1912.470 ms\n```\n\nDeliver a single SQL script containing:\n\n1. **Diagnosis** as SQL comments: what each node tells you, why `orders_status_idx` is not used, why there is a `Sort` node, what the `Buffers` line means, and why the row estimate (`rows=1`) differs from the actual 61.\n2. **A rewritten query** with the same result semantics (status values are always lowercase, enforced by the `CHECK`; the date filter means \"created on or after 2026-01-01 in the session time zone\").\n3. **The index DDL** you would deploy to production for this query, safe for a live table, plus one sentence on whether `orders_status_idx` should stay.\n4. **The expected plan shape** after your change, as a comment (node types, whether a sort remains, roughly how many buffers).\n\nConstraints: no planner hints or `enable_*` settings; no schema changes other than indexes; PostgreSQL 16 features only.",
+              "rubric": [
+                "Correctly diagnoses the plan: seq scan over the whole table (Rows Removed by Filter, Buffers as 8 kB pages hit/read), `orders_status_idx` unusable because of `lower(status)` and low selectivity, no index on `customer_id`, and the sort caused by unordered seq-scan output.",
+                "Explains the estimate (`rows=1` vs 61) as missing statistics for the expressions plus the independence assumption, rather than calling it a bug.",
+                "Rewrites the predicates to be sargable with identical semantics: `status = 'open'` instead of `lower(status)`, and a `created_at >= <timestamptz boundary>` range instead of `created_at::date >= ...`, acknowledging the time zone semantics.",
+                "Proposes an index with equality column first and the sort column next (`customer_id, created_at DESC`), partial on `status = 'open'` or with `status` as a key column, optionally `INCLUDE` for an index-only scan, created with `CREATE INDEX CONCURRENTLY` and a validity check.",
+                "Predicts the new plan correctly: Limit over an Index Scan (or Index Only Scan) with no Sort node and a handful of buffers, and addresses whether to drop the low-value `orders_status_idx` based on `pg_stat_user_indexes`."
+              ],
+              "referenceSolution": "-- 1. DIAGNOSIS\n-- * Seq Scan on orders: all ~83k pages (shared hit=2112 + read=81240, 8 kB each, ~650 MB) were read to keep\n--   61 rows; \"Rows Removed by Filter: 9999939\" shows the filter, not an index, did all the work.\n-- * orders_status_idx is unusable: the query filters on lower(status), an expression; a plain index on status\n--   only matches predicates on the bare column. Even if it matched, status has 4 values (low selectivity), so\n--   it would not narrow 10 M rows enough. Nothing indexes customer_id at all.\n-- * created_at::date >= ... is non-sargable for any index on created_at (cast applied to the column), and the\n--   cast to date also depends on the TimeZone setting.\n-- * The Sort node exists because rows come out of a seq scan in physical order; \"top-N heapsort\" is cheap here\n--   (only 61 rows survive), so the cost is the scan, not the sort.\n-- * rows=1 vs 61: the planner has no statistics for the expressions lower(status) and created_at::date, so it\n--   uses default selectivities and multiplies them with customer_id's estimate as if independent. The\n--   misestimate is harmless here (a seq scan is the only option) but would mislead join choices upstream.\n\n-- 2. REWRITTEN QUERY (same semantics: status is always lowercase; the date boundary is midnight in the\n--    session time zone, which is exactly what the ::date comparison meant)\nSELECT id, created_at, total\nFROM orders\nWHERE customer_id = 4711\n  AND status = 'open'\n  AND created_at >= DATE '2026-01-01'::timestamptz   -- midnight 2026-01-01 in the session TimeZone\nORDER BY created_at DESC\nLIMIT 20;\n-- In EF Core: compare o.Status == \"open\" (no ToLower()), and pass a DateTimeOffset/DateTime(UTC) boundary\n-- computed in the application instead of filtering on the date part of the column.\n\n-- 3. INDEX DDL (non-blocking for writes; must run outside a transaction block, i.e. its own migration step)\nCREATE INDEX CONCURRENTLY orders_open_customer_created_idx\n    ON orders (customer_id, created_at DESC)\n    INCLUDE (id, total)\n    WHERE status = 'open';\n-- Equality column first, then the ORDER BY column, so the index returns rows already in the requested\n-- order and the LIMIT stops after 20 entries. The partial predicate keeps the index small (only open\n-- orders) and matches the query's status = 'open' exactly. INCLUDE (id, total) puts every selected column\n-- in the index, enabling an Index Only Scan when the heap pages are all-visible (drop it if write cost matters\n-- more than the last few heap reads).\n-- If other statuses are queried the same way, use a full composite index instead:\n--   CREATE INDEX CONCURRENTLY orders_customer_status_created_idx ON orders (customer_id, status, created_at DESC);\n-- After the build: SELECT indisvalid FROM pg_index WHERE indexrelid = 'orders_open_customer_created_idx'::regclass;\n-- If it failed and is INVALID: DROP INDEX CONCURRENTLY ... and retry.\n--\n-- orders_status_idx: check pg_stat_user_indexes.idx_scan; on a 4-value column it is almost never chosen and\n-- only costs writes, so drop it (DROP INDEX CONCURRENTLY) unless another query proves it useful.\n\n-- 4. EXPECTED PLAN\n-- Limit  (actual rows=20 loops=1)\n--   ->  Index Only Scan using orders_open_customer_created_idx on orders  (actual rows=20 loops=1)\n--         Index Cond: ((customer_id = 4711) AND (created_at >= '2026-01-01 00:00:00+..'::timestamptz))\n--   Buffers: a few dozen pages at most (index descent + up to 20 heap pages), execution well under 1 ms.\n-- No Sort node: the index order (created_at DESC within customer_id) already matches ORDER BY, and the\n-- LIMIT stops the scan early. Because of INCLUDE (id, total), on a well-vacuumed table it is an\n-- Index Only Scan with Heap Fetches near 0; with many recently modified pages it behaves like an Index Scan.\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "isolation-levels",
+      "title": "Isolation Levels: MVCC, Read Committed vs Repeatable Read vs Serializable, SELECT FOR UPDATE",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Isolation Levels: MVCC, Read Committed vs Repeatable Read vs Serializable, SELECT FOR UPDATE",
+          "note": "## What it is\n\nAn isolation level defines which effects of concurrent transactions a transaction may observe. PostgreSQL implements isolation with **MVCC** (multi-version concurrency control): writers create new row versions instead of overwriting, readers see a consistent **snapshot**, and so readers never block writers and writers never block readers. Only writers competing for the same row wait for each other.\n\nPostgreSQL accepts the four SQL-standard levels but implements three: `READ UNCOMMITTED` behaves exactly like `READ COMMITTED`, so **dirty reads never happen**.\n\n## How it works underneath\n\nEach row version (tuple) carries `xmin` (the creating transaction id) and `xmax` (the deleting/locking one). A snapshot records which transactions were committed when it was taken; a tuple is visible if its `xmin` committed before the snapshot and its `xmax` did not. An `UPDATE` is a delete plus insert of a new version; old versions become dead tuples that `VACUUM` reclaims once no snapshot can still see them, which is why a long-running transaction causes table bloat.\n\n- **Read Committed** (default): every **statement** takes a fresh snapshot. Two identical `SELECT`s in one transaction can return different rows (non-repeatable reads, phantoms). When an `UPDATE`, `DELETE` or `SELECT ... FOR UPDATE` hits a row that a concurrent transaction has modified, it waits for that transaction; if it commits, PostgreSQL re-checks the `WHERE` clause against the **newest** version and proceeds with it. This makes `UPDATE t SET n = n + 1` safe, but an application-side read-modify-write (`SELECT`, compute in C#, `UPDATE SET n = @computed`) loses updates.\n- **Repeatable Read**: one snapshot for the whole transaction, taken at its first statement. PostgreSQL's implementation is snapshot isolation, stronger than the standard requires: no non-repeatable reads **and no phantoms**. If the transaction tries to update or lock a row changed by a transaction that committed after its snapshot, it fails with `40001 could not serialize access due to concurrent update`, which prevents lost updates. It still allows **write skew**: two transactions read overlapping data, each writes a *different* row based on what it read, and both commit, breaking an invariant neither violated alone.\n- **Serializable**: snapshot isolation plus **SSI** (Serializable Snapshot Isolation, since 9.1). PostgreSQL tracks read/write dependencies with predicate locks (`SIReadLock`, which never block) and aborts one transaction with `40001` when a dangerous cycle appears. The result is equivalent to some serial order. False positives exist, so throughput drops under contention, and **every** transaction must be retryable.\n\n| Anomaly | Read Committed | Repeatable Read | Serializable |\n|---|---|---|---|\n| Dirty read | no | no | no |\n| Non-repeatable read | yes | no | no |\n| Phantom read | yes | no (PostgreSQL) | no |\n| Lost update (app read-modify-write) | yes | no (40001) | no (40001) |\n| Write skew | yes | yes | no (40001) |\n\n## Explicit row locking\n\n`SELECT ... FOR UPDATE` (also `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE`) locks the returned rows until the transaction ends, so read-modify-write sequences in Read Committed become safe without raising the isolation level. `NOWAIT` errors instead of waiting; `SKIP LOCKED` skips locked rows (queue consumers). Locking reads cannot protect rows that do not exist yet, which is where write skew on \"check that nothing conflicts, then insert\" needs Serializable, a unique/exclusion constraint, or locking a parent row.\n\n## What an interviewer probes\n\n- The default level and what anomalies it allows; why PostgreSQL has no dirty reads.\n- The lost-update scenario and the three fixes: atomic `UPDATE`, `SELECT ... FOR UPDATE`, or a higher level / optimistic concurrency with retry.\n- Write skew (the on-call doctors example) and why only Serializable or a constraint prevents it.\n- Handling `40001`: retry the **whole** transaction, not the failed statement; keep transactions short; ensure side effects (emails, HTTP calls) happen after commit.\n- .NET specifics: `BeginTransactionAsync(IsolationLevel.X)`; `TransactionScope` defaults to `Serializable`, a frequent surprise.\n\n## Common misconceptions\n\n- \"Wrapping statements in a transaction prevents lost updates\" -- not at Read Committed.\n- \"Repeatable Read in PostgreSQL allows phantoms, like the standard says\" -- it does not, but it allows write skew.\n- \"Serializable takes table locks\" -- SSI uses non-blocking predicate locks and aborts instead of blocking.\n- \"A serialization failure is a bug\" -- it is the contract; the client must retry.\n\n## Example\n\n```csharp\n// Retry the whole unit of work on serialization failure (40001) or deadlock (40P01).\nasync Task<T> InSerializableTxAsync<T>(NpgsqlDataSource db, Func<NpgsqlConnection, NpgsqlTransaction, Task<T>> work,\n                                       CancellationToken ct, int maxAttempts = 5)\n{\n    for (var attempt = 1; ; attempt++)\n    {\n        await using var conn = await db.OpenConnectionAsync(ct);\n        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.Serializable, ct);\n        try\n        {\n            var result = await work(conn, tx);\n            await tx.CommitAsync(ct);\n            return result;\n        }\n        catch (PostgresException ex) when (\n            ex.SqlState is PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected\n            && attempt < maxAttempts)\n        {\n            await Task.Delay(TimeSpan.FromMilliseconds(Random.Shared.Next(10, 50) * attempt), ct);\n        }\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.isolation-levels.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "transactions",
+            "isolation",
+            "read-committed",
+            "mvcc"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A transaction runs at PostgreSQL's default isolation level and executes `SELECT count(*) FROM orders WHERE status = 'open'` twice, with some application work in between. Meanwhile another transaction inserts an open order and commits. Which statement is true?",
+              "options": [
+                {
+                  "text": "Both `SELECT`s return the same count, because PostgreSQL's default level takes a snapshot when the transaction begins.",
+                  "correct": false
+                },
+                {
+                  "text": "The second `SELECT` can return a higher count: the default level is Read Committed, where each statement takes a new snapshot and sees all commits that happened before it started.",
+                  "correct": true
+                },
+                {
+                  "text": "The second `SELECT` can even see the other transaction's insert before it commits, because PostgreSQL's default level permits dirty reads for performance.",
+                  "correct": false
+                },
+                {
+                  "text": "The inserting transaction blocks until the first transaction ends, because the first transaction's `SELECT` holds a shared lock on the rows it read.",
+                  "correct": false
+                }
+              ],
+              "explanation": "PostgreSQL defaults to Read Committed, where each statement gets its own snapshot, so the second `SELECT` sees the newly committed row (a phantom). The 'snapshot at transaction start' option describes Repeatable Read, which must be requested explicitly. The dirty-read option is wrong: PostgreSQL never exposes uncommitted data at any level; even `READ UNCOMMITTED` behaves like Read Committed. The shared-lock option describes lock-based implementations; under MVCC a plain `SELECT` takes no row locks (only an `ACCESS SHARE` table lock that does not conflict with `INSERT`), so readers and writers do not block each other."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.isolation-levels.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "transactions",
+            "isolation",
+            "lost-update",
+            "select-for-update"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Two concurrent requests withdraw money from the same account at Read Committed:\n\n```csharp\nvar balance = await conn.ExecuteScalarAsync<decimal>(\n    \"SELECT balance FROM accounts WHERE id = @id\", new { id }, tx);\nif (balance < amount) throw new InsufficientFundsException();\nawait conn.ExecuteAsync(\n    \"UPDATE accounts SET balance = @newBalance WHERE id = @id\", new { id, newBalance = balance - amount }, tx);\nawait tx.CommitAsync();\n```\n\nBoth read 100, withdraw 70 each, and both succeed, leaving 30. Which change fixes the lost update?",
+              "options": [
+                {
+                  "text": "Nothing is needed in the SQL; the bug is that the two statements are not in a transaction. Wrapping them in `BeginTransactionAsync()` at the default level prevents the interleaving.",
+                  "correct": false
+                },
+                {
+                  "text": "Switch the transaction to `IsolationLevel.RepeatableRead`; PostgreSQL then makes the second request wait and re-read the balance as 30, so it throws `InsufficientFundsException` with no other code change.",
+                  "correct": false
+                },
+                {
+                  "text": "Replace the pair with one atomic statement, `UPDATE accounts SET balance = balance - @amount WHERE id = @id AND balance >= @amount`, and treat 0 affected rows as insufficient funds (or lock the row first with `SELECT ... FOR UPDATE`).",
+                  "correct": true
+                },
+                {
+                  "text": "Use `IsolationLevel.ReadUncommitted` so each request sees the other's in-flight withdrawal before computing the new balance.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The atomic `UPDATE` moves the check and the write into one statement: the second transaction waits for the first one's row lock, then Read Committed re-evaluates `balance >= @amount` against the committed version (30) and updates nothing, so the application sees 0 rows affected. `SELECT ... FOR UPDATE` achieves the same by serialising the read-modify-write. The 'just add a transaction' option is the core misconception: the code already uses a transaction, and at Read Committed a plain `SELECT` takes no row lock, so both read 100. Repeatable Read does prevent the lost update, but not transparently: the second `UPDATE` fails with `40001 could not serialize access due to concurrent update`, and without a retry loop the request just errors. `READ UNCOMMITTED` is treated as Read Committed in PostgreSQL, and even dirty reads would not make the check-then-write atomic."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.isolation-levels.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "transactions",
+            "write-skew",
+            "serializable",
+            "ssi"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Invariant: at least one doctor must be on call. Alice and Bob are both on call. Two transactions run concurrently at **Repeatable Read**; each executes `SELECT count(*) FROM doctors WHERE on_call` (sees 2), then sets **its own** row `on_call = false` and commits. What happens, and what prevents it?",
+              "options": [
+                {
+                  "text": "The second `UPDATE` fails with `40001`, because Repeatable Read detects that a row it read was modified by a concurrent transaction.",
+                  "correct": false
+                },
+                {
+                  "text": "The second transaction blocks on the first one's `SELECT`, because Repeatable Read takes shared locks on every row it reads until commit.",
+                  "correct": false
+                },
+                {
+                  "text": "Both commit, and no isolation level in PostgreSQL can prevent this; only an application-level distributed lock can.",
+                  "correct": false
+                },
+                {
+                  "text": "Both commit and no doctor is on call (write skew). Running both at `SERIALIZABLE` makes PostgreSQL abort one of them with `40001` instead; alternatively lock the rows read with `SELECT ... FOR UPDATE`.",
+                  "correct": true
+                }
+              ],
+              "explanation": "This is the classic write skew: each transaction reads the same set, updates a different row, and both see a snapshot in which the invariant holds. Repeatable Read (snapshot isolation) only raises `40001` when a transaction updates or locks a row that was itself modified concurrently; here the written rows are disjoint, so both commit. Serializable adds SSI, which tracks the read-write dependencies (each read the row the other wrote) and aborts one transaction; locking the rows that were read (`FOR UPDATE`) also serialises the two. The 'second `UPDATE` fails with `40001`' option misdescribes Repeatable Read's conflict detection (written rows, not read rows). The 'shared locks' option describes lock-based isolation; PostgreSQL's reads take no row locks. The 'no level prevents it' option is wrong: preventing exactly this is what Serializable is for."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.isolation-levels.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "transactions",
+            "isolation",
+            "dotnet",
+            "transactionscope"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service wraps its EF Core work in `using var scope = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);` and calls `scope.Complete()` at the end. Under load the logs start showing `40001: could not serialize access due to read/write dependencies among transactions`, which never happened when the code used `context.Database.BeginTransactionAsync()`. Why?",
+              "options": [
+                {
+                  "text": "`TransactionScope` defaults to `IsolationLevel.Serializable`, so the connection runs at PostgreSQL Serializable (SSI), which aborts transactions on dependency cycles; pass `new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted }` or handle retries.",
+                  "correct": true
+                },
+                {
+                  "text": "`TransactionScope` always escalates to a distributed (two-phase) transaction with Npgsql, and two-phase commit raises `40001` on every conflict.",
+                  "correct": false
+                },
+                {
+                  "text": "`TransactionScopeAsyncFlowOption.Enabled` makes each `await` continuation run in a new transaction, so concurrent continuations conflict with each other.",
+                  "correct": false
+                },
+                {
+                  "text": "EF Core disables its own transaction when an ambient transaction exists, so each `SaveChanges` runs in autocommit mode and the errors come from statement-level conflicts.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The parameterless `TransactionScope` constructors use `IsolationLevel.Serializable` (and a one-minute timeout), whereas `BeginTransactionAsync()` uses the database default, Read Committed in PostgreSQL. Npgsql enlists in the ambient transaction at that level, so SSI starts aborting conflicting transactions with `40001`; the fix is to specify the level through `TransactionOptions` (or keep Serializable deliberately and add retries). The distributed-transaction option is wrong: a single connection enlists in a local transaction; escalation needs a second durable resource, and in any case two-phase commit does not produce this error. The async-flow option is wrong: it only lets the ambient transaction flow across `await`, it does not create new ones. The autocommit option is wrong: EF Core enlists in the ambient transaction rather than ignoring it, and autocommit statements at Read Committed would not raise SSI dependency errors."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.isolation-levels.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "transactions",
+            "isolation",
+            "mvcc",
+            "anomalies"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain how PostgreSQL implements transaction isolation and how its three effective isolation levels differ. For each level, name the anomalies it allows and prevents (give a concrete example of a lost update and of write skew), and describe how a .NET application should be written to run correctly at Repeatable Read or Serializable.",
+              "explanation": "Model answer: PostgreSQL uses MVCC: every row version has `xmin`/`xmax`, an update writes a new version, and a transaction sees the versions committed as of its snapshot, so readers and writers do not block each other; dead versions are cleaned up by vacuum. `READ UNCOMMITTED` maps to Read Committed, so dirty reads never happen. Read Committed (default) takes a snapshot per statement: non-repeatable reads and phantoms happen, and an application read-modify-write loses updates (two withdrawals both read 100 and write 30), though single-statement updates are safe because a blocked `UPDATE` re-evaluates its `WHERE` against the newest version. Repeatable Read keeps one snapshot for the whole transaction (no non-repeatable reads and, in PostgreSQL, no phantoms) and fails with `40001` when it tries to modify a row changed concurrently, preventing lost updates, but it allows write skew (two on-call doctors both go off call because each read 2 and updated a different row). Serializable adds SSI, tracking read/write dependencies with non-blocking predicate locks and aborting one transaction with `40001` when a cycle could produce a non-serial result. Applications at these levels must retry the entire transaction on `40001` (and `40P01`), with a bounded loop and jitter, keep transactions short, keep non-idempotent side effects outside or after commit, and choose the level explicitly (`BeginTransactionAsync(IsolationLevel.X)`, being aware `TransactionScope` defaults to Serializable); for targeted cases `SELECT ... FOR UPDATE` or constraints are alternatives.",
+              "rubric": [
+                "Explains MVCC: row versions with `xmin`/`xmax`, snapshots deciding visibility, readers and writers not blocking each other, and old versions cleaned by vacuum.",
+                "States that Read Uncommitted behaves as Read Committed (no dirty reads) and that Read Committed takes a snapshot per statement, allowing non-repeatable reads, phantoms and application-level lost updates.",
+                "Describes Repeatable Read as a transaction-wide snapshot without phantoms in PostgreSQL, raising `40001` on concurrent modification of the same row, yet allowing write skew, with a concrete write-skew example.",
+                "Describes Serializable as SSI using predicate locks that do not block, aborting one transaction with `40001` on a dangerous dependency cycle.",
+                "Gives the application contract: retry the whole transaction on `40001` (and deadlock `40P01`) with a bounded loop, short transactions, side effects after commit, explicitly chosen isolation level in .NET."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "locks-deadlocks",
+      "title": "Locks and Deadlocks: Table and Row Locks, Deadlock Detection, Advisory Locks, Lock Ordering",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Locks and Deadlocks: Table and Row Locks, Deadlock Detection, Advisory Locks, Lock Ordering",
+          "note": "## What it is\n\nMVCC removes most reader/writer contention, but PostgreSQL still takes locks: **table-level** locks taken by every statement, **row-level** locks taken by writers and locking reads, and **advisory** locks that mean whatever the application decides. A **deadlock** is a cycle of transactions each waiting for a lock another one holds; PostgreSQL detects it and aborts one participant.\n\n## How it works underneath\n\n**Table-level locks** have eight modes. Those worth knowing by heart:\n\n| Mode | Taken by | Conflicts with |\n|---|---|---|\n| `ACCESS SHARE` | `SELECT` | only `ACCESS EXCLUSIVE` |\n| `ROW EXCLUSIVE` | `INSERT`, `UPDATE`, `DELETE`, `MERGE` | `SHARE` and stronger |\n| `SHARE UPDATE EXCLUSIVE` | `VACUUM`, `ANALYZE`, `CREATE INDEX CONCURRENTLY` | itself and stronger |\n| `SHARE` | `CREATE INDEX` (non-concurrent) | writers (`ROW EXCLUSIVE`) |\n| `ACCESS EXCLUSIVE` | most `ALTER TABLE` forms, `DROP`, `TRUNCATE`, `VACUUM FULL` | everything, including `SELECT` |\n\nLock requests on a table form a **FIFO queue**. An `ALTER TABLE` waiting for `ACCESS EXCLUSIVE` behind one long-running transaction blocks every `SELECT` that arrives after it, even though those `SELECT`s are compatible with the long transaction. A \"metadata-only\" migration can therefore take an API down. Defend with `SET lock_timeout = '3s'` in migrations and retry.\n\n**Row-level locks** are not kept in shared memory: they are recorded in the tuple header (`xmax` plus infobits), which is why PostgreSQL has **no lock escalation** and locking millions of rows is possible (at the cost of writing to those pages). Four strengths:\n\n- `FOR UPDATE` -- taken by `DELETE` and by `UPDATE` of a key column (one with a unique index usable by a foreign key).\n- `FOR NO KEY UPDATE` -- taken by an ordinary `UPDATE` of non-key columns.\n- `FOR SHARE` -- blocks any modification.\n- `FOR KEY SHARE` -- taken by foreign-key checks on the referenced parent row; conflicts only with `FOR UPDATE`. So inserting child rows does not block (and is not blocked by) updates to non-key columns of the parent.\n\n`NOWAIT` raises `55P03 lock_not_available` instead of waiting; `SKIP LOCKED` ignores locked rows, the basis of a safe multi-consumer job queue in plain SQL.\n\n**Deadlock detection.** A blocked backend sleeps; after `deadlock_timeout` (default 1 s) it inspects the wait-for graph. If it finds a cycle, one transaction is aborted with `40P01 deadlock detected` and the others proceed. Which one is aborted is not something to rely on. Detection is lazy on purpose: most waits resolve on their own well within a second.\n\n**Advisory locks** lock an application-defined `bigint` (or two `int`s): `pg_advisory_lock` (session-scoped, must be explicitly unlocked, re-entrant with a counter), `pg_advisory_xact_lock` (released at commit/rollback), and the non-blocking `pg_try_*` variants. They are useful for \"only one instance runs this job\" or serialising work per tenant without a dedicated lock table. Session-scoped locks are dangerous through a transaction-mode PgBouncer, where consecutive transactions may run on different server connections.\n\n## Preventing deadlocks\n\n1. **Consistent lock ordering**: lock rows in a deterministic order, e.g. `SELECT ... WHERE id = ANY(@ids) ORDER BY id FOR UPDATE` before updating them. Batch updates from EF Core follow the order of the change tracker, which may differ between requests.\n2. **Short transactions**: no HTTP calls or user think-time while holding locks; `idle_in_transaction_session_timeout` as a safety net.\n3. **Lock the parent first** for aggregates that touch many child rows.\n4. **Retry** the whole transaction on `40P01`; deadlocks cannot be eliminated entirely, only made rare.\n\n## Diagnosing\n\n`pg_stat_activity` (`wait_event_type = 'Lock'`, `state = 'idle in transaction'`), `pg_blocking_pids(pid)` for who blocks whom, `pg_locks` for the details, and `log_lock_waits = on` to log waits longer than `deadlock_timeout`. The deadlock error message itself lists the processes and the statements involved.\n\n## What an interviewer probes\n\n- What happens when two transactions update the same two rows in opposite order, and how to prevent it.\n- Why a \"harmless\" migration froze reads (lock queue, `ACCESS EXCLUSIVE`, `lock_timeout`).\n- `FOR UPDATE` vs `FOR NO KEY UPDATE` and foreign keys; `SKIP LOCKED` queues.\n- Advisory locks for distributed mutual exclusion and their pitfalls.\n\n## Common misconceptions\n\n- \"PostgreSQL escalates row locks to a table lock\" -- it never does.\n- \"Deadlocks hang until `statement_timeout`\" -- they are detected after `deadlock_timeout`.\n- \"`SELECT` never blocks\" -- it blocks behind a queued `ACCESS EXCLUSIVE` request.\n\n## Example\n\n```sql\n-- Transfer between two accounts: always lock in id order, whatever the transfer direction.\nBEGIN;\nSELECT id FROM accounts WHERE id IN (@from, @to) ORDER BY id FOR NO KEY UPDATE;\nUPDATE accounts SET balance = balance - @amount WHERE id = @from;\nUPDATE accounts SET balance = balance + @amount WHERE id = @to;\nCOMMIT;\n\n-- Single runner across instances, released automatically at commit/rollback.\nBEGIN;\nSELECT pg_try_advisory_xact_lock(hashtext('nightly-billing')) AS acquired;\n-- ... run the job only if acquired ...\nCOMMIT;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "concurrency",
+            "deadlock"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "At Read Committed, transaction T1 runs `UPDATE accounts SET balance = balance - 10 WHERE id = 1;` and T2 runs `UPDATE accounts SET balance = balance - 10 WHERE id = 2;`. Then T1 runs `UPDATE accounts ... WHERE id = 2;` and T2 runs `UPDATE accounts ... WHERE id = 1;`. Neither has committed. What does PostgreSQL do?",
+              "options": [
+                {
+                  "text": "Both transactions wait indefinitely until `statement_timeout` or `lock_timeout` cancels one of them; PostgreSQL has no built-in deadlock handling.",
+                  "correct": false
+                },
+                {
+                  "text": "It escalates both row locks to a table lock so that the second update in each transaction can proceed serially.",
+                  "correct": false
+                },
+                {
+                  "text": "After waiting `deadlock_timeout` (1 s by default), a blocked backend detects the cycle and one transaction is aborted with `40P01 deadlock detected`; the other proceeds.",
+                  "correct": true
+                },
+                {
+                  "text": "T2's second `UPDATE` fails immediately with `40001`, because the row was modified by a concurrent transaction.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Each transaction holds a row lock the other needs, forming a cycle. A blocked backend runs the deadlock detector after `deadlock_timeout` (1 s default); on finding a cycle, PostgreSQL aborts one transaction with SQLSTATE `40P01`, releasing its locks so the other can continue; the application should retry the aborted transaction and, better, take locks in a consistent order. The 'waits until a timeout' option is wrong: detection is built in; the timeouts only matter for non-deadlock waits. Lock escalation does not exist in PostgreSQL, because row locks live in tuple headers rather than a limited lock table. The `40001` option describes a Repeatable Read/Serializable conflict; at Read Committed a blocked update just waits and then re-evaluates its `WHERE` clause."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "concurrency",
+            "lock-ordering",
+            "deadlock"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "This transfer method deadlocks occasionally when two users send money to each other at the same time:\n\n```csharp\nawait using var tx = await conn.BeginTransactionAsync(ct);\nawait conn.ExecuteAsync(\"UPDATE accounts SET balance = balance - @a WHERE id = @from\", new { a, from }, tx);\nawait conn.ExecuteAsync(\"UPDATE accounts SET balance = balance + @a WHERE id = @to\",   new { a, to },   tx);\nawait tx.CommitAsync(ct);\n```\n\nWhich change prevents the deadlock rather than just reducing its frequency?",
+              "options": [
+                {
+                  "text": "Run the transaction at `IsolationLevel.Serializable`, which orders conflicting transactions so they can never deadlock.",
+                  "correct": false
+                },
+                {
+                  "text": "Lower `deadlock_timeout` to 10 ms so the cycle is broken almost immediately.",
+                  "correct": false
+                },
+                {
+                  "text": "Combine both updates into one statement with `UPDATE ... WHERE id IN (@from, @to)` using a `CASE` expression; a single statement can never deadlock with another.",
+                  "correct": false
+                },
+                {
+                  "text": "First lock both rows in a deterministic order, e.g. `SELECT id FROM accounts WHERE id IN (@from, @to) ORDER BY id FOR NO KEY UPDATE`, then run the two updates.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Deadlocks need a cycle, and a cycle needs two transactions acquiring the same locks in different orders. Locking both rows up front in a global order (ascending id) means whichever transaction locks the lower id first also gets the higher one; the other simply waits. Serializable does not prevent lock waits or deadlocks: it adds serialization failures on top of normal row locking. Lowering `deadlock_timeout` makes detection faster (and burns CPU running the detector on ordinary waits), but the deadlock and the aborted transaction still happen. The single-statement option is a common belief but false: an `UPDATE` locks rows in the order it visits them, which depends on the plan and physical layout, so two multi-row updates can still deadlock; adding an explicit ordered locking step is what makes the order deterministic."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "ddl",
+            "lock-queue",
+            "migrations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A migration runs `ALTER TABLE orders ADD COLUMN note text;` (metadata-only, instant once it has its lock) during business hours. A reporting transaction has been open on `orders` for 10 minutes. Within seconds, API reads of `orders` start timing out. Why, and what is the standard mitigation?",
+              "options": [
+                {
+                  "text": "The `ALTER TABLE` waits for `ACCESS EXCLUSIVE` behind the reporting transaction, and because lock requests queue in order, every new `SELECT` (needing `ACCESS SHARE`) waits behind the `ALTER`; run migrations with a short `lock_timeout` and retry.",
+                  "correct": true
+                },
+                {
+                  "text": "`ADD COLUMN` rewrites the whole table while holding `SHARE` lock, blocking reads; the mitigation is `ADD COLUMN ... CONCURRENTLY`.",
+                  "correct": false
+                },
+                {
+                  "text": "The reporting transaction's `SELECT` escalated its row locks to a table lock after 10 minutes, which blocks both the `ALTER` and the API.",
+                  "correct": false
+                },
+                {
+                  "text": "New `SELECT`s are blocked only because the migration's transaction is still open; adding `COMMIT` after the `ALTER` fixes it without any other change.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Most `ALTER TABLE` forms need `ACCESS EXCLUSIVE`, which conflicts with the reporting transaction's `ACCESS SHARE`, so the `ALTER` waits. New `SELECT`s are compatible with the reporting transaction but not with the queued `ACCESS EXCLUSIVE` request ahead of them, so they queue behind it and the table becomes unreadable. Setting `lock_timeout` (e.g. 2 to 5 s) makes the migration give up quickly and retry later instead of stalling traffic; also keep long transactions off the primary. `ADD COLUMN` with no default (or a non-volatile default since PostgreSQL 11) does not rewrite the table, and there is no `ADD COLUMN ... CONCURRENTLY`. Lock escalation does not exist in PostgreSQL. The 'add COMMIT' option misses the point: the `ALTER` has not acquired its lock yet, so nothing it could commit would release the queue."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "concurrency",
+            "advisory-locks",
+            "pgbouncer"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Several API instances connect through PgBouncer in **transaction pooling** mode. To ensure only one instance runs a nightly job, the code (autocommit, no explicit transaction) does `SELECT pg_try_advisory_lock(42)`, runs the job with several statements, then `SELECT pg_advisory_unlock(42)`. Occasionally the job runs twice, and sometimes the unlock returns `false` with a warning. What is wrong?",
+              "options": [
+                {
+                  "text": "Advisory lock keys must be globally unique 64-bit hashes; a small key like 42 collides with PostgreSQL's internal locks.",
+                  "correct": false
+                },
+                {
+                  "text": "With transaction pooling, each autocommit statement may run on a different server connection; the session-level lock stays on whichever server connection took it (and may be held by an unrelated client later), and the unlock runs elsewhere. Use `pg_try_advisory_xact_lock` inside one transaction, or session pooling for this connection.",
+                  "correct": true
+                },
+                {
+                  "text": "`pg_try_advisory_lock` only works inside an explicit transaction; in autocommit it is released immediately after the `SELECT`.",
+                  "correct": false
+                },
+                {
+                  "text": "Advisory locks are not replicated between PgBouncer instances, so each instance sees its own copy of lock 42.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Session-level advisory locks belong to the server backend that acquired them and live until it explicitly unlocks or disconnects. In transaction pooling mode PgBouncer may hand each transaction (each autocommit statement) a different server connection, so the unlock lands on a backend that does not hold the lock (`false` plus a warning), and the lock remains attached to a pooled server connection that another client may now be using, while the job's other statements are not tied to the lock holder at all. A transaction-scoped `pg_try_advisory_xact_lock` within a single explicit transaction is pinned to one server connection and released at commit or rollback; alternatively, use a session-pooled or direct connection. Small keys are fine: advisory lock keys are application-defined and live in their own lock namespace. Session-level advisory locks work in autocommit and persist past the statement; that is exactly why they leak here. PgBouncer does not hold locks at all; locks live in PostgreSQL, which all instances share."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.mcq.5",
+          "type": "mcq",
+          "level": "L",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "concurrency",
+            "row-locks",
+            "foreign-keys"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`order_lines.order_id` references `orders(id)`. Transaction T1 runs `UPDATE orders SET status = 'paid' WHERE id = 7;` and has not committed. Transaction T2 runs `INSERT INTO order_lines (order_id, sku) VALUES (7, 'A-1');`. What happens to T2 (PostgreSQL 9.3 or later)?",
+              "options": [
+                {
+                  "text": "T2 blocks until T1 commits, because the foreign-key check takes `FOR SHARE` on the parent row, which conflicts with any update of that row.",
+                  "correct": false
+                },
+                {
+                  "text": "T2 fails immediately with `55P03 lock_not_available`, because foreign-key checks use `NOWAIT`.",
+                  "correct": false
+                },
+                {
+                  "text": "T2 proceeds without waiting: an update of non-key columns takes `FOR NO KEY UPDATE`, and the foreign-key check takes `FOR KEY SHARE`, which conflicts only with `FOR UPDATE` (deletes or key changes).",
+                  "correct": true
+                },
+                {
+                  "text": "T2 proceeds, but only because foreign-key checks are deferred to commit time by default.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Since 9.3 PostgreSQL distinguishes key and non-key row locks. A plain `UPDATE` that does not change a column covered by a unique index usable as an FK target takes `FOR NO KEY UPDATE`; the referential-integrity check for the child insert takes `FOR KEY SHARE` on the parent row, and these two do not conflict, so T2 inserts immediately. T2 would wait only if T1 deleted the order or changed its `id`, which take `FOR UPDATE`. The `FOR SHARE` option describes behaviour before 9.3, a classic source of FK-related lock contention and deadlocks in older systems. Foreign-key checks do not use `NOWAIT`. FK constraints are `NOT DEFERRABLE` by default and checked at the end of each statement, not at commit; the reason T2 proceeds is the lock mode."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.locks-deadlocks.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "locks",
+            "concurrency",
+            "deadlock",
+            "diagnostics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is a deadlock in PostgreSQL, how does the server detect and resolve it, and what do you do in a .NET application to prevent and diagnose deadlocks and long lock waits? Include table-level locking problems caused by schema migrations.",
+              "explanation": "Model answer: a deadlock is a cycle in the wait-for graph, typically two transactions locking the same rows in opposite orders. A blocked backend waits `deadlock_timeout` (1 s), then checks for a cycle; if found, one transaction is aborted with `40P01`, releasing its locks. Row locks live in tuple headers, so there is no escalation; table locks are taken by every statement in one of eight modes. Prevention: acquire locks in a consistent order (`SELECT ... ORDER BY id FOR UPDATE` before multi-row updates, lock the aggregate root first), keep transactions short with no external I/O inside, use atomic single-row statements where possible, and retry the whole transaction on `40P01`. For migrations, `ALTER TABLE` usually needs `ACCESS EXCLUSIVE`; queued behind a long transaction it blocks all later reads, so set `lock_timeout`, retry, use `CREATE INDEX CONCURRENTLY`, and avoid long transactions on the primary. Diagnose with `pg_stat_activity` (`wait_event_type = 'Lock'`, `idle in transaction`), `pg_blocking_pids()`, `pg_locks`, `log_lock_waits`, and the deadlock error detail that lists the participating statements; guard with `lock_timeout`, `statement_timeout` and `idle_in_transaction_session_timeout`.",
+              "rubric": [
+                "Defines a deadlock as a cycle of lock waits with a concrete example (two transactions updating the same rows in opposite order).",
+                "Explains detection: the check runs after `deadlock_timeout` (default 1 s), and one transaction is aborted with `40P01` while the others continue.",
+                "Gives prevention techniques: consistent lock ordering (e.g. ordered `SELECT ... FOR UPDATE`), short transactions without external I/O, and retrying the whole transaction on `40P01`.",
+                "Explains the migration problem: `ACCESS EXCLUSIVE` requests queue behind long transactions and block subsequent `SELECT`s, mitigated with `lock_timeout` plus retry and concurrent index builds.",
+                "Names diagnostic tools: `pg_stat_activity` wait events, `pg_blocking_pids()`, `pg_locks`, `log_lock_waits`, and timeouts such as `idle_in_transaction_session_timeout`."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "joins-window-cte",
+      "title": "Joins, Window Functions and CTEs (including Recursive CTEs)",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Joins, Window Functions and CTEs (including Recursive CTEs)",
+          "note": "## What it is\n\nThe relational toolkit an interviewer expects you to write fluently on a whiteboard: **joins** combine rows from several relations, **window functions** compute values across a set of rows related to the current row without collapsing them, and **CTEs** (`WITH`) name intermediate results, including **recursive** ones for hierarchies and graphs.\n\n## Joins\n\n- `INNER JOIN` keeps matching pairs only. `LEFT JOIN` keeps every left row, filling the right side with `NULL`s when nothing matches; `RIGHT` is the mirror image; `FULL` keeps both sides; `CROSS JOIN` is the Cartesian product.\n- **`ON` vs `WHERE` with outer joins**: a condition on the right table placed in `WHERE` runs *after* the join and discards the `NULL`-extended rows, silently turning a `LEFT JOIN` into an inner join. Conditions that restrict *which* right rows match belong in `ON`.\n- **Semi- and anti-joins**: `EXISTS` / `NOT EXISTS`. Avoid `NOT IN (subquery)` when the subquery can yield `NULL`: `x NOT IN (1, NULL)` is never true, so the query returns nothing.\n- **`LATERAL`** lets a subquery in `FROM` reference earlier tables, e.g. \"latest 3 orders per customer\" with `ORDER BY ... LIMIT 3` per row, which is very fast with an index on `(customer_id, created_at DESC)`.\n- Counting after a `LEFT JOIN`: `count(*)` counts the `NULL`-extended row as 1; `count(o.id)` counts matches only. Joining two independent one-to-many children multiplies rows (fan-out), inflating sums.\n- The planner picks the physical algorithm (nested loop, hash, merge) and, for up to `join_collapse_limit` relations, the join order; the textual order of inner joins does not matter.\n\n## Window functions\n\n`f(...) OVER (PARTITION BY ... ORDER BY ... frame)` is evaluated after `WHERE`, `GROUP BY` and `HAVING`, so you cannot filter on a window result in the same query level; wrap it in a subquery or CTE.\n\n- Ranking: `row_number()` (unique 1, 2, 3), `rank()` (ties share a rank, gaps follow: 1, 1, 3), `dense_rank()` (no gaps: 1, 1, 2), `ntile(n)`, `percent_rank()`.\n- Offsets: `lag()`, `lead()`, `first_value()`, `last_value()`, `nth_value()`.\n- Aggregates as windows: `sum(amount) OVER (PARTITION BY account_id ORDER BY booked_at)` is a running total.\n- **Default frame**: with `ORDER BY` it is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which includes all **peers** (rows with equal sort keys). Duplicate sort keys therefore get the same running total, and `last_value()` returns the last peer rather than the partition's last row. Use `ROWS BETWEEN ...` and a unique tie-breaker when you mean physical rows.\n- PostgreSQL also offers `DISTINCT ON (customer_id) ... ORDER BY customer_id, created_at DESC`, a concise \"first row per group\".\n\n## CTEs\n\n- Non-recursive CTEs improve readability and can be referenced several times. Since **PostgreSQL 12**, a side-effect-free CTE referenced once is **inlined** into the outer query, so predicates are pushed into it; before 12 every CTE was an optimisation fence. Control it with `WITH x AS MATERIALIZED (...)` or `NOT MATERIALIZED`.\n- Data-modifying CTEs (`WITH moved AS (DELETE ... RETURNING *) INSERT INTO archive SELECT * FROM moved`) run exactly once and see the same snapshot; the outer query cannot see their effects on the target table, only their `RETURNING` output.\n- **Recursive CTEs**: `WITH RECURSIVE t AS (anchor UNION ALL recursive_term)`. The engine evaluates the anchor, then repeatedly feeds the rows produced in the previous iteration (the *working table*) to the recursive term until it yields nothing. Guard against cycles by carrying a path array (`WHERE NOT id = ANY(path)`) or with the `CYCLE` clause (PostgreSQL 14+); `SEARCH DEPTH FIRST BY` / `BREADTH FIRST BY` (14+) produce an ordering column. `UNION` instead of `UNION ALL` deduplicates rows, which stops cycles only when rows repeat exactly.\n\n## What an interviewer probes\n\n- \"Top N per group\" and \"latest row per group\": window function vs `DISTINCT ON` vs `LATERAL ... LIMIT`.\n- `rank` vs `dense_rank` vs `row_number` on ties; why `WHERE rn = 1` needs a subquery.\n- `LEFT JOIN` filtering in `ON` vs `WHERE`, `NOT IN` with `NULL`s, fan-out double counting.\n- Org chart / category tree with a recursive CTE, depth, path, cycle protection.\n- CTE materialisation before and after PostgreSQL 12.\n\n## Common misconceptions\n\n- \"Join order in the SQL text decides execution order\" -- not for inner joins.\n- \"A CTE is always computed once and cached\" -- only when materialised.\n- \"Running totals with `ORDER BY` step one row at a time\" -- not across peers under the default `RANGE` frame.\n\n## Example\n\n```sql\n-- Latest order per customer, three ways\nSELECT * FROM (\n  SELECT o.*, row_number() OVER (PARTITION BY customer_id ORDER BY created_at DESC, id DESC) AS rn\n  FROM orders o) t\nWHERE rn = 1;\n\nSELECT DISTINCT ON (customer_id) * FROM orders ORDER BY customer_id, created_at DESC, id DESC;\n\nSELECT c.id, o.* FROM customers c\nCROSS JOIN LATERAL (SELECT * FROM orders o WHERE o.customer_id = c.id\n                    ORDER BY created_at DESC LIMIT 1) o;\n\n-- Category subtree with depth and cycle protection\nWITH RECURSIVE tree AS (\n  SELECT id, parent_id, name, 1 AS depth, ARRAY[id] AS path\n  FROM categories WHERE id = $1\n  UNION ALL\n  SELECT c.id, c.parent_id, c.name, t.depth + 1, t.path || c.id\n  FROM categories c JOIN tree t ON c.parent_id = t.id\n  WHERE NOT c.id = ANY(t.path)\n)\nSELECT * FROM tree ORDER BY path;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "window-functions",
+            "ranking"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Table `scores(player, points)` contains `('a', 100), ('b', 100), ('c', 90), ('d', 80)`. What does this query return for player `c`?\n\n```sql\nSELECT player,\n       row_number() OVER (ORDER BY points DESC) AS rn,\n       rank()       OVER (ORDER BY points DESC) AS rk,\n       dense_rank() OVER (ORDER BY points DESC) AS drk\nFROM scores;\n```",
+              "options": [
+                {
+                  "text": "`rn = 3, rk = 3, drk = 2`",
+                  "correct": true
+                },
+                {
+                  "text": "`rn = 3, rk = 2, drk = 2`",
+                  "correct": false
+                },
+                {
+                  "text": "`rn = 3, rk = 3, drk = 3`",
+                  "correct": false
+                },
+                {
+                  "text": "`rn = 2, rk = 2, drk = 2`, because `row_number()` also assigns equal numbers to ties",
+                  "correct": false
+                }
+              ],
+              "explanation": "`row_number()` numbers rows uniquely (the order among the tied `a` and `b` is arbitrary, but `c` is third either way), so `rn = 3`. `rank()` gives ties the same rank and then skips: `a` and `b` are both 1, so `c` is 3. `dense_rank()` gives ties the same rank without gaps: 1, 1, 2, so `c` is 2. Option `rk = 2` confuses `rank()` with `dense_rank()`. Option `drk = 3` confuses `dense_rank()` with `rank()`. The `rn = 2` option is wrong because `row_number()` never repeats a number, which is why it needs a deterministic tie-breaker (`ORDER BY points DESC, player`) when the result must be stable."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "joins",
+            "left-join"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You need every customer with the number of orders they placed in 2026, including customers with zero. What does this query return?\n\n```sql\nSELECT c.id, count(o.id) AS orders_2026\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE o.created_at >= '2026-01-01'\nGROUP BY c.id;\n```",
+              "options": [
+                {
+                  "text": "Every customer, with `0` for customers without 2026 orders, because `LEFT JOIN` preserves all rows of `customers`.",
+                  "correct": false
+                },
+                {
+                  "text": "Only customers who have at least one 2026 order: the `WHERE` condition evaluates to `NULL` on the `NULL`-extended rows and removes them, so the `LEFT JOIN` behaves as an inner join. Move the date condition into the `ON` clause.",
+                  "correct": true
+                },
+                {
+                  "text": "Every customer, but customers without 2026 orders show `1`, because `count` counts the `NULL`-extended row.",
+                  "correct": false
+                },
+                {
+                  "text": "A syntax error, because a `LEFT JOIN` cannot be combined with a `WHERE` condition on the right table.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`WHERE` filters the joined result. For customers without matching orders the join produces one row with `o.created_at = NULL`; `NULL >= '2026-01-01'` is unknown, so the row is removed and those customers vanish. Putting `AND o.created_at >= '2026-01-01'` in `ON` restricts which orders match while still keeping every customer, and `count(o.id)` then returns 0 for them. The 'every customer, with `0`' option is the misconception being tested. The `count` option would be true for `count(*)` if the rows survived, but here they do not survive, and `count(o.id)` ignores `NULL`s anyway. The syntax-error option is wrong: the query is valid; it just has different semantics than intended."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "null",
+            "anti-join"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`employees(id, manager_id)` has 500 rows; the CEO's `manager_id` is `NULL`. What does this query return?\n\n```sql\nSELECT id FROM employees\nWHERE id NOT IN (SELECT manager_id FROM employees);\n```",
+              "options": [
+                {
+                  "text": "All employees who manage nobody (the leaf employees).",
+                  "correct": false
+                },
+                {
+                  "text": "All leaf employees plus the CEO, because `NULL` is ignored by `NOT IN`.",
+                  "correct": false
+                },
+                {
+                  "text": "No rows at all: the subquery contains `NULL`, so `id NOT IN (...)` evaluates to `NULL` (unknown) for every id that is not a manager, never to `true`.",
+                  "correct": true
+                },
+                {
+                  "text": "An error, because `NOT IN` cannot compare an `integer` to a list containing `NULL`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`x NOT IN (a, b, NULL)` means `x <> a AND x <> b AND x <> NULL`; the last comparison is unknown, so the whole expression is either false (x is a manager) or unknown, never true, and `WHERE` keeps only true rows. Use `NOT EXISTS (SELECT 1 FROM employees m WHERE m.manager_id = e.id)`, which has the intended semantics and plans as an anti-join, or filter `WHERE manager_id IS NOT NULL` in the subquery. The 'leaf employees' option is what the author intended, not what SQL's three-valued logic produces. The 'NULL is ignored' option confuses `NOT IN` with aggregate functions, which do skip `NULL`s. There is no error: comparing with `NULL` is legal and yields unknown."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "window-functions",
+            "window-frame"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`payments(day, amount)` contains `('2026-03-01', 10), ('2026-03-02', 20), ('2026-03-02', 5), ('2026-03-03', 7)`. What does the running total column show for the two rows of 2 March?\n\n```sql\nSELECT day, amount, sum(amount) OVER (ORDER BY day) AS running\nFROM payments;\n```",
+              "options": [
+                {
+                  "text": "`30` for one and `35` for the other, depending on which of the two rows is read first.",
+                  "correct": false
+                },
+                {
+                  "text": "`45` for both rows, because without `PARTITION BY` the window covers the whole table.",
+                  "correct": false
+                },
+                {
+                  "text": "`20` and `5`, because without an explicit frame clause `sum` is evaluated per row.",
+                  "correct": false
+                },
+                {
+                  "text": "`35` for both rows, because with `ORDER BY` the default frame is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which includes all peers with the same `day`.",
+                  "correct": true
+                }
+              ],
+              "explanation": "When a window has `ORDER BY`, the default frame is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, and in `RANGE` mode \"current row\" extends to all peers, i.e. rows with an equal ordering value. Both 2 March rows therefore see 10 + 20 + 5 = 35. To get a row-by-row total use `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` with a unique tie-breaker in `ORDER BY`. The '30 and 35' option describes `ROWS` mode, not the default. The '45' option describes a window with no `ORDER BY` (the whole partition). The per-row option misunderstands window aggregates: the frame always spans more than the current row unless restricted."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "cte",
+            "planner"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "On PostgreSQL 16 you write:\n\n```sql\nWITH recent AS (\n  SELECT * FROM events WHERE created_at > now() - interval '7 days'\n)\nSELECT * FROM recent WHERE account_id = 42;\n```\n\n`events` has an index on `(account_id, created_at)`. Which statement is true?",
+              "options": [
+                {
+                  "text": "Because the CTE is not recursive, has no side effects and is referenced once, PostgreSQL 12+ inlines it, so both predicates reach the scan and the `(account_id, created_at)` index can be used; `AS MATERIALIZED` would restore the fence.",
+                  "correct": true
+                },
+                {
+                  "text": "The CTE is always materialised first (all events of the last 7 days), and only then filtered by `account_id`, because CTEs are an optimisation fence.",
+                  "correct": false
+                },
+                {
+                  "text": "CTEs are inlined only when written as `WITH ... AS NOT MATERIALIZED`; the default is always to materialise.",
+                  "correct": false
+                },
+                {
+                  "text": "The query fails because a CTE that selects `*` cannot be filtered by the outer query.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Since PostgreSQL 12 a non-recursive, side-effect-free CTE referenced exactly once is inlined like a subquery, so `account_id = 42` is pushed down and combined with the date predicate on the composite index. `AS MATERIALIZED` forces the old behaviour (useful to stop the planner from re-evaluating an expensive CTE or to fence a bad estimate); `NOT MATERIALIZED` forces inlining even when the CTE is referenced more than once. The 'always a fence' option was true before PostgreSQL 12 and is a widely repeated outdated belief. The 'only with `NOT MATERIALIZED`' option inverts the default. The 'query fails' option is wrong: a CTE is a named relation and can be filtered like any table."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "sql",
+            "window-functions",
+            "top-n-per-group"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "\"Return the latest order for each customer\" (and, as a follow-up, \"the top 3 orders by total per customer\"). Give at least two different PostgreSQL implementations, explain how each handles ties, and compare their performance characteristics and the indexes they benefit from.",
+              "explanation": "Model answer: (1) a window function: `row_number() OVER (PARTITION BY customer_id ORDER BY created_at DESC, id DESC)` in a subquery or CTE, then `WHERE rn = 1` (or `rn <= 3`); the filter must be outside because window functions run after `WHERE`; `row_number` returns exactly N rows thanks to the `id` tie-breaker, while `rank`/`dense_rank` would return all tied rows. It usually scans and sorts or reads all orders, fine for whole-table reports. (2) `DISTINCT ON (customer_id) ... ORDER BY customer_id, created_at DESC, id DESC`, PostgreSQL-specific, concise, only for N = 1. (3) `customers CROSS JOIN LATERAL (SELECT ... FROM orders WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 3)` (or `LEFT JOIN LATERAL ... ON true` to keep customers without orders), which does one short index scan per customer on `(customer_id, created_at DESC)` and wins when customers are few relative to orders or when only a page of customers is needed. Ties must be broken by a unique column in every variant for deterministic results; for \"top 3 by total\" the index would be `(customer_id, total DESC)`.",
+              "rubric": [
+                "Provides a correct window-function solution (`row_number()` partitioned by customer, ordered by date or total descending) with the filter on the rank applied in an outer query, and explains why it cannot go in the same `WHERE`.",
+                "Provides at least one alternative: `DISTINCT ON` (N = 1 only) and/or `LATERAL` subquery with `ORDER BY ... LIMIT N`, with correct syntax including keeping customers without orders where relevant (`LEFT JOIN LATERAL ... ON true`).",
+                "Addresses ties: a unique tie-breaker for deterministic `row_number`, and the different behaviour of `rank`/`dense_rank` returning more than N rows on ties.",
+                "Compares performance: window/`DISTINCT ON` process all orders (sort or index scan over the table), whereas `LATERAL ... LIMIT` does an index probe per customer and benefits from `(customer_id, created_at DESC)` or `(customer_id, total DESC)`."
+              ]
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "aspnet-data.postgres.joins-window-cte.kata.1",
+          "title": "Org-chart subtree and per-department salary report",
+          "language": "sql",
+          "reviewed": false,
+          "timeLimitMinutes": 35,
+          "translations": {
+            "en": {
+              "task": "Schema (PostgreSQL 16):\n\n```sql\nCREATE TABLE employees (\n    id            int PRIMARY KEY,\n    name          text NOT NULL,\n    manager_id    int REFERENCES employees(id),   -- NULL for the CEO\n    department_id int NOT NULL,\n    salary        numeric(10,2) NOT NULL,\n    hired_at      date NOT NULL\n);\n```\n\nWrite two queries.\n\n**Query 1 -- reporting subtree.** Given a parameter `$1` (an employee id), return that employee and everyone who reports to them directly or indirectly, with columns `id`, `name`, `depth` (`0` for the `$1` employee, `1` for direct reports, ...) and `chain` (names from `$1` down to the row, joined with `' > '`, e.g. `'Olena > Taras > Iryna'`). Order the result depth-first so each manager is immediately followed by their subtree, siblings ordered by `name`. The data is user-edited and **may contain cycles** (e.g. A manages B and B manages A); the query must terminate and must not return any employee twice.\n\n**Query 2 -- salary report.** For every department return the employees whose salary is among the **three highest distinct salary values** in that department (so ties are all included), with columns `department_id`, `name`, `salary`, `salary_rank` (1 = highest), `dept_avg` (average salary of the whole department, rounded to 2 decimals), `diff_from_avg` (`salary - dept_avg`), and `running_payroll` (cumulative sum of salaries in the whole department ordered by `hired_at`, then `id`, counting each employee exactly once even when several share the same `hired_at`). Order by `department_id`, `salary_rank`, `name`.\n\nConstraints: plain SQL, one statement per query, no temporary tables or functions; Query 1 must not rely on the `CYCLE` clause alone to avoid duplicates (explain your guard in a comment).\n\nExample for Query 1 (`$1` = 2, where 2 manages 3 and 4, and 4 manages 5): rows `(2, depth 0)`, `(3, depth 1)`, `(4, depth 1)`, `(5, depth 2)` with `chain` values `'B'`, `'B > C'`, `'B > D'`, `'B > D > E'`.",
+              "rubric": [
+                "Query 1 uses `WITH RECURSIVE` with an anchor on `$1` (depth 0) and a recursive term joining `employees.manager_id` to the previous level, using `UNION ALL` and computing `depth` and the `' > '`-joined `chain` correctly.",
+                "Query 1 guards against cycles with a visited-ids path array (or an equivalent explicit mechanism), terminates on cyclic data, returns no employee twice, and explains the guard in a comment.",
+                "Query 1 orders depth-first with siblings by name, e.g. by an accumulated array of names or ids (or `SEARCH DEPTH FIRST BY`), not by `depth` alone.",
+                "Query 2 uses `dense_rank()` partitioned by department for the top three distinct salary values (ties included), and filters on the rank in an outer query or CTE rather than in the same `WHERE`.",
+                "Query 2 computes `dept_avg` over the whole department before filtering and computes `running_payroll` with `ORDER BY hired_at, id` and an explicit `ROWS` frame so employees sharing `hired_at` are counted once each."
+              ],
+              "referenceSolution": "-- Query 1: reporting subtree, depth-first, cycle-safe.\nWITH RECURSIVE subtree AS (\n    SELECT e.id,\n           e.name,\n           0               AS depth,\n           ARRAY[e.id]     AS visited,     -- cycle guard: ids already on the current path\n           e.name::text    AS chain\n    FROM employees e\n    WHERE e.id = $1\n\n    UNION ALL\n\n    SELECT c.id,\n           c.name,\n           s.depth + 1,\n           s.visited || c.id,\n           s.chain || ' > ' || c.name\n    FROM employees c\n    JOIN subtree s ON c.manager_id = s.id\n    WHERE NOT c.id = ANY (s.visited)       -- stop before revisiting an employee on this path\n) SEARCH DEPTH FIRST BY name, id SET dfs_order   -- PostgreSQL 14+: depth-first key, siblings by name (id breaks ties)\nSELECT id, name, depth, chain\nFROM subtree\nORDER BY dfs_order;\n-- Why no employee appears twice: manager_id is a single column, so the path from $1 to any employee\n-- is unique; the only way to emit a row again is to walk around a cycle, and the visited-ids guard\n-- cuts the recursion at the first id that is already on the path (including $1 itself when $1 sits\n-- on the cycle). Without the guard, UNION ALL would loop forever on cyclic data.\n-- Pre-14 alternative to SEARCH: carry ARRAY[name] (plus id) as a path column and ORDER BY it.\n\n-- Query 2: top three distinct salary values per department, with department stats.\nWITH ranked AS (\n    SELECT e.department_id,\n           e.name,\n           e.salary,\n           dense_rank() OVER (PARTITION BY e.department_id ORDER BY e.salary DESC)       AS salary_rank,\n           round(avg(e.salary) OVER (PARTITION BY e.department_id), 2)                  AS dept_avg,\n           sum(e.salary) OVER (PARTITION BY e.department_id\n                               ORDER BY e.hired_at, e.id\n                               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)       AS running_payroll\n    FROM employees e\n)\n-- Window functions are computed over the whole department before this filter runs,\n-- so dept_avg and running_payroll are not distorted by removing lower-paid employees.\nSELECT department_id,\n       name,\n       salary,\n       salary_rank,\n       dept_avg,\n       salary - dept_avg AS diff_from_avg,\n       running_payroll\nFROM ranked\nWHERE salary_rank <= 3\nORDER BY department_id, salary_rank, name;\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "jsonb",
+      "title": "JSONB: Operators, Indexing, and JSONB vs Columns",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "JSONB: Operators, Indexing, and JSONB vs Columns",
+          "note": "## What it is\n\nPostgreSQL has two JSON types. `json` stores the input text verbatim (whitespace, key order, duplicate keys) and re-parses it on every access. `jsonb` stores a decomposed binary representation: keys are deduplicated (the last value wins), key order and whitespace are not preserved, and values can be accessed without re-parsing and indexed with GIN. `jsonb` is the default choice; `json` only makes sense when you must keep the document byte-for-byte.\n\n## Operators and functions\n\n| Operator | Meaning | Example |\n|---|---|---|\n| `->` | field or array element as `jsonb` | `data -> 'address'` |\n| `->>` | field or element as `text` | `data ->> 'status' = 'paid'` |\n| `#>` / `#>>` | path as `jsonb` / `text` | `data #>> '{address,city}'` |\n| `@>` / `<@` | contains / is contained by | `data @> '{\"status\":\"paid\"}'` |\n| `?`, `?|`, `?&` | top-level key exists (any / all) | `data ? 'refund'` |\n| `@?`, `@@` | SQL/JSON path exists / predicate | `data @? '$.items[*] ? (@.qty > 10)'` |\n| `||`, `-`, `#-` | concatenate, delete key, delete path | `data - 'tmp'` |\n\nSince PostgreSQL 14 `jsonb` supports subscripting (`data['address']['city']`, also in `UPDATE ... SET data['status'] = '\"paid\"'`). PostgreSQL 16 added `IS JSON` predicates and SQL-standard constructors, and PostgreSQL 17 added `JSON_TABLE`, `JSON_VALUE`, `JSON_QUERY` and `JSON_EXISTS`. Other useful functions: `jsonb_set`, `jsonb_insert`, `jsonb_build_object`, `jsonb_agg`, `jsonb_array_elements`, `jsonb_path_query`, `jsonb_to_recordset`.\n\nType traps: `->` returns `jsonb`, so `data -> 'status' = 'paid'` tries to parse `paid` as JSON and fails; compare text with `->>` or JSON with `-> 'status' = '\"paid\"'`. `->>` yields `text`, so numeric comparisons need a cast (`(data ->> 'qty')::int > 10`), otherwise `'9' > '10'` compares as strings.\n\n## Indexing\n\n- **GIN with the default `jsonb_ops`** indexes every key and value; it supports `@>`, `?`, `?|`, `?&`, `@?` and `@@`.\n- **GIN with `jsonb_path_ops`** hashes whole paths to values; it is smaller and faster for `@>` (and `@?`/`@@`) but does **not** support the key-existence operators.\n- GIN accelerates operators, not extraction: `data ->> 'status' = 'paid'` cannot use a GIN index on `data`. Either rewrite to containment (`data @> '{\"status\":\"paid\"}'`) or create a **B-tree expression index** on `(data ->> 'status')`, which also supports ranges and sorting and gives the planner statistics for that expression.\n- A **generated column** (`status text GENERATED ALWAYS AS (data ->> 'status') STORED`) turns a hot attribute into a real column that can be indexed, constrained and mapped normally.\n\n## What happens underneath\n\nA `jsonb` value is stored like any variable-length value: values larger than about 2 kB are compressed and moved to TOAST. Updating one key rewrites the entire value (and its TOAST chunks) as a new row version, so large documents with frequently changing small fields are expensive. The planner has no per-key statistics inside `jsonb`; predicates on extracted fields use default selectivity estimates unless an expression index or extended statistics on the expression (PostgreSQL 14+) provide them.\n\n## JSONB vs columns\n\nUse **columns** for anything that is a relational fact: identifiers and foreign keys, fields used in joins, filters, sorting and aggregation, fields that need `NOT NULL`, `CHECK`, `UNIQUE` or referential integrity, and fields updated independently. Use **`jsonb`** for genuinely variable or sparse attributes (per-tenant custom fields, product attributes that differ by category), opaque payloads stored for audit or replay (webhook bodies, LLM responses), and document-shaped data always read and written as a whole. A common hybrid: core columns plus an `attributes jsonb` column, with expression indexes or generated columns for the two or three keys that turn out to be queried.\n\nIn EF Core, Npgsql maps owned entities or complex types to a `jsonb` column with `ToJson()`, and LINQ over their properties translates to `jsonb` operators; check the generated SQL to make sure your indexes match the operators it emits.\n\n## What an interviewer probes\n\n- `json` vs `jsonb`; `->` vs `->>`; containment vs extraction.\n- Which index serves which operator (`jsonb_ops` vs `jsonb_path_ops` vs expression B-tree).\n- Update cost and lack of statistics; when to promote a key to a column.\n- A defensible rule for JSONB vs normalised schema.\n\n## Common misconceptions\n\n- \"A GIN index on the column speeds up any query on any key\" -- only the supported operators.\n- \"`jsonb` preserves the document exactly\" -- that is `json`.\n- \"Updating one key in `jsonb` is a partial in-place update\" -- the whole value is rewritten.\n\n## Example\n\n```sql\nCREATE TABLE products (\n    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    category   text  NOT NULL,\n    price      numeric(12,2) NOT NULL,\n    attributes jsonb NOT NULL DEFAULT '{}'\n);\nCREATE INDEX products_attrs_gin ON products USING gin (attributes jsonb_path_ops);\nCREATE INDEX products_color_idx ON products ((attributes ->> 'color'));\n\n-- served by the GIN index (containment)\nSELECT id FROM products WHERE attributes @> '{\"color\": \"red\", \"size\": \"M\"}';\n-- served by the expression index (same expression as in the index)\nSELECT id FROM products WHERE attributes ->> 'color' = 'red' ORDER BY id;\n-- numeric comparison needs a cast\nSELECT id FROM products WHERE (attributes ->> 'weight_g')::int > 500;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.jsonb.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "jsonb",
+            "json"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the key difference between PostgreSQL's `json` and `jsonb` types?",
+              "options": [
+                {
+                  "text": "`json` is stored in a binary format and is therefore faster to query; `jsonb` keeps the original text so it can be returned unchanged.",
+                  "correct": false
+                },
+                {
+                  "text": "They are identical on disk; `jsonb` only adds validation that the value is well-formed JSON, which `json` skips.",
+                  "correct": false
+                },
+                {
+                  "text": "`jsonb` preserves key order and duplicate keys exactly, while `json` normalises them; both can be indexed with GIN.",
+                  "correct": false
+                },
+                {
+                  "text": "`jsonb` stores a parsed binary representation: duplicate keys are collapsed (last wins), key order and whitespace are not preserved, it is faster to process and supports GIN indexing; `json` stores the input text verbatim and re-parses it on each access.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`jsonb` is decomposed into a binary structure on input, which costs slightly more on write but makes field access, containment and indexing efficient; normalisation drops duplicate keys (keeping the last), whitespace and key order. `json` keeps the exact text and re-parses it whenever it is processed. The 'json is binary' option swaps the two types. The 'identical on disk' option is wrong: both types validate input, and their storage formats differ. The 'jsonb preserves key order' option inverts preservation (it is `json` that keeps order and duplicates) and is also wrong about indexing: GIN operator classes exist for `jsonb`, not for `json`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.jsonb.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "jsonb",
+            "operators"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`orders.data` is `jsonb` and contains documents like `{\"status\": \"paid\", \"qty\": 9}`. What happens with this query?\n\n```sql\nSELECT id FROM orders WHERE data -> 'status' = 'paid';\n```",
+              "options": [
+                {
+                  "text": "It fails with `invalid input syntax for type json`: the right-hand literal is coerced to `jsonb` and `paid` is not valid JSON. Use `data ->> 'status' = 'paid'` or `data -> 'status' = '\"paid\"'`.",
+                  "correct": true
+                },
+                {
+                  "text": "It returns the paid orders, because PostgreSQL compares the extracted value with the text literal.",
+                  "correct": false
+                },
+                {
+                  "text": "It returns no rows, because `->` returns `jsonb` and a `jsonb` string never equals a text value.",
+                  "correct": false
+                },
+                {
+                  "text": "It fails because `->` cannot be used in a `WHERE` clause; only `@>` is allowed there.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`->` returns `jsonb`, so the untyped literal on the other side of `=` is resolved as `jsonb`, and the bare word `paid` is not valid JSON, so the parser raises `invalid input syntax for type json`. `->>` returns `text` and compares with `'paid'` as intended, or the literal must be a JSON string, `'\"paid\"'`. The 'returns the paid orders' option assumes an implicit text comparison that does not exist. The 'no rows' option would apply only if the literal were valid JSON of a different value; here the statement never runs. The '`->` cannot be used in `WHERE`' option is wrong: any operator can appear in `WHERE`; containment is only preferable when a GIN index should be used."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.jsonb.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "jsonb",
+            "gin",
+            "indexes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`events.payload` is `jsonb` and has `CREATE INDEX ON events USING gin (payload jsonb_path_ops);`. Which query can use this index?",
+              "options": [
+                {
+                  "text": "`SELECT * FROM events WHERE payload ->> 'type' = 'signup';`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT * FROM events WHERE payload @> '{\"type\": \"signup\"}';`",
+                  "correct": true
+                },
+                {
+                  "text": "`SELECT * FROM events WHERE payload ? 'referrer';`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT * FROM events WHERE (payload ->> 'amount')::numeric > 100;`",
+                  "correct": false
+                }
+              ],
+              "explanation": "`jsonb_path_ops` supports containment (`@>`) and the jsonpath operators (`@?`, `@@`), so the `@>` query can use it. Extraction with `->>` followed by `=` is not an indexable operator for any GIN class on the whole column; it needs a B-tree expression index on `(payload ->> 'type')` or a rewrite to containment. Key existence (`?`) is supported by the default `jsonb_ops` class, but not by `jsonb_path_ops`, which hashes paths to values and does not index keys on their own. The range comparison on an extracted and cast value needs an expression B-tree index on `((payload ->> 'amount')::numeric)`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.jsonb.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "jsonb",
+            "schema-design",
+            "statistics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team stores each order as `orders(id, doc jsonb)`, with `customerId`, `status`, `total` and `createdAt` inside `doc`. Reports that filter by `status` and date and aggregate `total` per customer are slow, and plans show badly wrong row estimates even after `ANALYZE`. Which statement is accurate?",
+              "options": [
+                {
+                  "text": "Adding a GIN index on `doc` will fix both the speed and the estimates, because GIN indexes collect per-key statistics.",
+                  "correct": false
+                },
+                {
+                  "text": "`jsonb` is always slower than columns, so all data should be normalised into columns, including per-tenant custom fields.",
+                  "correct": false
+                },
+                {
+                  "text": "The planner has no statistics for values inside `jsonb`, so it uses default selectivity guesses; attributes used for filtering, joining and aggregation (and needing types and constraints) should be real columns, e.g. via generated columns or a migration, with B-tree indexes on them.",
+                  "correct": true
+                },
+                {
+                  "text": "Running `VACUUM FULL orders` recomputes per-key statistics for `jsonb` columns and fixes the estimates.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ANALYZE` collects statistics for the `jsonb` column as a whole, not for values at paths inside it, so selectivity for `doc ->> 'status' = 'paid'` falls back to defaults and join or aggregation plans go wrong; it also cannot enforce types, `NOT NULL` or a foreign key on `customerId`. Promoting these relational facts to columns (or generated columns with indexes; an expression index also gathers statistics on its expression) fixes estimates, enables constraints and allows compact B-tree indexes. GIN indexes accelerate certain operators but provide no planner statistics for keys. 'Always normalise everything' overcorrects: genuinely variable attributes such as per-tenant custom fields are a good fit for `jsonb`. `VACUUM FULL` rewrites the table but does not change what statistics are gathered."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.jsonb.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "jsonb",
+            "schema-design",
+            "indexes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When would you store data in a `jsonb` column instead of normal columns in PostgreSQL, and when would you refuse to? Explain how you would query and index the `jsonb` data, and what operational costs it has.",
+              "explanation": "Model answer: `jsonb` fits variable or sparse attributes (per-tenant custom fields, category-specific product attributes), opaque payloads kept for audit or replay (webhooks, LLM responses), and document-shaped data read and written as a whole. Refuse it for relational facts: identifiers and FKs, columns used in joins, filters, sorting and aggregation, data needing types and constraints (`NOT NULL`, `CHECK`, `UNIQUE`, references), and fields updated independently. Query with `->`/`->>` (remembering `->>` returns text and needs casts), `#>>` for paths, `@>` containment, `?` key existence and jsonpath (`@?`, `@@`), plus `JSON_TABLE` on PostgreSQL 17. Index with GIN (`jsonb_ops` for containment and key existence, `jsonb_path_ops` smaller but containment/jsonpath only), and with B-tree expression indexes or generated columns for the few hot keys, since GIN does not help `->> =` comparisons. Costs: no per-key planner statistics (bad estimates), whole-value rewrites on every update (TOAST for values over ~2 kB, more WAL and bloat), weaker typing and validation, larger storage due to repeated key names, and harder migrations of the document shape.",
+              "rubric": [
+                "Gives appropriate use cases for `jsonb` (variable/sparse attributes, opaque payloads, whole-document access) and rejects it for keys, FKs, constrained fields and frequently filtered, joined or aggregated attributes.",
+                "Uses the correct operators and their return types (`->` returns `jsonb`, `->>` returns `text` and needs casts for numbers, `@>` containment, `?` key existence, jsonpath).",
+                "Explains indexing: GIN `jsonb_ops` vs `jsonb_path_ops` and their supported operators, and B-tree expression indexes or generated columns for specific keys because GIN does not serve `->>` equality.",
+                "Names operational costs: no per-key statistics (poor estimates), whole-value rewrite on update with TOAST/WAL/bloat implications, and weaker typing and constraints."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "pagination-search",
+      "title": "Pagination and Search: Offset vs Keyset, Full-Text Search, pg_trgm",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Pagination and Search: Offset vs Keyset, Full-Text Search, pg_trgm",
+          "note": "## What it is\n\nTwo everyday API concerns that are easy to get wrong at scale: **paginating** a large ordered result, and **searching** text. Offset pagination and `ILIKE '%term%'` both work in a demo and both degrade linearly with data size.\n\n## Offset pagination\n\n`ORDER BY created_at DESC LIMIT 20 OFFSET 100000` asks the executor to produce 100,020 rows in order and throw away the first 100,000. Even with a perfect index, the cost grows with the page number. It is also **unstable**: an insert or delete between two requests shifts every later row, so the client sees duplicates or misses rows. Its strengths are simplicity, \"jump to page N\", and easy total counts, which makes it fine for small, mostly static admin lists.\n\n## Keyset (seek) pagination\n\nRemember the sort key of the last row and ask for rows strictly after it:\n\n```sql\nSELECT id, created_at, title\nFROM posts\nWHERE (created_at, id) < ($1, $2)        -- last row of the previous page\nORDER BY created_at DESC, id DESC\nLIMIT 20;\n-- index: CREATE INDEX ON posts (created_at DESC, id DESC);  (a plain ascending index also works, scanned backwards)\n```\n\n- Every page costs the same: an index descent plus 20 entries.\n- The sort key must be **unique**; add the primary key as a tie-breaker, otherwise rows sharing a timestamp at a page boundary are skipped or repeated.\n- The **row-value comparison** `(a, b) < (x, y)` compares lexicographically and maps directly onto a composite B-tree. It only works when all sort columns go in the same direction; for mixed directions (`ORDER BY priority ASC, created_at DESC`) expand it manually (`priority > $1 OR (priority = $1 AND created_at < $2)`) with a matching index (`(priority ASC, created_at DESC)`), or sort on derived values.\n- Nullable sort columns need explicit `NULLS FIRST/LAST` handling or `coalesce` on both the index and the predicate.\n- Trade-offs: no random page access (only next and previous), and the client receives an opaque **cursor** (e.g. base64 of `created_at|id`) rather than a page number. Exact totals require a separate `count(*)`, which is itself a full scan of the matching rows; many APIs return \"has more\" (fetch `LIMIT n + 1`) or an estimate from `EXPLAIN` / `pg_class.reltuples` instead.\n- In EF Core: `.Where(p => p.CreatedAt < lastCreated || (p.CreatedAt == lastCreated && p.Id < lastId)).OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id).Take(20)`; Npgsql's EF provider also offers `EF.Functions.LessThan(ValueTuple.Create(...), ValueTuple.Create(...))` for a true row-value comparison.\n\n## Full-text search\n\nPostgreSQL's built-in FTS converts documents to a `tsvector` (normalised lexemes with positions) using a text-search configuration (`english`, `simple`, ...) that lower-cases, removes stop words and stems (`running` -> `run`). Queries become a `tsquery`: `to_tsquery` (operator syntax), `plainto_tsquery`, `phraseto_tsquery`, and `websearch_to_tsquery` (PostgreSQL 11+, Google-like syntax with quotes, `or` and `-`, safe for raw user input). Match with `@@`, rank with `ts_rank`/`ts_rank_cd`, highlight with `ts_headline`. Index a **stored generated column** (`GENERATED ALWAYS AS (setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', body), 'B')) STORED`) with GIN. Always pass the configuration explicitly: the one-argument `to_tsvector(text)` depends on `default_text_search_config`, so it is not immutable and cannot match an expression index built with an explicit configuration.\n\n## Trigram search (`pg_trgm`)\n\n`CREATE EXTENSION pg_trgm` splits strings into three-character sequences. A GIN (or GiST) index with `gin_trgm_ops` accelerates `LIKE`/`ILIKE` with leading wildcards, regular expressions, and similarity search (`%`, `similarity()`, `word_similarity()`, threshold `pg_trgm.similarity_threshold`, default 0.3). It is the tool for fuzzy matching of names, SKUs, emails and typos, where linguistic stemming is useless. Search strings shorter than three characters cannot be narrowed by trigrams and degrade to scanning the whole index.\n\nFTS and trigrams answer different questions (meaning-based word matching vs character similarity); many apps combine them. Beyond relevance tuning, facets and multi-language analysis at scale, a dedicated engine (OpenSearch, Elasticsearch) or vector search (`pgvector`) may be justified.\n\n## What an interviewer probes\n\n- Why deep `OFFSET` is slow and inconsistent; how keyset works and what its constraints are.\n- Designing a cursor for a multi-column sort and the index behind it.\n- `LIKE '%x%'` vs FTS vs `pg_trgm`, and which index each needs.\n- Total counts on large tables.\n\n## Common misconceptions\n\n- \"An index makes `OFFSET` cheap\" -- skipped rows still have to be walked.\n- \"B-tree indexes help `LIKE '%term%'`\" -- only left-anchored patterns.\n- \"FTS finds substrings\" -- it matches lexemes; `post` will not match `postgres`.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.pagination-search.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "pagination",
+            "search",
+            "offset",
+            "keyset"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An API lists posts with `ORDER BY created_at DESC, id DESC LIMIT 20 OFFSET @offset`, and there is an index on `(created_at, id)`. Page 1 takes 1 ms; page 5,000 takes 400 ms, and users scrolling through a busy feed see the same post twice. What explains both symptoms?",
+              "options": [
+                {
+                  "text": "`OFFSET` must still produce and discard all preceding rows (100,000 for page 5,000) even when walking the index, so cost grows with the page number; and offsets are positional, so new posts inserted between requests shift rows into the next page. Keyset pagination (`WHERE (created_at, id) < (@lastCreatedAt, @lastId)`) fixes both.",
+                  "correct": true
+                },
+                {
+                  "text": "The index is only used for small offsets; above a threshold PostgreSQL switches to a seq scan. Duplicates come from a missing `DISTINCT`.",
+                  "correct": false
+                },
+                {
+                  "text": "The slowness is caused by sorting in descending order on an ascending index; creating the index as `DESC` fixes it, and duplicates come from the database not guaranteeing `ORDER BY` stability.",
+                  "correct": false
+                },
+                {
+                  "text": "PostgreSQL caches only the first pages of a query result; later pages are recomputed from scratch, and cache invalidation produces the duplicates.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`OFFSET n` has no way to jump to the n-th row: the executor walks n rows (through the index here) and discards them, so latency is linear in the page number. Positional pages are also inconsistent: if 3 posts are inserted at the top between two requests, the last 3 rows of page 1 reappear on page 2. Keyset pagination seeks directly to the last-seen key and is unaffected by inserts above it. The seq-scan threshold option is wrong: the plan may stay an index scan and still be slow, and `DISTINCT` cannot fix duplicates across separate requests. The `DESC` option is wrong: B-trees scan backwards efficiently, and the sort here is deterministic thanks to the `id` tie-breaker. PostgreSQL has no result-set cache for queries; each request is executed fresh."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.pagination-search.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "pagination",
+            "search",
+            "keyset",
+            "tie-breaker"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team implements keyset pagination on `events` like this and reports that some events \"disappear\" between pages, although no rows are deleted:\n\n```sql\nSELECT id, created_at, payload FROM events\nWHERE created_at < @lastCreatedAt\nORDER BY created_at DESC\nLIMIT 50;\n```\n\nBulk imports insert hundreds of events with the same `created_at`. Which fix is correct?",
+              "options": [
+                {
+                  "text": "Change `<` to `<=`, so the boundary timestamp is included in the next page.",
+                  "correct": false
+                },
+                {
+                  "text": "Add the primary key as a tie-breaker in both the sort and the predicate: `WHERE (created_at, id) < (@lastCreatedAt, @lastId) ORDER BY created_at DESC, id DESC`, backed by an index on `(created_at, id)`.",
+                  "correct": true
+                },
+                {
+                  "text": "Switch to `OFFSET` for pages that fall within a run of equal timestamps.",
+                  "correct": false
+                },
+                {
+                  "text": "Use `timestamptz` with microsecond precision; collisions then become impossible, so no tie-breaker is needed.",
+                  "correct": false
+                }
+              ],
+              "explanation": "When several rows share the boundary `created_at`, a page may end in the middle of the group; the next query with `< @lastCreatedAt` skips the rest of that group. A unique, total ordering (`created_at, id`) and the matching row-value predicate make the cursor point at exactly one row, and the composite index lets PostgreSQL seek there. Using `<=` turns skipped rows into repeated rows (and can loop forever if a group is larger than the page size). Mixing in `OFFSET` brings back the cost and instability keyset was meant to remove. `timestamptz` already has microsecond precision, and a bulk insert in one transaction gets the same `now()` for every row, so collisions remain likely; uniqueness must come from a key, not from luck."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.pagination-search.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "pagination",
+            "search",
+            "full-text-search",
+            "gin"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`articles` has `CREATE INDEX articles_fts_idx ON articles USING gin (to_tsvector('english', body));`. Which query can use this index?",
+              "options": [
+                {
+                  "text": "`SELECT id FROM articles WHERE to_tsvector(body) @@ to_tsquery('english', 'index');`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT id FROM articles WHERE body ILIKE '%index%';`",
+                  "correct": false
+                },
+                {
+                  "text": "`SELECT id FROM articles WHERE to_tsvector('english', body) @@ websearch_to_tsquery('english', @userInput);`",
+                  "correct": true
+                },
+                {
+                  "text": "`SELECT id FROM articles WHERE to_tsvector('simple', body) @@ plainto_tsquery('simple', 'index');`",
+                  "correct": false
+                }
+              ],
+              "explanation": "An expression index is used only when the query contains the same expression, here `to_tsvector('english', body)`, combined with an indexable operator (`@@`); `websearch_to_tsquery` is also the safe choice for raw user input. The one-argument `to_tsvector(body)` uses `default_text_search_config`, a setting that may change, so it is a different (and non-immutable) expression that cannot match the index. `ILIKE '%index%'` is a substring match, served by a `pg_trgm` index, not by a `tsvector` index. The `'simple'` configuration produces different lexemes (no stemming, no stop words), so it is a different expression as well and cannot use the `'english'` index."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.pagination-search.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "pagination",
+            "search",
+            "pg-trgm",
+            "like"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Support staff search customers by any fragment of their email or name, with typos, using `WHERE email ILIKE '%' || @q || '%'`. The table has 8 M rows and a B-tree index on `email`. Which change makes this fast while keeping substring semantics?",
+              "options": [
+                {
+                  "text": "Nothing can help leading-wildcard searches; the only option is to move search to Elasticsearch.",
+                  "correct": false
+                },
+                {
+                  "text": "Create the B-tree index with `text_pattern_ops`; it supports any `LIKE` pattern including leading wildcards.",
+                  "correct": false
+                },
+                {
+                  "text": "Replace the predicate with full-text search on `to_tsvector('simple', email)`; it matches any substring of the email.",
+                  "correct": false
+                },
+                {
+                  "text": "`CREATE EXTENSION pg_trgm;` and `CREATE INDEX ON customers USING gin (email gin_trgm_ops);` -- trigram GIN indexes serve `LIKE`/`ILIKE` with leading wildcards and also support similarity matching (`%`, `similarity()`) for typos.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`pg_trgm` decomposes values into three-character sequences; a GIN index with `gin_trgm_ops` finds rows containing all trigrams of the search fragment, so unanchored `LIKE`/`ILIKE` and regex searches become index scans (with a recheck), and `similarity`/`%` handle typos. Fragments shorter than three characters cannot be narrowed this way. A dedicated search engine is not required for this workload. `text_pattern_ops` only helps left-anchored patterns (`LIKE 'abc%'`) in non-C collations; a leading wildcard still needs a full scan. Full-text search matches whole lexemes produced by a parser, not arbitrary substrings, so `'ivan'` would not match `ivanenko@example.com`, and typos are not handled."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.pagination-search.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "pagination",
+            "search",
+            "keyset",
+            "api-design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design the PostgreSQL side of a `GET /products` endpoint for a 5 M-row catalogue: users can filter by category, sort by price or newest, page through results infinitely, and search by text. Explain your pagination approach (and why not `OFFSET`), the cursor format, the indexes, how you handle the total count, and which search technique you would use for which kind of input.",
+              "explanation": "Model answer: use keyset pagination because `OFFSET` walks and discards all skipped rows (cost grows with depth) and shifts results when rows are inserted or deleted. Each sort gets a unique total order with the primary key as tie-breaker: `ORDER BY price, id` or `ORDER BY created_at DESC, id DESC`; the next page uses a row-value predicate such as `(price, id) > (@lastPrice, @lastId)` (expanded manually if directions are mixed) with `LIMIT n + 1` to compute `hasMore`. The cursor is an opaque, versioned token (base64 of sort key, values and filter hash), validated server-side so a client cannot change the sort mid-stream. Indexes match filter plus sort: `(category_id, price, id)` and `(category_id, created_at DESC, id DESC)`. Total counts are expensive on large sets: return `hasMore`, an estimate (from `EXPLAIN` or `reltuples`), or a capped count (`count(*)` over a `LIMIT 1001` subquery), and compute exact counts only when needed. For search: full-text search (`tsvector` generated column with weights for name/description, GIN index, `websearch_to_tsquery` for user input, `ts_rank` for ordering) for word queries, and `pg_trgm` GIN for fuzzy/partial matches on names and SKUs; relevance-sorted search results are usually capped (top N) rather than infinitely keyset-paged, or paged by `(rank, id)`.",
+              "rubric": [
+                "Rejects `OFFSET` for deep paging with both reasons: linear cost of skipped rows and inconsistency under concurrent inserts/deletes.",
+                "Defines keyset pagination with a unique tie-breaker (primary key), a row-value or expanded predicate per sort order, and `LIMIT n + 1` (or equivalent) for `hasMore`.",
+                "Specifies composite indexes matching filter and sort (e.g. `(category_id, price, id)`), including direction for descending sorts.",
+                "Handles total count pragmatically: avoids exact `count(*)` per request or caps/estimates it, explaining the cost.",
+                "Chooses search techniques correctly: full-text search (`tsvector`, GIN, `websearch_to_tsquery`, `ts_rank`) for word queries and `pg_trgm` for fuzzy or substring matching."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "connection-pooling",
+      "title": "Connection Pooling: Npgsql Pool, PgBouncer, Pool Exhaustion",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Connection Pooling: Npgsql Pool, PgBouncer, Pool Exhaustion",
+          "note": "## What it is\n\nPostgreSQL uses a **process per connection**: each connection is a forked backend with its own memory (several MB once caches warm up), authentication handshake and, over TLS, a key exchange. Opening a connection costs milliseconds; holding thousands of them costs RAM and contention in the server's snapshot and lock machinery. `max_connections` defaults to 100. Connection pooling keeps a small set of physical connections open and lends them out per unit of work.\n\n## Npgsql's built-in pool\n\nPooling is on by default. Since Npgsql 7 the pool belongs to an **`NpgsqlDataSource`** (register it with `builder.Services.AddNpgsqlDataSource(connectionString)` or let the EF Core provider build one); with the older `new NpgsqlConnection(connString)` style, one pool exists per distinct connection string.\n\n- `OpenAsync()` takes an idle physical connection from the pool (or opens a new one if under `Max Pool Size`); `Dispose`/`Close` returns it to the pool rather than closing the socket, after resetting session state (on the next use, Npgsql sends a reset such as `DISCARD ALL` unless `No Reset On Close=true`).\n- Key settings: `Max Pool Size` (default 100), `Min Pool Size` (0), `Timeout` (15 s; how long `Open` waits for a connection, including waiting for a free pooled one), `Connection Idle Lifetime` (300 s; idle connections above the minimum are closed), `Connection Lifetime` (0 = unlimited; set it to rotate connections after failovers or behind load balancers), `Command Timeout` (30 s).\n- **EF Core's `AddDbContextPool`** pools `DbContext` instances, a separate concern: the context opens and closes a pooled connection for each operation, or keeps it for the lifetime of a transaction.\n\n## Pool exhaustion\n\nWhen every pooled connection is checked out, `Open` waits up to `Timeout` and then throws `NpgsqlException: The connection pool has been exhausted, either raise 'Max Pool Size' (currently 100) or 'Timeout' (currently 15 seconds) in your connection string.` Symptoms: latency jumps to about 15 s under load, then errors, while database CPU is often **low**. Typical causes:\n\n- connections not disposed (a missing `using`, a reader left open, a long-lived `DbContext` held by a singleton);\n- **long transactions** that hold a connection while doing slow non-database work (HTTP calls, LLM calls, file uploads), visible in `pg_stat_activity` as `idle in transaction`;\n- sync-over-async and thread-pool starvation, so connections are held while the code that would release them waits for a thread;\n- genuinely slow queries under high concurrency.\n\nRaising `Max Pool Size` rarely helps: more concurrent queries on the same cores mean more contention. Fix the holding time first. A different error, `53300: sorry, too many clients already`, comes from the **server** when the sum of all clients' connections exceeds `max_connections` (minus the reserved slots).\n\n## Sizing and PgBouncer\n\nTotal connections = instances x pool size per instance. Ten pods with the default 100 can try to open 1,000 connections against `max_connections = 100`. Size pools from concurrency, not defaults: a database with 8 cores rarely benefits from more than a few dozen active queries; queueing in the application pool is cheaper than queueing in the database.\n\nWhen many clients (autoscaled pods, serverless functions) must share one database, add an external pooler, **PgBouncer** (or a managed equivalent such as RDS Proxy or Azure's built-in PgBouncer). Modes:\n\n- **session**: a server connection is assigned for the whole client session; safe but saves little.\n- **transaction**: assigned per transaction, so thousands of clients share a few dozen server connections. Breaks anything session-scoped: `SET` without `LOCAL`, session advisory locks, `LISTEN`/`NOTIFY`, temporary tables, `WITH HOLD` cursors, and protocol-level prepared statements unless PgBouncer is 1.21+ with `max_prepared_statements` enabled (otherwise disable Npgsql's auto-preparation).\n- **statement**: per statement; multi-statement transactions are disallowed.\n\nWith PgBouncer in transaction mode you can keep Npgsql's pool (small), and `No Reset On Close=true` avoids pointless reset round-trips.\n\n## What an interviewer probes\n\n- What `Dispose` on a pooled connection does; connection pool vs `DbContext` pool.\n- Diagnosing exhaustion: the 15 s signature, `pg_stat_activity` states, holding time, why bigger pools are not the fix.\n- Multi-instance math and when PgBouncer becomes necessary; what transaction mode breaks.\n\n## Common misconceptions\n\n- \"Pooling is something you turn on\" -- it is on by default; the job is to return connections quickly.\n- \"Pool exhausted means the database is overloaded\" -- usually the application is holding connections.\n- \"PgBouncer is transparent\" -- not in transaction mode.\n\n## Example\n\n```csharp\n// Program.cs -- one data source (and one pool) for the app; no password in the string,\n// it comes from configuration/environment (e.g. PGPASSWORD or a secret store).\nbuilder.Services.AddNpgsqlDataSource(\n    \"Host=db;Database=app;Username=app;Maximum Pool Size=30;Timeout=5;Connection Idle Lifetime=60\");\n\n// Short-lived usage: the connection goes back to the pool at the end of the scope.\napp.MapGet(\"/orders/{id:long}\", async (long id, NpgsqlDataSource db, CancellationToken ct) =>\n{\n    await using var cmd = db.CreateCommand(\"SELECT total FROM orders WHERE id = $1\");\n    cmd.Parameters.Add(new NpgsqlParameter { Value = id });   // positional $1\n    return await cmd.ExecuteScalarAsync(ct) is decimal total ? Results.Ok(total) : Results.NotFound();\n});\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.postgres.connection-pooling.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "npgsql",
+            "connection-pooling",
+            "dotnet"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In an ASP.NET Core app using Npgsql with default settings, a handler does `await using var conn = await dataSource.OpenConnectionAsync();`, runs a query and returns. What happens to the database connection when `conn` is disposed?",
+              "options": [
+                {
+                  "text": "The physical connection stays open and is returned to the data source's pool; its session state is reset before it is reused by the next `OpenConnectionAsync`.",
+                  "correct": true
+                },
+                {
+                  "text": "The TCP connection and the PostgreSQL backend process are closed; the next request pays the full connect and authentication cost again unless `Pooling=true` is added.",
+                  "correct": false
+                },
+                {
+                  "text": "The connection is returned to EF Core's `DbContext` pool, which is the same mechanism as Npgsql connection pooling.",
+                  "correct": false
+                },
+                {
+                  "text": "The connection stays bound to the current HTTP request's thread and is reused only by later requests that run on the same thread.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Npgsql pools by default: disposing returns the physical connection (socket plus server backend) to the pool owned by the `NpgsqlDataSource`, and session state is reset (e.g. with `DISCARD ALL`) before the next use, so subsequent opens are cheap. The 'TCP connection is closed' option assumes pooling must be enabled; it is on unless `Pooling=false`. The `DbContext` pool option conflates two mechanisms: `AddDbContextPool` reuses context objects, while connections are pooled by Npgsql. The thread-affinity option is invented; pooled connections are not tied to threads, which in async code would be meaningless anyway."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.connection-pooling.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "npgsql",
+            "connection-pooling",
+            "pool-exhaustion",
+            "diagnostics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Under a traffic spike an API starts answering after ~15 s and then fails with `The connection pool has been exhausted, either raise 'Max Pool Size' (currently 100) or 'Timeout' (currently 15 seconds)`. Database CPU is at 15%, and `pg_stat_activity` shows about 100 connections from the API, most in state `idle in transaction`. What is the most likely cause and the right fix?",
+              "options": [
+                {
+                  "text": "PostgreSQL's `max_connections` is too low; raising it to 1,000 will resolve the errors.",
+                  "correct": false
+                },
+                {
+                  "text": "Code holds connections inside open transactions while doing non-database work (e.g. an HTTP or LLM call between `BeginTransaction` and `Commit`), so connections are checked out but idle; shorten transactions so external calls happen outside them, and add `idle_in_transaction_session_timeout` as a safety net.",
+                  "correct": true
+                },
+                {
+                  "text": "The pool is simply too small for the traffic; set `Max Pool Size=1000` so every request can get a connection immediately.",
+                  "correct": false
+                },
+                {
+                  "text": "The database is overloaded with slow queries; add read replicas to spread the load.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`idle in transaction` means a backend is inside an open transaction but not executing anything: the application holds the connection while doing something else. With all 100 pooled connections parked that way, new requests wait `Timeout` (15 s) for a free connection and then fail, while the database itself is mostly idle (15% CPU). Moving external I/O outside the transaction (or splitting the unit of work) shortens holding time; `idle_in_transaction_session_timeout` kills runaway sessions. Raising `max_connections` addresses a different error (`53300 too many clients`), which is a server-side limit; here the client pool is the bottleneck. A larger client pool just parks more idle transactions and can overwhelm the server once traffic grows. Slow queries would show `active` sessions and high CPU or I/O, not idle-in-transaction ones."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.connection-pooling.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "npgsql",
+            "connection-pooling",
+            "scaling",
+            "max-connections"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After moving to Kubernetes with autoscaling, a service scales from 4 to 25 pods during peaks. Each pod uses Npgsql defaults. PostgreSQL has `max_connections = 200`. During peaks new pods fail with `53300: sorry, too many clients already`. Which statement is correct?",
+              "options": [
+                {
+                  "text": "Npgsql shares one pool across all pods through the database, so the total stays at 100; the error must come from another application.",
+                  "correct": false
+                },
+                {
+                  "text": "The error means the Npgsql pool `Timeout` is too short; increasing it to 60 s lets new pods wait for free connections.",
+                  "correct": false
+                },
+                {
+                  "text": "Each pod has its own pool of up to 100 connections, so 25 pods can attempt up to 2,500; size per-pod pools for the worst-case pod count (e.g. 25 x 6 = 150 plus headroom) and/or put PgBouncer in transaction mode in front of PostgreSQL.",
+                  "correct": true
+                },
+                {
+                  "text": "Setting `Pooling=false` on new pods fixes it, because unpooled connections do not count against `max_connections`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Pools are per process (per `NpgsqlDataSource` or connection string inside a process); nothing coordinates them across pods, so the server sees the sum. `53300` is raised by PostgreSQL when that sum exceeds `max_connections` minus reserved slots. Fixes: cap each pod's `Max Pool Size` so that pods x pool size stays under the limit, and, for elastic fleets, use an external pooler (PgBouncer in transaction mode) that multiplexes many client connections onto a few server connections. The 'shared pool' option is wrong; there is no cross-process pool in Npgsql. `Timeout` governs waiting for the client-side pool, not the server's rejection. Unpooled connections are still backend processes and count against `max_connections`, while making every request pay the connection cost."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.connection-pooling.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "npgsql",
+            "connection-pooling",
+            "pgbouncer",
+            "transaction-pooling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your app connects through PgBouncer in **transaction** pooling mode. Which of the following still behaves correctly?",
+              "options": [
+                {
+                  "text": "Running `SET search_path = tenant_42;` once after opening the connection and relying on it for the following autocommit queries.",
+                  "correct": false
+                },
+                {
+                  "text": "Creating a `TEMP TABLE` in one autocommit statement and reading from it in the next request on the same `NpgsqlConnection`.",
+                  "correct": false
+                },
+                {
+                  "text": "Calling `LISTEN order_created;` once at startup and waiting for notifications on that connection.",
+                  "correct": false
+                },
+                {
+                  "text": "Running `SET LOCAL statement_timeout = '2s';` as the first statement inside an explicit transaction, followed by the queries of that transaction.",
+                  "correct": true
+                }
+              ],
+              "explanation": "In transaction mode PgBouncer assigns a server connection for one transaction and may give the next transaction a different one. `SET LOCAL` lasts only until the end of the current transaction, which runs entirely on one server connection, so it is safe and the idiomatic way to scope settings. A plain `SET` changes the session of whichever server connection ran it; later autocommit queries may land on another backend (and another client may inherit the setting). Temporary tables are session-scoped and live on the backend that created them, so the next transaction may not see them. `LISTEN` registers the backend, not the client, and the notification channel is lost once PgBouncer reassigns that backend; listeners need a direct or session-pooled connection."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.postgres.connection-pooling.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "postgres",
+            "npgsql",
+            "connection-pooling",
+            "pool-sizing",
+            "pgbouncer"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain how connection pooling works for an ASP.NET Core application talking to PostgreSQL through Npgsql: what the pool does, what pool exhaustion looks like and how you diagnose and fix it, how you size pools across multiple instances, and when and how you would introduce PgBouncer.",
+              "explanation": "Model answer: PostgreSQL forks a process per connection, so connections are expensive to open and to keep in large numbers (`max_connections` defaults to 100). Npgsql pools by default per `NpgsqlDataSource` (or per connection string): `Open` borrows an idle physical connection, `Dispose` returns it after a state reset; settings include `Max Pool Size` (100), `Timeout` (15 s), idle and total lifetimes. This is distinct from EF Core's `DbContext` pooling. Exhaustion shows as requests waiting about `Timeout` and then `The connection pool has been exhausted`, often with low database CPU; diagnose with `pg_stat_activity` (many `idle in transaction` or long `active` sessions), Npgsql pool metrics (connections in use, pending open requests), and code review for undisposed connections, transactions around external calls, and sync-over-async starvation; fix the holding time rather than raising `Max Pool Size`. Size by concurrency and cores: total = instances x per-instance pool must stay below `max_connections` minus reserved slots, with headroom for migrations and admin. Introduce PgBouncer (or a managed pooler) when the number of clients is large or elastic: transaction mode multiplexes many clients onto few backends but breaks session state (plain `SET`, session advisory locks, `LISTEN/NOTIFY`, temp tables, prepared statements unless PgBouncer 1.21+ with `max_prepared_statements`), so use `SET LOCAL`, transaction-scoped locks, disable auto-prepare if needed, and keep a direct connection for migrations and listeners.",
+              "rubric": [
+                "Explains why pooling matters for PostgreSQL (process per connection, connection cost, `max_connections`) and how Npgsql's default pool works (per data source or connection string, `Dispose` returns the connection, state reset).",
+                "Distinguishes Npgsql connection pooling from EF Core `DbContext` pooling.",
+                "Describes exhaustion symptoms (waiting about `Timeout`, then the exhausted-pool exception, often low DB CPU) and root causes (undisposed connections, long or idle-in-transaction holding, thread-pool starvation), preferring to reduce holding time over enlarging the pool.",
+                "Sizes pools across instances: instances x pool size must fit under `max_connections` minus reserved connections, sized by concurrency rather than defaults.",
+                "Explains PgBouncer modes and transaction-mode caveats (session `SET`, advisory locks, `LISTEN/NOTIFY`, temp tables, prepared statements) and how to adapt the application."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

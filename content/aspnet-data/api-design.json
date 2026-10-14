@@ -1,0 +1,1416 @@
+{
+  "domain": "aspnet-data",
+  "topic": "api-design",
+  "concepts": [
+    {
+      "slug": "rest-conventions",
+      "title": "REST Conventions",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "REST Conventions",
+          "note": "## What it is\n\nREST conventions are the shared vocabulary that lets a client predict an API without reading its code: resources are nouns addressed by URIs, HTTP methods carry the intent, status codes carry the outcome, and headers carry metadata such as caching, concurrency and versioning. Nobody in an interview cares whether an API is \"truly RESTful\" in Fielding's HATEOAS sense; they care whether you use HTTP semantics (RFC 9110) correctly, because proxies, caches, retry policies and generated clients all rely on them.\n\n## How it works underneath\n\n**Resource naming.** Plural nouns, hierarchy only where ownership is real: `GET /orders/42/lines`, not `GET /getOrderLines?id=42`. Actions that do not map to CRUD become sub-resources or state transitions: `POST /orders/42/cancellation` rather than `POST /cancelOrder`. Query strings filter, sort and paginate a collection; they do not select a different operation.\n\n**Method semantics.** Two properties matter. *Safe* (`GET`, `HEAD`, `OPTIONS`) means no intended state change, so crawlers and prefetchers may call it freely. *Idempotent* (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`) means N identical requests leave the server in the same state as one, which is what lets a client or a proxy retry after a timeout. Idempotency is about server state, not the response: a second `DELETE /orders/42` may return `404` and is still idempotent. `POST` is neither; `PATCH` is not guaranteed idempotent (an `add` to an array, or `{\"op\":\"increment\"}`-style designs, are not).\n\n**Status codes that interviewers expect you to pick without hesitation:**\n\n| Situation | Code |\n|---|---|\n| Created a resource | `201 Created` + `Location` header (+ body) |\n| Accepted for async processing | `202 Accepted` + a status URI |\n| Success, nothing to return | `204 No Content` |\n| Malformed request / failed validation | `400` (or `422 Unprocessable Content` if you distinguish syntax from semantics) |\n| No or invalid credentials | `401 Unauthorized` + `WWW-Authenticate` |\n| Authenticated but not allowed | `403 Forbidden` (or `404` to hide existence) |\n| Business-state conflict, duplicate | `409 Conflict` |\n| `If-Match` ETag is stale | `412 Precondition Failed` |\n| Conditional request required but missing | `428 Precondition Required` |\n| Throttled | `429 Too Many Requests` + `Retry-After` |\n\nErrors use **Problem Details** (`application/problem+json`, RFC 9457, which obsoletes RFC 7807). In ASP.NET Core, `AddProblemDetails()` plus `UseExceptionHandler()`/`UseStatusCodePages()` produce it consistently; `TypedResults.ValidationProblem` adds the `errors` dictionary.\n\n**PATCH semantics** depend on the media type. JSON Merge Patch (RFC 7396, `application/merge-patch+json`) sends a partial document: present members replace, `null` *removes*, arrays are replaced wholesale. It cannot set a value to JSON `null` or edit one array element. JSON Patch (RFC 6902, `application/json-patch+json`) sends an ordered list of operations (`add`, `remove`, `replace`, `move`, `copy`, `test`) applied atomically; `test` gives you a per-field precondition. Plain `application/json` with \"missing means unchanged\" is a home-grown merge patch, which is fine if documented, but you then need a way to distinguish \"absent\" from \"null\" in your DTO.\n\n**Optimistic concurrency** over HTTP: `GET` returns an `ETag`; the client sends `If-Match: \"<etag>\"` on `PUT`/`PATCH`/`DELETE`; the server returns `412` if the resource changed. This maps naturally onto an EF Core concurrency token or PostgreSQL `xmin`.\n\n**Idempotency for POST.** Clients send an `Idempotency-Key` header (an IETF draft, used by Stripe and others); the server stores key, request hash and response, and replays the stored response on a retry instead of executing twice.\n\n**Versioning.** Only breaking changes need a new version; additive changes are absorbed by tolerant readers. Options: URL segment (`/v2/orders`, visible, trivially routable and cacheable), query string (`?api-version=2.0`, the Azure convention), header or media type (`Accept: application/vnd.acme.v2+json`, stable URIs but awkward to test in a browser and requires `Vary`). `Asp.Versioning.Http` supports all of them, reports `api-supported-versions`, and can mark versions deprecated with a sunset policy.\n\n## What an interviewer probes\n\n- PUT vs PATCH vs POST, and why idempotency matters for retries.\n- 401 vs 403, 400 vs 409 vs 422, and when 404 is the right answer for a forbidden resource.\n- How you prevent lost updates (ETag/`If-Match`) and duplicate creates (`Idempotency-Key`).\n- What counts as a breaking change and how long you support an old version.\n\n## Common misconceptions\n\n- \"Idempotent means the same response every time.\" It means the same resulting state.\n- \"PUT is for update, POST is for create.\" PUT is \"replace the resource at this URI\" and can create when the client chooses the id; POST is \"process this\", which usually creates under a server-chosen id.\n- \"Return 200 with `{ success: false }`.\" It defeats every intermediary and every generated client.\n- \"Version every release.\" Versions are a contract cost; add them for breaking changes only.\n\n```csharp\napp.MapPut(\"/orders/{id:guid}\", async (Guid id, OrderDto dto, HttpRequest req, AppDb db) =>\n{\n    var order = await db.Orders.FindAsync(id);\n    if (order is null) return Results.NotFound();\n    if (req.Headers.IfMatch.ToString() != $\"\\\"{order.Version}\\\"\")\n        return Results.StatusCode(StatusCodes.Status412PreconditionFailed);\n    order.Replace(dto);\n    await db.SaveChangesAsync();\n    return Results.NoContent();\n});\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.rest-conventions.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "http",
+            "idempotency",
+            "rest"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about the HTTP method semantics defined in RFC 9110 is correct?",
+              "options": [
+                {
+                  "text": "`PUT` and `DELETE` are idempotent: repeating the same request leaves the server in the same state as sending it once, even though a repeated `DELETE` may answer `404` instead of `204`.",
+                  "correct": true
+                },
+                {
+                  "text": "`DELETE` is not idempotent, because the first call returns `204` and the second returns `404`, so the client observes a different result each time.",
+                  "correct": false
+                },
+                {
+                  "text": "`PATCH` is idempotent by definition, because it only touches the fields listed in the body and leaves every other field untouched.",
+                  "correct": false
+                },
+                {
+                  "text": "`POST` becomes idempotent when the handler checks for duplicates, so HTTP clients and proxies are allowed to retry any `POST` automatically.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Idempotency in RFC 9110 is defined in terms of the *intended effect on the server*, not the response: N identical `PUT` or `DELETE` requests produce the same server state as one, which is why clients and proxies may retry them after a network failure. The `DELETE`-returns-`404` option confuses response equality with state equality; the resource is gone either way, so `DELETE` is idempotent. The `PATCH` option is wrong because RFC 5789 explicitly does not guarantee idempotency: a JSON Patch `add` to an array, or an operation like \"increment stock\", changes state on every repetition. The `POST` option is wrong because a server-side duplicate check is a private implementation detail; generic clients and intermediaries cannot know about it, so they must not retry `POST` automatically. The standard way to make `POST` safely retryable is an explicit contract such as an `Idempotency-Key` header."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.rest-conventions.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "http",
+            "status-codes",
+            "concurrency",
+            "etag"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A client reads `GET /orders/42`, receives `ETag: \"7\"`, and later sends:\n\n```http\nPUT /orders/42\nIf-Match: \"7\"\nContent-Type: application/json\n```\n\nMeanwhile another client has updated the order, so its current version is `\"8\"`. Which response follows HTTP semantics?",
+              "options": [
+                {
+                  "text": "`409 Conflict`, because two clients edited the same resource and the server must report the conflicting state in the body.",
+                  "correct": false
+                },
+                {
+                  "text": "`428 Precondition Required`, because the precondition sent by the client no longer matches the stored version.",
+                  "correct": false
+                },
+                {
+                  "text": "`412 Precondition Failed`, because the `If-Match` condition evaluated to false, so the server must not apply the `PUT`.",
+                  "correct": true
+                },
+                {
+                  "text": "`200 OK` with the current representation, because `If-Match` is advisory and the server should apply the last write and return the new state.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`If-Match` makes the request conditional; when the current ETag does not match, RFC 9110 says the server must not perform the method and responds `412 Precondition Failed`. The client then re-reads, merges and retries. `409 Conflict` is for conflicts with the resource's business state (a duplicate unique key, cancelling a shipped order); it is a plausible choice when you do optimistic concurrency without HTTP preconditions, but once the client used `If-Match`, `412` is the defined answer. `428 Precondition Required` (RFC 6585) is for the opposite case: the server requires a conditional request and the client sent none. The `200 OK` option describes last-write-wins, which is exactly the lost-update problem `If-Match` exists to prevent; the header is not advisory."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.rest-conventions.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "http",
+            "patch",
+            "json-merge-patch"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The stored customer is `{\"name\":\"Ann\",\"phone\":\"555-1234\",\"tags\":[\"vip\",\"eu\"]}`. A client sends:\n\n```http\nPATCH /customers/7\nContent-Type: application/merge-patch+json\n\n{ \"phone\": null, \"tags\": [\"new\"] }\n```\n\nWhat is the resource after a correct RFC 7396 implementation applies it?",
+              "options": [
+                {
+                  "text": "`{\"name\":\"Ann\",\"phone\":null,\"tags\":[\"vip\",\"eu\",\"new\"]}`: `null` is stored as a value and arrays are merged by appending new elements.",
+                  "correct": false
+                },
+                {
+                  "text": "`{\"name\":\"Ann\",\"tags\":[\"new\"]}`: `null` removes the `phone` member and the array is replaced as a whole.",
+                  "correct": true
+                },
+                {
+                  "text": "`{\"name\":\"Ann\",\"phone\":\"555-1234\",\"tags\":[\"new\"]}`: `null` members are ignored as \"not sent\" and the array is replaced.",
+                  "correct": false
+                },
+                {
+                  "text": "The server must reject it with `400`, because merge patch cannot modify arrays; array changes require JSON Patch operations.",
+                  "correct": false
+                }
+              ],
+              "explanation": "JSON Merge Patch (RFC 7396) is a partial document: members present in the patch replace the target's members, a member whose value is `null` is removed, and anything that is not an object, including arrays, is replaced wholesale. So `phone` disappears and `tags` becomes `[\"new\"]`. The first option invents an array-merge rule and treats `null` as a value; merge patch has no way to set a member to JSON `null`, which is one of its known limitations. The third option describes a common home-grown \"null means unchanged\" convention for plain `application/json`, not RFC 7396. The fourth option is wrong because merge patch can change arrays, it just cannot edit individual elements; for \"append one tag\" you would need JSON Patch (RFC 6902, `application/json-patch+json`) with an `add` at `/tags/-`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.rest-conventions.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "versioning",
+            "rest",
+            "breaking-changes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your team debates API versioning for a public HTTP API. Which statement is accurate?",
+              "options": [
+                {
+                  "text": "Query-string versioning (`?api-version=2.0`) breaks HTTP caching, because shared caches ignore the query string when building the cache key.",
+                  "correct": false
+                },
+                {
+                  "text": "REST requires the version in the URL path; header or media-type versioning violates the uniform interface and is rejected by proxies.",
+                  "correct": false
+                },
+                {
+                  "text": "Every deployment that changes a DTO should bump the major version, so that clients can pin to the exact contract they were built against.",
+                  "correct": false
+                },
+                {
+                  "text": "A new version is needed only for breaking changes; URL-segment versioning is the most visible and routable, while header or media-type versioning keeps URIs stable but needs `Vary` and is harder to exercise from a browser.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Versions are a contract cost (parallel code paths, docs, support windows), so you introduce one for breaking changes only; additive changes such as a new optional response field or a new endpoint are absorbed by tolerant readers. URL segments (`/v2/orders`) are visible in logs, trivial to route and cache; header or media-type versioning (`Accept: application/vnd.acme.v2+json`) keeps the resource URI stable but the response must carry `Vary` so caches key on the header, and it is awkward to test from a browser address bar. `Asp.Versioning.Http` supports all of these schemes. The query-string option is wrong: HTTP caches key on the full target URI, query included (the Azure REST guidelines use exactly this scheme). REST says nothing about where a version lives, and proxies forward custom headers and `Accept` values fine. Bumping on every deployment forces clients into needless migrations and makes \"breaking\" meaningless."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.rest-conventions.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "rest",
+            "status-codes",
+            "http",
+            "patch"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Design the HTTP surface for an \"orders\" resource that supports: list with filtering and paging, read one, create, full replace, partial update, delete, and cancelling an order. For each operation give the method, URI, success status code (with notable headers), and the main error status codes. Explain the difference between `PUT` and `PATCH` and how you would stop two users from overwriting each other's changes.",
+              "explanation": "Model answer: `GET /orders?status=open&page=2&pageSize=50` (or cursor-based `?after=...`) returns `200` with items plus paging metadata; `GET /orders/{id}` returns `200` with an `ETag`, or `404`. `POST /orders` returns `201 Created` with a `Location: /orders/{id}` header and the representation; `400`/`422` with Problem Details for validation, `409` for business conflicts such as a duplicate external reference. `PUT /orders/{id}` replaces the whole representation (idempotent), `PATCH /orders/{id}` applies a partial change described by a patch media type (JSON Merge Patch or JSON Patch), not guaranteed idempotent; both return `200` with the new state or `204`. `DELETE /orders/{id}` returns `204`, and a repeat may return `404` while still being idempotent. Cancelling is a state transition, modelled as `POST /orders/{id}/cancellation` (or a `PATCH` of `status`), returning `409` if the order is already shipped. 401 vs 403 are distinguished. Lost updates are prevented with optimistic concurrency: the server returns an `ETag` (row version), the client sends `If-Match`, and the server answers `412 Precondition Failed` on mismatch, optionally `428` when `If-Match` is required but missing. Errors use `application/problem+json` (RFC 9457).",
+              "rubric": [
+                "Uses plural noun URIs (`/orders`, `/orders/{id}`), query parameters for filtering and paging, and models cancel as a sub-resource or state change (e.g. `POST /orders/{id}/cancellation`) instead of a verb URI like `/cancelOrder`.",
+                "Gives correct success codes: `200` for reads, `201 Created` with a `Location` header for create, `200` or `204` for update and delete; and correct error codes: `400`/`422` for validation, `404` for missing, `409` for business-state conflicts, `401` vs `403` distinguished.",
+                "Explains that `PUT` replaces the full representation and is idempotent, while `PATCH` applies a partial change whose meaning depends on the patch media type (JSON Merge Patch vs JSON Patch) and is not guaranteed idempotent.",
+                "Prevents lost updates with optimistic concurrency over HTTP: `ETag` on reads, `If-Match` on writes, `412 Precondition Failed` on mismatch (backed by a row version / concurrency token).",
+                "Returns errors in a consistent machine-readable format, specifically Problem Details (`application/problem+json`, RFC 7807/9457), rather than `200` with an error flag."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "openapi-contracts",
+      "title": "OpenAPI Contracts",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "OpenAPI Contracts",
+          "note": "## What it is\n\nAn OpenAPI document is a machine-readable description of an HTTP API: paths, operations, parameters, request and response schemas, security schemes. It is the *contract* between a service and its consumers, and the input for documentation UIs, client generators, mock servers, gateways and breaking-change checks. Interviewers use it to test whether you treat the API as a product with consumers, rather than as whatever the controllers happen to return.\n\n## How it works underneath\n\n**Code-first.** The document is derived from the running code. ASP.NET Core collects endpoint metadata through `IApiDescriptionGroupCollectionProvider` (routes, parameter binding sources, `Produces`/`ProducesResponseType`, `TypedResults` return types) and a generator turns it into a document. Since **.NET 9** the templates use the built-in `Microsoft.AspNetCore.OpenApi` package (`builder.Services.AddOpenApi()` + `app.MapOpenApi()`, served at `/openapi/v1.json`) instead of Swashbuckle; there is no bundled UI, so you add Scalar or Swagger UI yourself. **.NET 10** emits **OpenAPI 3.1** by default (JSON Schema 2020-12 alignment, `type: [string, \"null\"]` instead of `nullable: true`) and can serve YAML. Customisation goes through document, operation and schema *transformers*. Swashbuckle and NSwag remain valid; FastEndpoints, for instance, generates through NSwag.\n\n**Build-time generation.** Adding `Microsoft.Extensions.ApiDescription.Server` makes the build emit the document to disk (`OpenApiGenerateDocuments`, `OpenApiDocumentsDirectory`). Committing that file turns every API change into a reviewable diff, and a CI step (`oasdiff breaking`, or a comparable tool) can fail the build on a breaking change.\n\n**Contract-first.** The spec is written (or designed in a tool) and reviewed first; server stubs and clients are generated from it, and the implementation is validated against it. It shines when several teams or external partners consume the API, when the frontend must start before the backend exists (mock server from the spec), or when the API is a regulated or public product. The cost is a second source of truth: without a check that the implementation matches the spec, contract-first drifts just like hand-written documentation.\n\n**Client generation.** NSwag, Kiota (Microsoft) and openapi-generator produce typed C# or TypeScript clients. The quality of the generated client is bounded by the quality of the schema: missing response types produce `any`/`object`, undeclared error responses are not modelled, and inaccurate nullability (`string` vs `string?`, `required`) produces clients that either crash on `null` or force needless null checks. Treat the generated client as a build artefact, regenerate it in CI, and do not hand-edit it.\n\n**Breaking changes** are judged from the consumer's side:\n\n| Change | Breaking? |\n|---|---|\n| Add an endpoint, an optional request field, a new response field | No (for tolerant readers) |\n| Remove or rename a response field, change its type or format | Yes |\n| Make an optional request field required, add a required parameter | Yes |\n| Tighten validation (max length, pattern) | Yes, behaviourally |\n| Add a value to a response enum | Often, for strict generated clients |\n| Rename a C# property but keep `[JsonPropertyName]` | No, the wire is unchanged |\n\nOld clients are the ones already deployed (mobile apps, partner integrations), so \"the frontend compiles after regeneration\" proves nothing about them. That is why the diff must be against the *previously published* contract.\n\n## What an interviewer probes\n\n- Code-first vs contract-first and when each fits.\n- What is generated in .NET 9/10 versus the Swashbuckle era, and how you describe responses accurately (`TypedResults`, `Produces<T>`, `ProducesProblem`).\n- How you catch a breaking change before it reaches production.\n- How generated clients are kept in sync in a monorepo versus across teams.\n\n## Common misconceptions\n\n- \"Swagger and OpenAPI are the same thing.\" Swagger 2.0 was the old spec name; OpenAPI 3.x is the standard, Swagger UI is one viewer.\n- \"The OpenAPI document is documentation.\" It is a contract and a build input; inaccurate schemas break generated clients.\n- \"Additive changes are always safe.\" New enum values and stricter validation break strict consumers.\n- \"Contract-first guarantees the implementation matches.\" Only with a validation step.\n\n```csharp\nbuilder.Services.AddOpenApi(o =>\n{\n    o.AddDocumentTransformer((doc, ctx, ct) =>\n    {\n        doc.Info.Title = \"Orders API\";\n        return Task.CompletedTask;\n    });\n});\n\napp.MapOpenApi(); // /openapi/v1.json\n\napp.MapGet(\"/orders/{id:guid}\", async Task<Results<Ok<OrderDto>, NotFound>> (Guid id, AppDb db) =>\n        await db.Orders.FindAsync(id) is { } o ? TypedResults.Ok(o.ToDto()) : TypedResults.NotFound())\n   .WithName(\"GetOrder\")\n   .ProducesProblem(StatusCodes.Status500InternalServerError);\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.openapi-contracts.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "openapi",
+            "contract-first",
+            "api-design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team is choosing between code-first and contract-first OpenAPI. Which statement describes a genuine advantage of contract-first?",
+              "options": [
+                {
+                  "text": "Contract-first removes the need for API versioning, because the spec is fixed before implementation and therefore can never change.",
+                  "correct": false
+                },
+                {
+                  "text": "The spec is designed and reviewed before any code exists, so consumers (frontend, partners) can build against it and a mock server in parallel, and the contract is a deliberate design artefact rather than a by-product of controllers.",
+                  "correct": true
+                },
+                {
+                  "text": "Code-first projects cannot generate typed clients, because the document only exists at runtime and is not available to the build.",
+                  "correct": false
+                },
+                {
+                  "text": "Contract-first means the spec is generated from controllers during the build, which guarantees it matches the implementation exactly.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Contract-first puts the API design in front of reviewers and consumers before implementation, enables parallel work (mock servers, generated clients) and keeps the contract intentional. Its cost is a second source of truth that needs a validation step. The versioning option is wrong: contracts evolve in both approaches, and breaking changes still need a version. The code-first option is wrong because the document can be produced at build time (`Microsoft.Extensions.ApiDescription.Server`, `dotnet swagger tofile`, NSwag) and fed to client generators. The last option describes code-first (generation from code), not contract-first, and build-time generation guarantees the document matches the endpoint *metadata*, not necessarily the actual runtime behaviour."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.openapi-contracts.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "openapi",
+            "dotnet-10",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You create a new ASP.NET Core Web API project from the .NET 10 template. What generates and serves its OpenAPI document by default?",
+              "options": [
+                {
+                  "text": "Swashbuckle (`AddSwaggerGen` + `UseSwaggerUI`), which serves an OpenAPI 2.0 document and an interactive Swagger UI at `/swagger`.",
+                  "correct": false
+                },
+                {
+                  "text": "NSwag, which the template wires up because Microsoft adopted it as the official generator in .NET 9.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing until you add a package: ASP.NET Core only exposes `ApiExplorer` metadata and every project must choose a third-party generator.",
+                  "correct": false
+                },
+                {
+                  "text": "The built-in `Microsoft.AspNetCore.OpenApi` package (`AddOpenApi()` + `MapOpenApi()`), serving an OpenAPI 3.1 document at `/openapi/v1.json`, with no UI bundled.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Starting with .NET 9 the Web API templates dropped Swashbuckle in favour of Microsoft's own `Microsoft.AspNetCore.OpenApi`, registered with `builder.Services.AddOpenApi()` and exposed with `app.MapOpenApi()` at `/openapi/{documentName}.json`. In .NET 10 the default output is OpenAPI 3.1. No UI is included; you add Scalar, Swagger UI or ReDoc if you want one. The Swashbuckle option describes the .NET 8 template (and Swashbuckle emits OpenAPI 3.0 by default, not 2.0). NSwag was never made the template default; it remains a popular third-party option (FastEndpoints uses it). The third option was true for very old templates without OpenAPI enabled, but not for .NET 9 or 10, where generation is built in."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.openapi-contracts.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "openapi",
+            "breaking-changes",
+            "versioning"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which of these changes to a published `POST /orders` endpoint is a breaking change for existing clients?",
+              "options": [
+                {
+                  "text": "Renaming the C# DTO property `Name` to `CustomerName` while annotating it with `[JsonPropertyName(\"name\")]`.",
+                  "correct": false
+                },
+                {
+                  "text": "Adding a new optional `notes` field to the response body.",
+                  "correct": false
+                },
+                {
+                  "text": "Making the previously optional `deliveryDate` request field required.",
+                  "correct": true
+                },
+                {
+                  "text": "Adding an optional `?dryRun=` query parameter whose default reproduces the old behaviour.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Clients built against the old contract do not send `deliveryDate`; once it is required they start getting `400`, so tightening a request requirement is breaking. The `[JsonPropertyName]` rename changes only C# code: the JSON member and the OpenAPI schema property remain `name`, so the wire contract is unchanged (a generated *C#* client's property name may change on regeneration, but deployed clients are unaffected). A new optional response field is additive and tolerated by any client that ignores unknown members, which is the default for `System.Text.Json` and generated clients. An optional parameter with a backward-compatible default does not change existing requests."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.openapi-contracts.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "openapi",
+            "ci",
+            "breaking-changes",
+            "client-generation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "The backend and an Angular app live in one repo; a mobile app and a partner integration consume the same API from released builds. Which CI setup actually catches an accidental breaking API change before it ships?",
+              "options": [
+                {
+                  "text": "Regenerate the TypeScript client in the same pull request and fail the build if the Angular app does not compile; if the frontend compiles, the change is compatible.",
+                  "correct": false
+                },
+                {
+                  "text": "Generate the OpenAPI document at build time, commit it, and run a breaking-change diff (for example `oasdiff breaking`) of the new document against the last released one, failing the build on breaking findings.",
+                  "correct": true
+                },
+                {
+                  "text": "Run the integration tests with `WebApplicationFactory`; any breaking change makes the tests for that endpoint fail.",
+                  "correct": false
+                },
+                {
+                  "text": "Publish Swagger UI in the staging environment and have reviewers check the endpoints before each release.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The consumers at risk are the ones you cannot recompile: the released mobile app and the partner. Diffing the newly generated document against the last *released* contract with a breaking-change detector checks exactly what they depend on, automatically and on every PR. Regenerating the client in the same PR only proves the in-repo frontend still compiles against the new contract; the deployed mobile app still uses the old one. Integration tests are written and updated alongside the server, so they verify the server against itself; a developer who changes the DTO usually updates the test in the same commit. Manual Swagger UI review is unreliable and does not compare against the previous version at all."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.openapi-contracts.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "openapi",
+            "contract-first",
+            "client-generation",
+            "breaking-changes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Code-first or contract-first OpenAPI: which would you choose for (a) an internal API consumed only by your own Angular app in the same repo, and (b) a public API consumed by partners? For each, explain how the OpenAPI document is produced, how clients are generated, and how you prevent breaking changes from reaching consumers.",
+              "explanation": "Model answer: (a) Code-first is usually right: one team owns both sides, the code is the source of truth, and the document is generated from endpoint metadata (`Microsoft.AspNetCore.OpenApi` in .NET 9+, OpenAPI 3.1 in .NET 10, or NSwag/Swashbuckle), ideally at build time via `Microsoft.Extensions.ApiDescription.Server` so it is committed and diffable. The TypeScript client is regenerated (NSwag, Kiota, openapi-generator) in CI and never hand-edited; responses must be described accurately (`TypedResults`, `Produces`, problem responses, nullability) or the client degrades to `any`. Because the frontend is deployed together with the API, breaking changes are caught by compilation, but cached SPA bundles still argue for additive changes. (b) Contract-first fits better: the spec is designed and reviewed with consumers, mocks unblock them early, and the server is validated against the spec (contract tests or generation plus diff). Breaking changes are detected by diffing against the last published spec in CI (oasdiff), additive changes are preferred, and genuinely breaking changes go to a new version with a deprecation and sunset period.",
+              "rubric": [
+                "Distinguishes the approaches: code-first derives the document from code/endpoint metadata; contract-first designs and reviews the spec first and generates or validates code against it.",
+                "Picks code-first (or justifies otherwise) for the single-team, same-repo case and contract-first for external or multi-team consumers, with reasons such as parallel development, partner review and stability.",
+                "Explains document production in .NET concretely: built-in `Microsoft.AspNetCore.OpenApi` (`AddOpenApi`/`MapOpenApi`, .NET 9+) or NSwag/Swashbuckle, and build-time generation so the spec is committed and diffable.",
+                "Explains client generation (NSwag, Kiota or openapi-generator) as a regenerated, non-hand-edited artefact, and that accurate response types and nullability in the schema determine client quality.",
+                "Prevents breaking changes by diffing the new spec against the last released one in CI (e.g. oasdiff) and versioning only for unavoidable breaking changes with a deprecation period, noting that already-deployed clients are the ones at risk."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "httpclient-resilience",
+      "title": "HttpClient & Resilience",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "HttpClient & Resilience",
+          "note": "## What it is\n\nEvery outbound HTTP call is a dependency that can be slow, flaky or down. Two problems have to be solved separately: **connection management** (how `HttpClient` instances, handlers and sockets are created and recycled) and **failure policy** (timeouts, retries, circuit breaking, rate limiting). In .NET the first is `IHttpClientFactory`; the second is `Microsoft.Extensions.Http.Resilience`, built on Polly v8.\n\n## How it works underneath\n\n**The `HttpClient` lifetime trap.** `HttpClient` is a thin, thread-safe wrapper over an `HttpMessageHandler` chain whose innermost `SocketsHttpHandler` owns the connection pool. Two classic mistakes:\n\n1. `using var client = new HttpClient()` per request disposes the handler and its pool every time. Each closed connection leaves a socket in `TIME_WAIT` (around 2 to 4 minutes depending on the OS), so under load you exhaust ephemeral ports (`SocketException: Only one usage of each socket address...` / address already in use) and pay a TCP+TLS handshake per call.\n2. A single `static HttpClient` fixes that, but its pooled connections live forever and never re-resolve DNS, so blue/green swaps or failovers are not observed. Fix it with `new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(2) }`.\n\n`IHttpClientFactory` solves both: it pools `HttpMessageHandler` chains per named/typed client and rotates them after `HandlerLifetime` (default **2 minutes**). The `HttpClient` objects it hands out are cheap and may be disposed; disposing does not tear down the pooled handler. Expired handlers are disposed only after no client references them.\n\n**The typed-client trap.** Typed clients are registered **transient**. Injecting one into a singleton (a `BackgroundService`, a singleton cache) captures one `HttpClient` and therefore one handler forever, silently reintroducing the DNS problem. Inject `IHttpClientFactory` into singletons and create a client per operation, or configure `PooledConnectionLifetime` on the primary handler.\n\n**Resilience pipeline.** `AddStandardResilienceHandler()` adds a delegating handler with five strategies, outermost first:\n\n| Strategy | Default |\n|---|---|\n| Rate limiter (concurrency) | 1000 permits, no queue |\n| Total request timeout | 30 s, covers all attempts |\n| Retry | 3 retries, exponential backoff with jitter, 2 s base; honours `Retry-After` |\n| Circuit breaker | opens at 10 % failures with ≥100 requests in a 30 s window; breaks for 5 s |\n| Attempt timeout | 10 s per attempt |\n\nRetries handle transient outcomes: `HttpRequestException`, attempt timeouts, `408`, `429` and `5xx`. Order matters: the circuit breaker sits *inside* the retry so every attempt is counted, and the attempt timeout is innermost so a hung attempt is cancelled and retried, while the total timeout bounds the whole call. `HttpClient.Timeout` (default 100 s) wraps the entire handler chain, retries included, so it must be larger than the total timeout or it will cut the pipeline short.\n\n**Retrying non-idempotent calls.** The standard handler retries every method by default. Retrying a `POST` that timed out *after* the server committed creates duplicates. Either disable retries for unsafe methods (`options.Retry.DisableForUnsafeHttpMethods()`) or make the call idempotent with an `Idempotency-Key` the server honours.\n\n**Circuit breaker** states: *closed* (calls flow, failures sampled), *open* (calls fail immediately with `BrokenCircuitException`, protecting both the caller's threads and the struggling dependency), *half-open* (one probe decides). It converts a slow cascading failure into a fast, explicit one. `AddStandardHedgingHandler()` is the alternative for latency-sensitive reads: it sends parallel attempts to the same or alternative endpoints and takes the first success.\n\n## What an interviewer probes\n\n- Why `new HttpClient()` per request is wrong and why a static one is not enough.\n- What the factory pools (handlers, not clients) and the 2-minute rotation.\n- Retry storms: retries multiply load on a failing service; jitter, a retry budget and a circuit breaker contain them.\n- Timeout layering and which timeout fires first.\n- Which calls are safe to retry.\n\n## Common misconceptions\n\n- \"`HttpClient` is not thread-safe.\" `SendAsync` and the `Get*`/`Post*` helpers are thread-safe; mutating `DefaultRequestHeaders` or `BaseAddress` concurrently is not.\n- \"The factory caches `HttpClient` instances, so don't dispose them.\" It caches handlers; clients are disposable and cheap.\n- \"Retry fixes outages.\" Retries help transient faults; against a real outage they amplify load.\n\n```csharp\nbuilder.Services.AddHttpClient<CatalogClient>(c =>\n    {\n        c.BaseAddress = new Uri(\"https://catalog.internal\");\n        c.Timeout = TimeSpan.FromMinutes(2); // above the 30 s total timeout\n    })\n    .AddStandardResilienceHandler(o =>\n    {\n        o.Retry.DisableForUnsafeHttpMethods(); // never replay POST/PATCH blindly\n        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(5);\n        o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(20);\n    });\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.httpclient-resilience.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "httpclient",
+            "ihttpclientfactory",
+            "sockets",
+            "dns"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service calls a downstream API about 500 times per second. Version A does `using var client = new HttpClient();` inside each call; version B uses one `static readonly HttpClient` created with the default constructor. What problems do they have?",
+              "options": [
+                {
+                  "text": "A is fine because .NET Core pools connections globally across `HttpClient` instances; B is unsafe because `HttpClient` is not thread-safe and concurrent `GetAsync` calls corrupt its state.",
+                  "correct": false
+                },
+                {
+                  "text": "A exhausts ephemeral ports because each disposed handler closes its connections and leaves sockets in `TIME_WAIT`; B reuses connections efficiently but never re-resolves DNS, so it keeps talking to an old IP after a failover.",
+                  "correct": true
+                },
+                {
+                  "text": "Both are fine; the only real problem is forgetting `ConfigureAwait(false)`, which blocks the connection pool in ASP.NET Core.",
+                  "correct": false
+                },
+                {
+                  "text": "A leaks memory because `HttpClient.Dispose` does nothing, so connections stay open until the GC finalises them; B is the recommended pattern with no caveats.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The connection pool belongs to the `SocketsHttpHandler` inside each `HttpClient`, so disposing the client per call throws the pool away: every request does a new TCP/TLS handshake and leaves a socket in `TIME_WAIT`, which exhausts ports under load. A long-lived client keeps its pooled connections forever and therefore never re-resolves DNS; the fix is `SocketsHttpHandler.PooledConnectionLifetime` or `IHttpClientFactory`, which rotates handlers every 2 minutes by default. The first option is wrong on both halves: pooling is per handler, not global, and `SendAsync`/`GetAsync` are thread-safe (only mutating `DefaultRequestHeaders`/`BaseAddress` concurrently is not). `ConfigureAwait(false)` has no effect on connection pooling and ASP.NET Core has no `SynchronizationContext`. The last option has it backwards: `Dispose` does close the connections promptly, which is exactly what produces `TIME_WAIT` sockets, and B has the DNS caveat."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.httpclient-resilience.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ihttpclientfactory",
+            "typed-client",
+            "dependency-injection",
+            "dns"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\nbuilder.Services.AddHttpClient<PricingClient>(c => c.BaseAddress = new Uri(\"https://pricing.internal\"));\nbuilder.Services.AddHostedService<PriceRefresher>();\n\npublic sealed class PriceRefresher(PricingClient pricing) : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken ct)\n    {\n        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));\n        while (await timer.WaitForNextTickAsync(ct))\n            await pricing.RefreshAsync(ct);\n    }\n}\n```\n\nThe pricing service is moved behind a new IP during a failover, but `PriceRefresher` keeps calling the old one for days. Why?",
+              "options": [
+                {
+                  "text": "Hosted services run outside the DI container, so `PricingClient` is created with a plain `new HttpClient()` and none of the factory configuration applies.",
+                  "correct": false
+                },
+                {
+                  "text": "`IHttpClientFactory` only rotates handlers for clients resolved inside an HTTP request scope; outside a request the handler lifetime is infinite by design.",
+                  "correct": false
+                },
+                {
+                  "text": "`PeriodicTimer` keeps the same thread for its whole lifetime, and DNS results are cached per thread by the runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "The typed client is transient, but the singleton hosted service captures one instance, so its `HttpClient` holds the same handler and pooled connections forever and the factory's 2-minute rotation never reaches it.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`AddHttpClient<T>` registers `T` as transient; the factory rotates the *handler* when a new client is created after `HandlerLifetime` expires. A hosted service is a singleton, so it resolves `PricingClient` exactly once and keeps that client, its handler and its connections forever: the classic captive-dependency version of the DNS problem. Fix it by injecting `IHttpClientFactory` and creating a client per tick, by creating a scope per tick, or by setting `PooledConnectionLifetime` on the primary `SocketsHttpHandler`. Hosted services are resolved from the DI container like everything else, so the factory configuration does apply. Handler rotation has nothing to do with request scopes; it is time-based and happens whenever a client is created. DNS is not cached per thread; connections are reused per handler pool, regardless of which thread sends."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.httpclient-resilience.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "resilience",
+            "polly",
+            "timeouts",
+            "retry"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A typed client uses `AddStandardResilienceHandler()` with default options and the default `HttpClient.Timeout`. The downstream endpoint starts accepting connections but never responds. Roughly when, and how, does a call fail?",
+              "options": [
+                {
+                  "text": "After about 30 seconds: each attempt is cancelled by the 10-second attempt timeout and retried with backoff, and the 30-second total request timeout ends the whole call.",
+                  "correct": true
+                },
+                {
+                  "text": "After about 400 seconds: `HttpClient.Timeout` (100 s) applies to each attempt and the retry strategy makes up to 4 attempts.",
+                  "correct": false
+                },
+                {
+                  "text": "After about 10 seconds: the first attempt timeout opens the circuit breaker, and the open circuit rejects the retries immediately.",
+                  "correct": false
+                },
+                {
+                  "text": "After 100 seconds: `HttpClient.Timeout` is the only timeout that applies to a hung response; the resilience strategies only react to `5xx` status codes and exceptions.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The standard pipeline is rate limiter → total timeout (30 s) → retry (3 retries, exponential backoff with jitter, 2 s base) → circuit breaker → attempt timeout (10 s). A hung attempt is cancelled at 10 s, which the retry treats as transient, so it waits and tries again; the outer 30-second total timeout cancels whatever attempt or delay is in progress and the caller sees a timeout (a `TimeoutRejectedException` from Polly) at about 30 s. `HttpClient.Timeout` (100 s) wraps the *whole* handler chain, retries included, not each attempt, so it does not fire first here, and it never multiplies by the number of attempts. The circuit breaker needs a minimum throughput of 100 requests in its 30-second sampling window with a 10 % failure ratio before it opens; one timed-out call does not open it. The last option ignores that the attempt timeout is a strategy in the pipeline and that timeouts are handled outcomes."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.httpclient-resilience.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "resilience",
+            "retry",
+            "idempotency",
+            "http"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`POST /payments` to a payment provider goes through `AddStandardResilienceHandler()` with default options. Occasionally the provider commits the payment but the response takes longer than the attempt timeout. Customers are charged twice. Which fix addresses the root cause?",
+              "options": [
+                {
+                  "text": "Increase the circuit breaker's failure ratio so the circuit opens sooner and stops the duplicate requests.",
+                  "correct": false
+                },
+                {
+                  "text": "Switch to `AddStandardHedgingHandler()`, which waits for the first attempt to finish before sending another one.",
+                  "correct": false
+                },
+                {
+                  "text": "Stop blind retries of unsafe methods (e.g. `options.Retry.DisableForUnsafeHttpMethods()`) and, where the provider supports it, send an `Idempotency-Key` so a retried request is deduplicated server-side.",
+                  "correct": true
+                },
+                {
+                  "text": "Raise `HttpClient.Timeout` to five minutes; the duplicate is caused by `HttpClient` resending the request after its own timeout.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The standard retry strategy retries all HTTP methods by default. An attempt timeout does not mean the server did nothing: the payment was committed and the retry created a second one. A `POST` may only be retried when the API gives an idempotency guarantee, typically an `Idempotency-Key` the server uses to return the original result; otherwise retries for unsafe methods must be disabled (`DisableForUnsafeHttpMethods()` or a custom `ShouldHandle`). The circuit breaker limits calls to a failing dependency; it does not prevent the retry that happens inside a single call. Hedging is worse, not better: it deliberately sends additional concurrent attempts before the first finishes. `HttpClient` never resends a request on its own timeout; the replay comes from the retry strategy, and the 100 s client timeout is not the one firing here."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.httpclient-resilience.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ihttpclientfactory",
+            "resilience",
+            "polly",
+            "circuit-breaker"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your ASP.NET Core service calls three downstream HTTP APIs. Explain how you would set up the clients and their resilience: what `IHttpClientFactory` actually solves, which resilience strategies you would apply (timeouts, retries, circuit breaker, anything else), in what order, and which calls you would *not* retry.",
+              "explanation": "Model answer: register named or typed clients with `AddHttpClient`, which pools and rotates `HttpMessageHandler` chains (default 2-minute lifetime), avoiding both socket exhaustion from per-call `new HttpClient()` and stale DNS from a static client; avoid capturing typed clients in singletons. Add `Microsoft.Extensions.Http.Resilience` (`AddStandardResilienceHandler`, Polly v8) and tune per dependency. The order, outermost first: rate limiter/concurrency limit, total request timeout, retry with exponential backoff and jitter (honouring `Retry-After`), circuit breaker, per-attempt timeout. The attempt timeout makes a hung call retryable, the total timeout bounds user-facing latency, and `HttpClient.Timeout` must exceed it. The circuit breaker sits inside the retry so each attempt is counted; when open it fails fast with `BrokenCircuitException`, which protects threads and gives the dependency time to recover, ideally paired with a fallback (cached value, degraded response). Retries are limited to transient failures (network errors, timeouts, 408/429/5xx) and to idempotent calls; non-idempotent `POST`s are not retried unless the server supports an `Idempotency-Key`. Mention retry storms and observability (Polly telemetry via metrics/logs).",
+              "rubric": [
+                "Explains that `IHttpClientFactory` pools and periodically rotates `HttpMessageHandler`s (default 2 minutes), preventing socket exhaustion from per-call clients and stale DNS from a single static client, and warns about capturing typed clients in singletons.",
+                "Names the core strategies with a sensible ordering: total timeout outside retry, circuit breaker inside retry, per-attempt timeout innermost (as in `AddStandardResilienceHandler`), and explains why each layer sits where it does.",
+                "Describes retry correctly: transient failures only (network errors, timeouts, 408/429/5xx), exponential backoff with jitter, bounded attempts, respecting `Retry-After`, and the risk of retry storms amplifying an outage.",
+                "Describes circuit breaker states (closed, open, half-open) and its purpose: fail fast while a dependency is unhealthy, protect resources and let it recover, optionally with a fallback.",
+                "States that non-idempotent operations (e.g. `POST` creating a payment) must not be retried blindly, and that an idempotency key or disabling retries for unsafe methods is required."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "background-jobs",
+      "title": "Background Jobs",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Background Jobs",
+          "note": "## What it is\n\nBackground work is anything that should not run inside the request that triggered it: sending email, processing an outbox, rebuilding a read model, scheduled clean-ups. The interview question is never \"how do I start a thread\" but \"what happens to this work when the process dies, when there are three replicas, and when the job runs twice\".\n\n## How it works underneath\n\n**Hosted services.** `IHostedService` has `StartAsync`/`StopAsync`; `BackgroundService` implements it and gives you one `ExecuteAsync(CancellationToken stoppingToken)`. Hosted services are **singletons** started in registration order before the server begins listening (since .NET 8, `HostOptions.ServicesStartConcurrently` can start them in parallel, and `IHostedLifecycleService` adds `StartingAsync`/`StartedAsync`/`StoppingAsync`/`StoppedAsync`). Historically the synchronous prefix of `ExecuteAsync`, up to its first real `await`, ran on the startup path and could block startup; **.NET 10** changed `BackgroundService` to run the whole `ExecuteAsync` in the background.\n\nKey mechanics:\n\n- **Scopes.** A singleton cannot take a scoped `DbContext` in its constructor. In Development, scope validation fails at startup; in Production it silently becomes a captive dependency. Inject `IServiceScopeFactory` and create a scope per unit of work.\n- **Exceptions.** Since .NET 6 an unhandled exception from `ExecuteAsync` is logged and **stops the host** (`BackgroundServiceExceptionBehavior.StopHost`); before that it was silently swallowed and the service just died. Catch per iteration and decide what is fatal.\n- **Shutdown.** On `SIGTERM` the host cancels `stoppingToken` and waits up to `HostOptions.ShutdownTimeout` (30 s by default since .NET 6) for `StopAsync` to finish. Kubernetes' default grace period is also 30 s. Work not finished by then is lost.\n- **Timers.** `PeriodicTimer` (.NET 6+) is the idiomatic async loop; it never overlaps ticks.\n\n**In-memory queues** (`Channel<T>` fed by endpoints, drained by a `BackgroundService`) are fine for best-effort work but lose everything on restart. `Task.Run` fire-and-forget from an endpoint is worse: no back-pressure, no shutdown coordination, and any scoped service it captured (the request's `DbContext`) is disposed when the request ends.\n\n**Job libraries.** **Hangfire** persists jobs in SQL Server/PostgreSQL/Redis, gives automatic retries with backoff, delayed and recurring (cron) jobs, a dashboard, and distributed workers coordinated through storage. Delivery is **at-least-once**: a worker that dies mid-job leaves it to be picked up again. **Quartz.NET** is a scheduler first: rich triggers and calendars, misfire handling, clustering through a shared job store. Choose a hosted service for simple, idempotent, restart-tolerant loops; choose a library when you need persistence, retries with history, scheduling guarantees or visibility.\n\n**Outbox for reliability.** Saving to the database and publishing to a broker are two systems with no shared transaction (the *dual write*). The transactional outbox writes the business change and an `OutboxMessages` row in the **same database transaction**; a background relay reads unpublished rows, publishes them, and marks them sent. Because the relay can crash between publishing and marking, delivery is at-least-once, so **consumers must be idempotent**: an inbox table keyed by message id (unique constraint, insert in the same transaction as the side effect) or naturally idempotent operations (upserts, \"set status = Paid\").\n\n**Scale-out.** Every replica runs every hosted service. Two relays polling the same table publish the same rows twice unless they coordinate: claim rows with `SELECT ... FOR UPDATE SKIP LOCKED` inside a transaction, use a lease/advisory lock for single-leader jobs (`pg_try_advisory_lock`), or let Hangfire/Quartz clustering do it.\n\n## What an interviewer probes\n\n- Hosted service vs Hangfire/Quartz, and what is lost on a deploy.\n- Using `DbContext` inside a `BackgroundService`.\n- The dual-write problem and why \"retry the publish\" does not solve it.\n- Exactly-once: it does not exist end-to-end; you get at-least-once plus idempotent consumers.\n- Graceful shutdown and multiple replicas.\n\n## Common misconceptions\n\n- \"Hangfire runs each job exactly once.\" At least once; jobs must be idempotent.\n- \"A `BackgroundService` survives app restarts.\" It is code inside your process.\n- \"`TransactionScope` around SaveChanges and publish solves it.\" Brokers like RabbitMQ and Kafka do not enlist in distributed transactions, and .NET's distributed transaction support is Windows-only (.NET 7+).\n\n```csharp\npublic sealed class OutboxRelay(IServiceScopeFactory scopes, IPublisher bus, ILogger<OutboxRelay> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken ct)\n    {\n        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));\n        while (await timer.WaitForNextTickAsync(ct))\n        {\n            try\n            {\n                await using var scope = scopes.CreateAsyncScope();\n                var db = scope.ServiceProvider.GetRequiredService<AppDb>();\n                await using var tx = await db.Database.BeginTransactionAsync(ct);\n                var batch = await db.OutboxMessages\n                    .FromSql($\"SELECT * FROM outbox_messages WHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED\")\n                    .ToListAsync(ct);\n                foreach (var m in batch)\n                {\n                    await bus.PublishAsync(m.Type, m.Payload, messageId: m.Id, ct);\n                    m.SentAt = DateTimeOffset.UtcNow;\n                }\n                await db.SaveChangesAsync(ct);\n                await tx.CommitAsync(ct);\n            }\n            catch (Exception ex) when (ex is not OperationCanceledException)\n            {\n                log.LogError(ex, \"Outbox relay iteration failed\");\n            }\n        }\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.background-jobs.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "hosted-services",
+            "hangfire",
+            "quartz",
+            "background-jobs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When should you reach for Hangfire or Quartz.NET instead of a plain `BackgroundService`?",
+              "options": [
+                {
+                  "text": "When the work must survive process restarts and deploys, needs persisted retries, scheduling guarantees or coordination across several instances: a `BackgroundService` holds its work only in memory and runs on every replica.",
+                  "correct": true
+                },
+                {
+                  "text": "Whenever the work is CPU-bound, because `BackgroundService` runs on the request thread pool, while Hangfire and Quartz run jobs in a separate worker process.",
+                  "correct": false
+                },
+                {
+                  "text": "When you need exactly-once execution: Hangfire and Quartz guarantee each job runs once, whereas a hosted service may run a loop iteration twice.",
+                  "correct": false
+                },
+                {
+                  "text": "Only for cron-style schedules, because .NET has no built-in async timer and `BackgroundService` can only process work that is pushed into it.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A `BackgroundService` is just code in your process: anything it holds in memory is lost on a crash or deploy, it has no retry history or dashboard, and each replica runs its own copy. Hangfire and Quartz persist jobs and schedules in storage, retry failed jobs, and coordinate workers across instances through that storage. The CPU-bound option is wrong: both libraries execute jobs inside your process by default (on their own worker threads), and hosted services also run on pool threads, not on \"the request thread\". The exactly-once option is wrong: Hangfire is explicitly at-least-once (a job whose worker died is re-queued), so jobs must be idempotent. The cron option is wrong: `PeriodicTimer` (.NET 6+) gives a clean async loop; cron libraries add calendar expressions and misfire handling, which is a reason, but not the only one and not because .NET lacks timers."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.background-jobs.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "hosted-services",
+            "channels",
+            "back-pressure",
+            "background-jobs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\nbuilder.Services.AddSingleton(Channel.CreateBounded<EmailJob>(\n    new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.Wait }));\nbuilder.Services.AddHostedService<EmailWorker>(); // reads the channel and sends emails\n\napp.MapPost(\"/orders\", async (CreateOrder cmd, AppDb db, Channel<EmailJob> queue, CancellationToken ct) =>\n{\n    var order = Order.Create(cmd);\n    db.Orders.Add(order);\n    await db.SaveChangesAsync(ct);\n    await queue.Writer.WriteAsync(new EmailJob(order.Id), ct);\n    return TypedResults.Created($\"/orders/{order.Id}\");\n});\n```\n\nWhich statement about this in-memory queue is correct?",
+              "options": [
+                {
+                  "text": "When the channel is full, `BoundedChannel` spills extra items to a temporary file, so no job is lost and the request never waits.",
+                  "correct": false
+                },
+                {
+                  "text": "When 1000 jobs are pending, `WriteAsync` waits for space, so back-pressure slows the request; any jobs still queued or in flight when the process stops or crashes are lost, so this suits best-effort work only.",
+                  "correct": true
+                },
+                {
+                  "text": "When the channel is full, `WriteAsync` throws `ChannelClosedException`, which the endpoint turns into a `500`.",
+                  "correct": false
+                },
+                {
+                  "text": "On a graceful shutdown the host drains the channel completely before exiting, so only a hard crash can lose queued jobs.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Channel<T>` is an in-memory producer/consumer queue. With `FullMode = Wait`, `WriteAsync` completes only when there is room, which pushes back-pressure onto the HTTP request (other modes drop the newest, the oldest, or the item being written). The data lives only in the process: a crash, an OOM kill or a deploy that exceeds the shutdown timeout loses whatever is queued, and the order is already committed without its email. Use it for best-effort work, or persist the job (outbox table, Hangfire) when it must not be lost. Channels never spill to disk. `ChannelClosedException` is thrown when writing to a *completed* channel, not a full one. The host does not drain anything: on shutdown it cancels the `stoppingToken` and waits up to `HostOptions.ShutdownTimeout` for `StopAsync`; draining the channel is your worker's code, and it is bounded by that timeout."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.background-jobs.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "hangfire",
+            "at-least-once",
+            "idempotency",
+            "background-jobs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A Hangfire job is enqueued with `BackgroundJob.Enqueue<InvoiceJobs>(j => j.SendInvoice(invoiceId))`:\n\n```csharp\npublic async Task SendInvoice(Guid invoiceId)\n{\n    var invoice = await db.Invoices.FindAsync(invoiceId);\n    await email.SendAsync(invoice!.CustomerEmail, Render(invoice));\n    invoice.SentAt = DateTime.UtcNow;\n    await db.SaveChangesAsync();\n}\n```\n\nA deploy kills the worker process right after `SendAsync` returns but before `SaveChangesAsync`. What happens next?",
+              "options": [
+                {
+                  "text": "Hangfire runs the job inside a transaction with its storage, so the sent email is rolled back together with the uncommitted job state.",
+                  "correct": false
+                },
+                {
+                  "text": "The job is marked as `Failed` and never retried, because an abrupt process exit is not an exception that Hangfire's retry filter can observe.",
+                  "correct": false
+                },
+                {
+                  "text": "The job is lost: Hangfire removes a job from the queue when a worker fetches it, so a crash mid-job silently drops it.",
+                  "correct": false
+                },
+                {
+                  "text": "The job was never acknowledged as succeeded, so Hangfire runs it again after the dead worker's job becomes visible to other workers; the customer receives a second email unless the job is idempotent (check `SentAt` first and deduplicate the send itself, e.g. with a provider idempotency key).",
+                  "correct": true
+                }
+              ],
+              "explanation": "Hangfire guarantees at-least-once processing: a fetched job is only removed when it completes; if the worker dies, the job becomes available again (after the storage's invisibility timeout or server-dead detection) and runs from the start. Here the email has already gone out, so the rerun sends it twice. Checking `SentAt` at the top makes reruns after a *completed* run harmless, but the window between sending and saving remains, which is why the side effect itself needs deduplication (an idempotency key or message id with the email provider) or a recorded intent before sending. An SMTP or HTTP call cannot be rolled back by any transaction. A crash is not a \"failure\" Hangfire records; the job is not marked `Failed`. Jobs are not dropped on fetch; that is exactly what the at-least-once design prevents."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.background-jobs.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "dual-write",
+            "messaging",
+            "reliability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\ndb.Orders.Add(order);\nawait db.SaveChangesAsync(ct);\nawait bus.PublishAsync(new OrderPlaced(order.Id), ct);\n```\n\nWhat is the reliability problem here, and which fix actually solves it?",
+              "options": [
+                {
+                  "text": "Publishing can fail transiently; wrapping `PublishAsync` in a Polly retry with exponential backoff guarantees the event is delivered.",
+                  "correct": false
+                },
+                {
+                  "text": "If the process dies between commit and publish, the event is lost forever; write the event to an outbox table in the same transaction as the order and let a background relay publish it, accepting at-least-once delivery with idempotent consumers.",
+                  "correct": true
+                },
+                {
+                  "text": "The two calls are in the wrong order; publishing first and saving second makes the operation atomic because the broker acknowledges before the database commits.",
+                  "correct": false
+                },
+                {
+                  "text": "Wrap both calls in a `TransactionScope`; the broker client enlists in the ambient transaction and both commit or roll back together.",
+                  "correct": false
+                }
+              ],
+              "explanation": "This is the dual-write problem: the database and the broker have no shared transaction, so a crash, deploy or broker outage after `SaveChangesAsync` leaves an order with no event. The transactional outbox makes the event part of the same local transaction; a relay (a `BackgroundService` or a library such as MassTransit/Wolverine) publishes later and marks rows as sent. The relay may publish and then crash before marking, so delivery is at-least-once and consumers deduplicate by message id. A Polly retry helps transient broker errors but cannot survive a process crash; the in-memory retry dies with the process. Publishing first just inverts the failure: the event goes out and the commit can fail, producing an event for an order that does not exist. `TransactionScope` does not help: RabbitMQ and Kafka clients do not enlist in distributed transactions, and .NET distributed transactions are Windows-only (.NET 7+)."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.background-jobs.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "outbox",
+            "scale-out",
+            "postgresql",
+            "concurrency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An outbox relay `BackgroundService` polls `SELECT ... WHERE sent_at IS NULL LIMIT 100` every two seconds. After scaling the API to three replicas, consumers see each event up to three times. Which change fixes the duplication at its source while keeping all replicas useful?",
+              "options": [
+                {
+                  "text": "Register the relay with `AddSingleton` instead of `AddHostedService`, so only one instance exists across the cluster.",
+                  "correct": false
+                },
+                {
+                  "text": "Add `ORDER BY id` to the query so that each replica deterministically picks a different batch.",
+                  "correct": false
+                },
+                {
+                  "text": "Claim rows inside a transaction with `SELECT ... FOR UPDATE SKIP LOCKED`, so each replica locks a disjoint batch and concurrent relays skip rows another relay is processing.",
+                  "correct": true
+                },
+                {
+                  "text": "Increase the polling interval on two of the replicas so their polls rarely overlap with the third.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Every replica runs every hosted service, so three relays read the same unsent rows. `FOR UPDATE SKIP LOCKED` (PostgreSQL 9.5+) lets each relay lock the rows it takes and makes the others skip them instead of blocking, so batches are disjoint and all replicas contribute; rows are marked sent before the transaction commits. Consumers should still be idempotent, because a relay can publish and crash before committing. A DI singleton is one per process, not per cluster; without `AddHostedService` nothing runs the loop at all. `ORDER BY id` makes every replica pick the *same* first 100 rows, which makes duplicates more likely. Staggering intervals only reduces the probability of overlap; it is a race, not a fix. A single-leader approach (advisory lock or lease) is also valid but leaves the other replicas idle for this job."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.background-jobs.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "background-jobs",
+            "hosted-services",
+            "outbox",
+            "idempotency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After an order is placed, the system must send a confirmation email and publish an `OrderPlaced` event for other services. Today the endpoint does `_ = Task.Run(() => SendEmailAndPublish(order))`. Explain what is wrong with that, and design a reliable replacement in ASP.NET Core, covering where the work is stored, what runs it, failure and retry behaviour, graceful shutdown, multiple replicas, and duplicate handling.",
+              "explanation": "Model answer: fire-and-forget `Task.Run` loses work on crash or deploy, has no retry or back-pressure, is not awaited during shutdown, and any scoped service captured from the request (its `DbContext`) is disposed when the request ends; exceptions go unobserved. Replacement: write the order and an outbox row (email request and `OrderPlaced` event) in the same database transaction. A `BackgroundService` relay (or Hangfire/Quartz, or a messaging library's outbox) polls with `PeriodicTimer`, creates a DI scope per batch via `IServiceScopeFactory`, claims rows with `FOR UPDATE SKIP LOCKED` (or uses a lease) so replicas do not double-process, publishes, and marks rows sent; failures increment an attempt count with backoff and move to a dead-letter state after N attempts. It honours `stoppingToken`, finishes or abandons the current batch within `HostOptions.ShutdownTimeout` (30 s default) and leaves unfinished rows for the next run. Because the relay can publish and crash before marking, delivery is at-least-once, so consumers and the email sender are idempotent (inbox table keyed by message id, or provider idempotency keys). It catches exceptions per iteration, because since .NET 6 an escaping exception stops the host. Use Hangfire/Quartz when you need dashboards, scheduling or retry history.",
+              "rubric": [
+                "Identifies the problems with fire-and-forget `Task.Run`: work lost on crash/deploy, no retries, not coordinated with shutdown, unobserved exceptions, and captured scoped services (the request's `DbContext`) disposed after the request.",
+                "Persists the work durably in the same transaction as the business change (transactional outbox), explaining that this removes the dual-write gap between database and broker.",
+                "Describes the runner correctly: a `BackgroundService` (or Hangfire/Quartz) that creates a DI scope per unit of work, catches exceptions per iteration, retries with backoff and dead-letters after repeated failure, and honours the stopping token within the shutdown timeout.",
+                "Handles multiple replicas: every instance runs the hosted service, so rows are claimed with `SELECT ... FOR UPDATE SKIP LOCKED`, a lease/advisory lock, or library clustering.",
+                "States that delivery is at-least-once and makes consumers idempotent (inbox/processed-message table keyed by message id, or idempotency keys), rather than claiming exactly-once."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "caching",
+      "title": "Caching",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Caching",
+          "note": "## What it is\n\nA cache trades freshness for latency and load. In ASP.NET Core you have three building blocks: `IMemoryCache` (in-process objects), `IDistributedCache` (bytes in a shared store such as Redis, `AddStackExchangeRedisCache`), and `HybridCache` (`Microsoft.Extensions.Caching.Hybrid`, GA in 2025 and usable from .NET 8), which combines a local L1 with an optional distributed L2. Output caching (`AddOutputCache`) caches whole HTTP responses on the server and is a separate tool. Senior interviews focus less on the API and more on consistency: who sees stale data, for how long, and what happens when a hot key expires.\n\n## How it works underneath\n\n**`IMemoryCache`** stores **object references** in a `ConcurrentDictionary` inside the process. It is the fastest option (no serialization, no network), but each replica has its own copy, restarts empty the cache, and anything you put in is shared by reference: a caller that mutates the cached object mutates it for everyone. It does not evict on GC memory pressure; entries leave on absolute/sliding expiration, explicit removal, expiration tokens, or compaction when `SizeLimit` is set. With `SizeLimit` set, **every** entry must declare a `Size`, otherwise `Set` throws. `GetOrCreateAsync` is **not** stampede-safe: concurrent misses on the same key all run the factory.\n\n**`IDistributedCache`** stores `byte[]` with expiration in Redis, SQL Server, PostgreSQL and others. All replicas see the same value, at the cost of a network hop and serialization on every read. It has no get-or-create and no stampede protection.\n\n**`HybridCache`** gives you `GetOrCreateAsync(key, factory, options, tags)`:\n\n- L1 (in-memory) and L2 (whatever `IDistributedCache` is registered) with separate `LocalCacheExpiration` and `Expiration`.\n- **Stampede protection**: concurrent requests for the same key in one process share a single factory call.\n- Serialization through `System.Text.Json` by default, pluggable.\n- **Tags** and `RemoveByTagAsync` for group invalidation, plus `RemoveAsync(key)`.\n- By default each caller gets a **separate deserialized instance**, which prevents shared-mutation bugs; sealed types marked `[ImmutableObject(true)]` can be reused across callers for speed.\n- Limitation: removing a key clears L2 and the *local* L1; other replicas' L1 copies stay until their `LocalCacheExpiration` elapses. There is no built-in cross-node L1 invalidation, so keep L1 short for data that must converge quickly.\n\n**Patterns.** *Cache-aside* (read: check cache, else load and store; write: update the DB, then delete the key) is the default. *Write-through* updates the cache in the write path, which risks caching a value from a transaction that later rolls back. Deleting rather than updating on write avoids racing writers leaving an older value in the cache.\n\n**Stampede (thundering herd).** A hot key expires and hundreds of requests hit the database at once. Defences: per-key request coalescing (HybridCache in-process, a lock or `SemaphoreSlim` per key), a distributed lock for cross-node coalescing, **TTL jitter** so many keys do not expire together, early or probabilistic refresh, and serving stale data while one caller refreshes.\n\n**Invalidation strategies**, from simplest to strictest: TTL only (accept bounded staleness); explicit delete on write (cache-aside); tag or version-key invalidation (`product:v42:...`, bump the version to invalidate a group); event-driven invalidation (outbox event or Redis pub/sub, or PostgreSQL `LISTEN/NOTIFY`, tells all nodes to evict). Every strategy still needs a TTL as a safety net for missed invalidations.\n\n## What an interviewer probes\n\n- In-memory vs distributed vs hybrid, and what changes with N replicas.\n- Stampede protection and what `GetOrCreateAsync` does under concurrency.\n- How you invalidate, and what consistency the business actually needs.\n- Cache keys: include everything that changes the result (tenant, culture, user permissions).\n- What not to cache: per-user authorised data under a shared key, huge objects, rarely read data.\n\n## Common misconceptions\n\n- \"Redis makes the cache consistent with the database.\" It makes replicas agree with each other, not with the DB.\n- \"`IMemoryCache` frees memory under pressure.\" Not without `SizeLimit` and sizes.\n- \"`HybridCache.RemoveAsync` invalidates every node.\" Only L2 and the local L1.\n\n```csharp\nbuilder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisCs);\nbuilder.Services.AddHybridCache(o => o.DefaultEntryOptions = new HybridCacheEntryOptions\n{\n    Expiration = TimeSpan.FromMinutes(10),\n    LocalCacheExpiration = TimeSpan.FromSeconds(30),\n});\n\npublic sealed class ProductQueries(HybridCache cache, AppDb db)\n{\n    public ValueTask<ProductDto?> Get(int id, CancellationToken ct) =>\n        cache.GetOrCreateAsync($\"product:{id}\",\n            async token => await db.Products.Where(p => p.Id == id)\n                                            .Select(p => p.ToDto()).FirstOrDefaultAsync(token),\n            tags: [\"products\"], cancellationToken: ct);\n\n    public async Task Rename(int id, string name, CancellationToken ct)\n    {\n        await db.Products.Where(p => p.Id == id)\n                .ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, name), ct);\n        await cache.RemoveAsync($\"product:{id}\", ct); // delete after the write commits\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.caching.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "imemorycache",
+            "idistributedcache",
+            "redis"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An API runs as four replicas. Which statement about `IMemoryCache` versus `IDistributedCache` backed by Redis is correct?",
+              "options": [
+                {
+                  "text": "`IMemoryCache` holds object references inside each process, so it is fastest but every replica has its own copy that can disagree and is lost on restart; `IDistributedCache` stores serialized bytes in a shared store, so replicas agree at the cost of a network hop and serialization.",
+                  "correct": true
+                },
+                {
+                  "text": "`IDistributedCache` automatically keeps a local in-memory copy of every entry it reads, so after the first read it is as fast as `IMemoryCache`.",
+                  "correct": false
+                },
+                {
+                  "text": "`IMemoryCache` evicts entries automatically when the GC detects memory pressure, so it cannot cause an `OutOfMemoryException` even without a size limit.",
+                  "correct": false
+                },
+                {
+                  "text": "Because Redis is shared, a Redis-backed cache is always consistent with the database, while an in-memory cache can be stale.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`IMemoryCache` keeps live objects in the process: no serialization, no I/O, but N replicas mean N independent caches, invalidation on one does not reach the others, and a restart empties it. `IDistributedCache` keeps `byte[]` in Redis (or another store), giving one shared view at the price of a round-trip and (de)serialization on every read. The \"local copy\" option describes `HybridCache` (L1 + L2), not `IDistributedCache`, which has no local layer. `Microsoft.Extensions.Caching.Memory` does not react to GC memory pressure; without `SizeLimit` plus per-entry `Size` it grows until entries expire, unlike the old `System.Runtime.Caching.MemoryCache`. Redis only makes replicas agree with each other; it is still a copy of the database and goes stale until it is invalidated or expires."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.caching.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "cache-stampede",
+            "imemorycache",
+            "hybridcache"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A popular key expires and 500 requests arrive concurrently in one process:\n\n```csharp\nvar report = await memoryCache.GetOrCreateAsync(\"daily-report\", async e =>\n{\n    e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n    return await BuildReportAsync(); // 3-second SQL query\n});\n```\n\nHow many times can `BuildReportAsync` run, and what would change with `HybridCache.GetOrCreateAsync`?",
+              "options": [
+                {
+                  "text": "Once: `GetOrCreateAsync` takes a per-key lock, so the other 499 callers wait for the first factory; `HybridCache` adds nothing here.",
+                  "correct": false
+                },
+                {
+                  "text": "Up to 500 times: `IMemoryCache.GetOrCreateAsync` does not coalesce concurrent misses; `HybridCache` runs one factory per key per process and the other callers await that same result.",
+                  "correct": true
+                },
+                {
+                  "text": "Once, but the other 499 callers immediately receive `null` while the factory runs; `HybridCache` would make them wait instead.",
+                  "correct": false
+                },
+                {
+                  "text": "Up to 500 times with either API, because stampede protection only exists in Redis-based caches through distributed locks.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`IMemoryCache.GetOrCreateAsync` is an extension method that checks, and on a miss calls the factory and stores the result, with no locking, so every concurrent miss runs the 3-second query: a cache stampede. `HybridCache` coalesces concurrent requests for the same key inside the process, so the database sees one query per replica. The \"per-key lock\" option is the most common misconception about `GetOrCreateAsync`. Nothing returns `null` to waiting callers; there are no waiters at all. Stampede protection is not specific to Redis: `HybridCache` provides it in process; across replicas you would need a distributed lock or accept one query per node."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.caching.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "imemorycache",
+            "mutability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\n// Request A\nvar promo = await cache.GetOrCreateAsync(\"promo:summer\", _ => LoadPromoAsync()); // IMemoryCache\npromo.Discounts.RemoveAll(d => d.IsExpired);      // tidy up for this response\n\n// Request B, a moment later\nvar again = await cache.GetOrCreateAsync(\"promo:summer\", _ => LoadPromoAsync());\n```\n\n`Promo` is a class with a `List<Discount> Discounts`. What does request B see?",
+              "options": [
+                {
+                  "text": "The original list: `IMemoryCache` stores a serialized snapshot and returns a fresh copy on each read.",
+                  "correct": false
+                },
+                {
+                  "text": "An `InvalidOperationException`, because `IMemoryCache` entries are made read-only after insertion.",
+                  "correct": false
+                },
+                {
+                  "text": "The original list, because `RemoveAll` on a cached object is applied to a copy-on-write clone created for request A.",
+                  "correct": false
+                },
+                {
+                  "text": "The list without the expired discounts: `IMemoryCache` stores the object reference, so request A mutated the shared cached instance (and concurrent mutation is a race).",
+                  "correct": true
+                }
+              ],
+              "explanation": "`IMemoryCache` stores references, not copies: every reader gets the same `Promo` instance, so a mutation in one request is visible to all others, and two requests mutating it concurrently can corrupt the non-thread-safe `List<T>`. Cache immutable objects (records with `IReadOnlyList<T>`) or copy before modifying. There is no serialization in `IMemoryCache`, no read-only freezing and no copy-on-write. Contrast: `HybridCache` by default hands each caller its own deserialized instance precisely to avoid this bug, and only reuses instances for sealed types marked `[ImmutableObject(true)]`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.caching.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "hybridcache",
+            "invalidation",
+            "scale-out"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Three replicas use `HybridCache` with Redis as L2, `Expiration = 10 min` and `LocalCacheExpiration = 5 min`. Replica A updates product 42 and calls `await cache.RemoveAsync(\"product:42\")`. What do replicas B and C return for `product:42` right afterwards?",
+              "options": [
+                {
+                  "text": "The new value: `RemoveAsync` publishes an invalidation message through Redis that clears the key from every replica's L1.",
+                  "correct": false
+                },
+                {
+                  "text": "A cache miss and a database read on both replicas, because `HybridCache` validates L1 against L2 on every read.",
+                  "correct": false
+                },
+                {
+                  "text": "Possibly the old value from their own L1 for up to 5 minutes; removal clears L2 and A's L1, but there is no built-in cross-node L1 invalidation.",
+                  "correct": true
+                },
+                {
+                  "text": "An exception, because a key removed from L2 while still present in another replica's L1 is detected as an inconsistent entry.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`RemoveAsync` removes the entry from the distributed L2 and from the calling instance's L1. Other replicas keep their L1 copy until `LocalCacheExpiration` elapses, so they can serve stale data for up to 5 minutes. When you need faster convergence, shorten `LocalCacheExpiration` or add your own invalidation broadcast (Redis pub/sub, an outbox-driven event) that calls `RemoveAsync` on every node. There is no automatic backplane in `HybridCache` as of the current release; the L1 is not revalidated against L2 on every read (that would defeat its purpose); and stale L1 entries are not detected as errors."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.caching.mcq.5",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "imemorycache",
+            "size-limit"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\nbuilder.Services.AddMemoryCache(o => o.SizeLimit = 10_000);\n\n// elsewhere\ncache.Set($\"user:{id}\", profile, TimeSpan.FromMinutes(5));\n```\n\nWhat happens at runtime?",
+              "options": [
+                {
+                  "text": "The entry is stored with a default size of 1, so the cache holds at most 10,000 entries.",
+                  "correct": false
+                },
+                {
+                  "text": "`Set` throws `InvalidOperationException`, because when `SizeLimit` is set every entry must specify a `Size`.",
+                  "correct": true
+                },
+                {
+                  "text": "The entry is stored and the cache estimates its size from the object graph, evicting when the estimated bytes exceed 10,000.",
+                  "correct": false
+                },
+                {
+                  "text": "The entry is stored but never counted, so `SizeLimit` silently has no effect for entries without a size.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`SizeLimit` has no unit; the cache just sums the `Size` values you assign. To make that sum meaningful it requires every entry to declare one, and an entry without `Size` throws \"Cache entry must specify a value for Size when SizeLimit is set\". Because the `IMemoryCache` is shared through DI, setting a limit affects all code (including libraries) that uses it, which is why a dedicated `MemoryCache` instance is often used for size-limited caching. There is no default size of 1, no automatic measurement of object graphs, and entries without a size are not silently ignored."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.caching.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "caching",
+            "hybridcache",
+            "cache-stampede",
+            "invalidation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A read-heavy product catalogue API runs as several replicas in front of PostgreSQL. Product pages are requested thousands of times per second, prices change a few times a day and must be visible within a minute. Design the caching: which cache types and where, keys and expirations, how you invalidate on change, and how you protect the database when hot keys expire.",
+              "explanation": "Model answer: use cache-aside with `HybridCache` (L1 in-memory per replica, L2 Redis) or `IMemoryCache` plus Redis manually; optionally output caching or a CDN for anonymous pages. Keys include everything that affects the result (`product:{id}:{culture}`, tenant), never per-user authorised data under a shared key. Expirations: L2 TTL of minutes with jitter so keys do not expire together; L1 short (for example 30 to 60 s) because there is no cross-node L1 invalidation, which bounds staleness to the freshness requirement. Invalidation: after the write commits, delete the key (not update it) in L2 and the local L1, optionally broadcast an event (outbox, Redis pub/sub) so all replicas evict L1 immediately; use tags or version keys to invalidate groups (category pages). Stampede protection: `HybridCache` coalesces per key in process; across replicas accept one load per node or use a distributed lock; refresh hot keys early or serve stale while one caller refreshes. Mention monitoring hit ratio and that a TTL remains the safety net for missed invalidations.",
+              "rubric": [
+                "Chooses a layered design suited to multiple replicas (e.g. `HybridCache` with in-memory L1 and Redis L2, or `IMemoryCache` + `IDistributedCache`) and explains why a pure in-memory cache per replica is insufficient for consistency across replicas.",
+                "Defines cache keys that include every input affecting the result (id, culture, tenant) and sets expirations that respect the one-minute freshness requirement, including a short L1 expiry and TTL jitter.",
+                "Describes invalidation on change: delete (not update) the key after the database write commits, with a mechanism for other replicas' local caches (short L1 TTL or a broadcast via pub/sub/outbox event), plus tags or version keys for groups.",
+                "Addresses cache stampede with concrete techniques: per-key request coalescing (`HybridCache` or a per-key lock), distributed lock or early refresh across nodes, jittered TTLs, serve-stale-while-revalidate.",
+                "Notes the consistency trade-off explicitly: caches are always stale copies of the database, a TTL is still needed as a safety net, and per-user or permission-dependent data must not be cached under shared keys."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "realtime",
+      "title": "Real-time: SignalR, SSE, WebSockets",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Real-time: SignalR, SSE, WebSockets",
+          "note": "## What it is\n\n\"Real-time\" on the web means the server pushes data without the client asking again. Three options matter for an ASP.NET Core + Angular stack:\n\n- **Server-Sent Events (SSE)**: a normal HTTP response with `Content-Type: text/event-stream` that never ends; the server writes `data:` lines as events occur. One-way, server to client.\n- **WebSockets**: an HTTP/1.1 `Upgrade` (or HTTP/2 extended CONNECT, RFC 8441) turns the connection into a full-duplex, message-framed channel.\n- **SignalR**: an RPC and messaging framework on top of transports. It negotiates WebSockets first, falls back to SSE, then long polling, and adds hubs, groups, users, automatic reconnect, and scale-out support.\n\nThis platform streams LLM output with SSE: one request, one stream of tokens, no need for a bidirectional channel.\n\n## How it works underneath\n\n**SSE wire format.** Events are UTF-8 text blocks separated by a blank line: optional `event:`, `id:`, `retry:`, and one or more `data:` lines. The browser `EventSource` API reconnects automatically after a dropped connection and sends `Last-Event-ID` so the server can resume. Limitations: text only, server-to-client only, and `EventSource` can only issue a `GET` with no custom headers (cookies via `withCredentials` only). An LLM endpoint that needs a `POST` body and a bearer token is therefore consumed with `fetch()` and a `ReadableStream`, parsing the frames yourself (or a small library), and losing the built-in reconnect. Over HTTP/1.1 browsers allow about six connections per origin, shared by all tabs, so many open SSE streams starve other requests; HTTP/2 multiplexes them on one connection.\n\nIn ASP.NET Core you can write frames by hand (set the content type, write, `FlushAsync` after each event) or, from **.NET 10**, return `TypedResults.ServerSentEvents(IAsyncEnumerable<...>)`; `System.Net.ServerSentEvents` (.NET 9+) provides `SseParser` for clients. Two production traps: **proxy buffering** (nginx buffers upstream responses by default, so tokens arrive all at once at the end unless you disable it with `proxy_buffering off` or an `X-Accel-Buffering: no` response header) and **compression middleware** that buffers. Also pass `HttpContext.RequestAborted` into the upstream call: when the user closes the tab you want to stop generating, and paying for, tokens.\n\n**WebSockets** in ASP.NET Core: `app.UseWebSockets()` and `HttpContext.WebSockets.AcceptWebSocketAsync()`. You get raw frames and must build everything else: message protocol, heartbeats (load balancers kill idle connections, often after 60 s), reconnect with backoff, resubscription, authentication. Browsers cannot set headers on the WebSocket handshake, so tokens go in the query string (and must be kept out of logs) or a cookie.\n\n**SignalR** adds a hub programming model (`Clients.Group(\"order-42\").SendAsync(...)`, strongly typed hubs, `IHubContext<T>` to push from outside a hub), JSON or MessagePack protocols, automatic reconnect on the client, and since .NET 8 *stateful reconnect* that replays buffered messages after a brief disconnect. Scale-out is the senior topic: each server only knows its own connections, so sending to a group from server B does not reach a client connected to server A unless you add a **backplane** (Redis) or use Azure SignalR Service. Negotiation plus the SSE and long-polling transports require **sticky sessions**; only WebSockets with `SkipNegotiation = true`, or Azure SignalR, avoids them.\n\n## Choosing\n\n| Need | Pick |\n|---|---|\n| Stream one response (LLM tokens, progress of a job) | SSE (or a streamed `fetch`) |\n| Server notifications to many clients, groups, users | SignalR |\n| High-frequency bidirectional messages, custom protocol | WebSockets (or SignalR if you want the plumbing) |\n| Very low message rate, simplest infra | Polling |\n\n## What an interviewer probes\n\n- SSE vs WebSockets vs SignalR, and why you chose SSE for LLM streaming.\n- What breaks behind proxies and load balancers (buffering, idle timeouts, sticky sessions).\n- Scaling SignalR across instances.\n- Authentication for long-lived connections and what happens when a token expires mid-stream.\n- Back-pressure and cancellation when the client disappears.\n\n## Common misconceptions\n\n- \"SSE needs HTTP/2.\" It works on HTTP/1.1; HTTP/2 only removes the connection limit.\n- \"SignalR is a protocol replacing WebSockets.\" It uses WebSockets when it can.\n- \"A WebSocket reconnects by itself.\" Only `EventSource` and SignalR clients reconnect automatically.\n\n```csharp\napp.MapPost(\"/api/chat/stream\", (ChatRequest req, ILlmClient llm, HttpContext ctx) =>\n{\n    ctx.Response.Headers[\"X-Accel-Buffering\"] = \"no\"; // disable nginx buffering\n    return TypedResults.ServerSentEvents(Tokens(req, llm, ctx.RequestAborted), eventType: \"token\");\n\n    static async IAsyncEnumerable<string> Tokens(ChatRequest r, ILlmClient l,\n        [EnumeratorCancellation] CancellationToken ct)\n    {\n        await foreach (var token in l.StreamAsync(r.Prompt, ct))\n            yield return token;\n    }\n});\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.realtime.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "sse",
+            "websockets",
+            "signalr",
+            "realtime"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement correctly compares Server-Sent Events, WebSockets and SignalR?",
+              "options": [
+                {
+                  "text": "SSE requires HTTP/2 because it multiplexes events over streams; WebSockets work on HTTP/1.1, which is why SignalR prefers WebSockets.",
+                  "correct": false
+                },
+                {
+                  "text": "SSE is a one-way server-to-client stream over an ordinary HTTP response, and `EventSource` reconnects automatically with `Last-Event-ID`; WebSockets are full-duplex after an upgrade with no built-in reconnect; SignalR is a framework that negotiates WebSockets, then SSE, then long polling, and adds hubs, groups and reconnect.",
+                  "correct": true
+                },
+                {
+                  "text": "SignalR is a wire protocol that replaces WebSockets with a more efficient binary framing, so it does not need WebSockets support on the server.",
+                  "correct": false
+                },
+                {
+                  "text": "WebSockets and SSE are both bidirectional, but SSE is limited to text while WebSockets also carry binary frames.",
+                  "correct": false
+                }
+              ],
+              "explanation": "SSE is just a long-lived `text/event-stream` response, so it passes through anything that speaks HTTP; data flows only from server to client, and the browser `EventSource` reconnects on its own, sending `Last-Event-ID`. WebSockets upgrade the connection to a full-duplex framed channel; reconnect, heartbeats and message semantics are yours to build. SignalR sits on top of these transports, preferring WebSockets and falling back to SSE and long polling, and provides RPC hubs, groups, reconnect and scale-out. SSE works fine on HTTP/1.1; HTTP/2 only removes the per-origin connection limit. SignalR is not a replacement wire protocol; its hub protocol (JSON or MessagePack) runs over the chosen transport. SSE is not bidirectional: the client sends data with separate HTTP requests."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.realtime.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "sse",
+            "llm-streaming",
+            "eventsource",
+            "fetch"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An Angular app must stream an LLM answer from `POST /api/chat/stream`. The request has a JSON body (the conversation) and needs an `Authorization: Bearer ...` header. The server responds with `text/event-stream`. How should the client consume it?",
+              "options": [
+                {
+                  "text": "Use `new EventSource(url, { headers: { Authorization: ... } })` and send the conversation in the first event.",
+                  "correct": false
+                },
+                {
+                  "text": "Use Angular `HttpClient.post` with `responseType: 'text'`; it emits each SSE event as it arrives because the response is chunked.",
+                  "correct": false
+                },
+                {
+                  "text": "Use `fetch()` with `method: 'POST'`, read `response.body` as a stream and parse the `data:` frames, implementing reconnect or resume yourself if needed.",
+                  "correct": true
+                },
+                {
+                  "text": "SSE cannot be used for this; switch to WebSockets because only WebSockets allow sending a request body before streaming.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`EventSource` only issues `GET` requests and does not accept custom headers (its init dictionary only has `withCredentials`), so a POST body and a bearer header rule it out. `fetch` exposes the response body as a `ReadableStream`, so you can decode chunks and split them into SSE events, which is how most LLM chat UIs work; you lose `EventSource`'s automatic reconnect. Angular `HttpClient.post` with `responseType: 'text'` emits once with the full body when the response completes; progressive output needs `observe: 'events'` with `reportProgress` and the fetch backend (`withFetch()`), and even then you get accumulated text in progress events, not parsed events. SSE is a response format; nothing prevents a `POST` from returning it, so switching to WebSockets is unnecessary."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.realtime.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "sse",
+            "nginx",
+            "proxy-buffering",
+            "streaming"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An SSE endpoint flushes after each LLM token. Calling Kestrel directly, tokens appear one by one. Through the nginx reverse proxy, the browser receives nothing for 20 seconds and then the whole answer at once. What is the most likely cause and fix?",
+              "options": [
+                {
+                  "text": "nginx buffers proxied responses by default; disable it for this location (`proxy_buffering off`) or send `X-Accel-Buffering: no` from the endpoint.",
+                  "correct": true
+                },
+                {
+                  "text": "Kestrel only flushes partial responses over HTTP/2, and nginx talks HTTP/1.1 to the upstream; enable HTTP/2 between nginx and Kestrel.",
+                  "correct": false
+                },
+                {
+                  "text": "The browser's `EventSource` batches events until the connection closes when the page is served from a different port; serve the API and SPA from one origin.",
+                  "correct": false
+                },
+                {
+                  "text": "SSE does not work through reverse proxies; switch the endpoint to WebSockets, which nginx forwards unbuffered.",
+                  "correct": false
+                }
+              ],
+              "explanation": "With `proxy_buffering on` (nginx's default) nginx reads the upstream response into its buffers and forwards it in large chunks, so a slow trickle of small events looks like one response at the end. Turning buffering off for the streaming location, or having the app send `X-Accel-Buffering: no`, fixes it; response compression can cause the same symptom. Kestrel flushes over HTTP/1.1 chunked encoding perfectly well, which is why direct calls work. `EventSource` dispatches each event as soon as its terminating blank line arrives, regardless of origin. SSE works fine through proxies once buffering is off; WebSockets would also need explicit `Upgrade`/`Connection` header configuration in nginx, so they are not the \"no config\" option either."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.realtime.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "signalr",
+            "scale-out",
+            "redis",
+            "load-balancing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A SignalR app runs on two instances behind a round-robin load balancer. Order updates are pushed with `hubContext.Clients.Group($\"order-{id}\").SendAsync(...)` from a message consumer that runs on whichever instance receives the message. Users report missing updates, and some clients fail to connect at all. What is needed?",
+              "options": [
+                {
+                  "text": "Nothing server-side; SignalR groups are stored in the client connection, so any instance can deliver to any group. Increase client reconnect attempts.",
+                  "correct": false
+                },
+                {
+                  "text": "A backplane (e.g. Redis) or Azure SignalR Service so a message sent on one instance reaches connections held by the other, plus sticky sessions (unless clients use WebSockets only with `SkipNegotiation`) so negotiation and transport requests reach the same server.",
+                  "correct": true
+                },
+                {
+                  "text": "Switch the group name to a user id, because `Clients.User` is resolved across instances automatically while groups are per-instance.",
+                  "correct": false
+                },
+                {
+                  "text": "Replace `IHubContext` with a direct hub method call, because `IHubContext` only reaches clients connected to the instance where the hub was created first.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Each SignalR server tracks only its own connections and group memberships. A message sent on instance B is therefore delivered only to B's connections, unless a backplane (`AddStackExchangeRedis`) fans it out or Azure SignalR Service holds all connections. Separately, the negotiate request and the subsequent transport requests (and every SSE/long-polling request) must reach the same server, so sticky sessions are required unless clients connect with WebSockets only and `SkipNegotiation = true`, or Azure SignalR is used; that explains the failed connections. Groups are server-side state, not client state. `Clients.User` has exactly the same per-instance limitation as groups. `IHubContext` is the correct way to send from outside a hub and reaches all connections on its instance; it is not tied to \"the first\" hub instance (hubs are transient)."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.realtime.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "sse",
+            "cancellation",
+            "llm-streaming",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An SSE endpoint streams tokens from an LLM provider:\n\n```csharp\napp.MapGet(\"/api/answer/stream\", async (string q, ILlmClient llm, HttpResponse res) =>\n{\n    res.ContentType = \"text/event-stream\";\n    await foreach (var token in llm.StreamAsync(q, CancellationToken.None))\n    {\n        await res.WriteAsync($\"data: {token}\n\n\");\n        await res.Body.FlushAsync();\n    }\n});\n```\n\nUsers often close the tab mid-answer. What is the main problem?",
+              "options": [
+                {
+                  "text": "None: Kestrel aborts the request thread when the client disconnects, which stops the `await foreach` immediately.",
+                  "correct": false
+                },
+                {
+                  "text": "The response is buffered until the loop ends because `WriteAsync` ignores `FlushAsync` for `text/event-stream`.",
+                  "correct": false
+                },
+                {
+                  "text": "Writing after the client has gone throws on the first write, which crashes the process because the exception escapes the endpoint.",
+                  "correct": false
+                },
+                {
+                  "text": "Because `CancellationToken.None` is passed, the upstream LLM call is not cancelled on disconnect; generation (and token billing) can continue for the whole answer. Pass `HttpContext.RequestAborted` (or bind a `CancellationToken` parameter) to the provider and the writes.",
+                  "correct": true
+                }
+              ],
+              "explanation": "When the client disconnects, Kestrel signals `HttpContext.RequestAborted`; minimal APIs also bind it to a `CancellationToken` parameter. Code that does not observe it keeps running: here the provider stream is created with `CancellationToken.None`, so the server keeps pulling and paying for tokens, and writes to a dead connection may silently do nothing or throw only later, depending on the server and timing. Kestrel never \"aborts a thread\"; cancellation in .NET is cooperative. `FlushAsync` does push the bytes immediately; buffering problems come from proxies or compression, not from Kestrel ignoring flushes. An exception escaping an endpoint is handled by the server and the exception-handling middleware, failing that request; it does not crash the process."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.realtime.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "sse",
+            "websockets",
+            "signalr",
+            "realtime"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Compare SignalR, Server-Sent Events and raw WebSockets. Which would you choose for (a) streaming an LLM answer to the user who asked, (b) live order-status notifications to thousands of users across several server instances, and (c) a collaborative editor with frequent edits in both directions? Justify each choice and mention the operational concerns.",
+              "explanation": "Model answer: SSE is one-way server-to-client over a plain HTTP response (`text/event-stream`), with automatic reconnect and `Last-Event-ID` in `EventSource`; WebSockets give a full-duplex framed channel after an upgrade but you build protocol, heartbeats and reconnect yourself; SignalR is a framework over WebSockets/SSE/long polling with hubs, groups, users, reconnect and scale-out. (a) SSE (or streamed `fetch` because `EventSource` cannot POST or set headers): one request maps to one stream, works over plain HTTP; disable proxy buffering, flush per token, propagate `RequestAborted` to cancel the upstream call. (b) SignalR with groups or users, a Redis backplane or Azure SignalR Service for multiple instances, sticky sessions unless WebSockets-only with skip negotiation, and auth via access token on connect. (c) WebSockets via SignalR (or raw WebSockets with a custom protocol such as CRDT/OT messages) because both directions are high-frequency; consider MessagePack, heartbeats and load-balancer idle timeouts. Operational concerns: HTTP/1.1 six-connections-per-origin limit for SSE, proxies and buffering, idle timeouts, sticky sessions, token expiry on long-lived connections, back-pressure.",
+              "rubric": [
+                "Correctly characterises each technology: SSE as one-way server-to-client over HTTP with built-in reconnect, WebSockets as full-duplex after an HTTP upgrade with no built-in reconnect, SignalR as a framework negotiating WebSockets/SSE/long polling with hubs, groups and reconnect.",
+                "Chooses SSE (or streamed `fetch`) for the LLM answer with a sound reason (single request-response stream, plain HTTP), and notes `EventSource` cannot send a POST body or custom headers.",
+                "Chooses SignalR (or equivalent) for notifications at scale and explains scale-out needs: a backplane such as Redis or Azure SignalR Service, and sticky sessions unless WebSockets-only with skipped negotiation.",
+                "Chooses WebSockets (directly or via SignalR) for the collaborative editor because of frequent bidirectional messages.",
+                "Mentions at least two operational concerns: proxy buffering, load-balancer idle timeouts/heartbeats, HTTP/1.1 per-origin connection limits, authentication of long-lived connections, cancellation on client disconnect."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "testing-aspnet",
+      "title": "Testing ASP.NET Core",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Testing ASP.NET Core",
+          "note": "## What it is\n\nTesting an ASP.NET Core API well means choosing, per behaviour, the cheapest test that can actually catch the bug. Pure unit tests cover domain logic. Most API bugs, though, live in the seams: routing, model binding, validation, authorization policies, serialization, middleware order, EF Core translation and database constraints. Those need integration tests that run the real pipeline, and, when the database matters, a real database.\n\n## How it works underneath\n\n**`WebApplicationFactory<TEntryPoint>`** (`Microsoft.AspNetCore.Mvc.Testing`) boots your real `Program`: the same `WebApplicationBuilder`, DI registrations, configuration, middleware and endpoints, but hosted on **`TestServer`**, an in-memory `IServer`. `CreateClient()` returns an `HttpClient` whose handler calls the pipeline directly, with no sockets and no ports. With top-level statements you used to need `public partial class Program { }` so the test project could reference the type; .NET 10 generates it for you. (.NET 10 also adds opt-in Kestrel hosting for the factory, for cases such as Playwright tests that need a real port.)\n\nCustomisation hooks:\n\n- `ConfigureWebHost(builder => ...)` in a subclass, or `WithWebHostBuilder` per test.\n- `builder.UseEnvironment(\"Testing\")`, `builder.UseSetting(...)` / `ConfigureAppConfiguration` to override configuration such as connection strings.\n- `builder.ConfigureTestServices(services => ...)` runs **after** the app's own registrations, so it is the place to replace services: remove the real registration and add a fake, or simply add a later registration, since the last one wins for single-service resolution.\n- Authentication: register a test `AuthenticationHandler` scheme that issues a configurable `ClaimsPrincipal`, and make it the default scheme, instead of disabling authorization.\n\n**Test doubles vs a real database.** The EF Core InMemory provider is not a relational database: no SQL, no transactions, no foreign-key or unique-constraint enforcement, different null and string-comparison semantics, and raw SQL is unsupported. Tests pass against it and the code fails in production; Microsoft's own guidance discourages it for testing. SQLite in-memory is closer but still a different dialect (no `jsonb`, different collations, no `FOR UPDATE`). For PostgreSQL-specific code the reliable option is a real PostgreSQL via **Testcontainers** (`Testcontainers.PostgreSql`): start one container per test run or collection (xUnit `ICollectionFixture` + `IAsyncLifetime`), apply migrations once, and isolate tests by resetting data with Respawn, by wrapping each test in a transaction that is rolled back, or by giving each test class its own database from a template. Container-per-test is correct but costs seconds per test.\n\n**Doubles where they belong.** Replace things you do not own and cannot run cheaply: third-party HTTP APIs (a stub `HttpMessageHandler` or WireMock.Net, never a mocked `HttpClient`), email, the clock (`TimeProvider` with `FakeTimeProvider`), the LLM. Mock at the boundary, not your own repositories, otherwise the test checks your mocks instead of your queries.\n\n**Contract tests** address the gap between services. Consumer-driven contracts (Pact) record what each consumer actually calls and expects, and the provider's build replays those interactions against the real API, so a provider change that breaks a real consumer fails before deployment. A lighter variant is a snapshot of the generated OpenAPI document diffed in CI.\n\n## What an interviewer probes\n\n- What `WebApplicationFactory` gives you and how you swap services and configuration.\n- Why the InMemory provider is misleading; Testcontainers versus SQLite; isolation and speed.\n- Parallelism: xUnit runs test collections in parallel, so shared database state must be partitioned or collections serialised.\n- How you test authenticated endpoints, time-dependent logic and outbound HTTP calls.\n- The test pyramid for an API and where contract tests fit.\n\n## Common misconceptions\n\n- \"Integration tests are slow, so mock the `DbContext`.\" Mocked LINQ never exercises translation or constraints.\n- \"`WebApplicationFactory` starts Kestrel.\" It uses `TestServer` by default.\n- \"Moq can mock `HttpClient.GetAsync`.\" It is non-virtual; fake the handler.\n\n```csharp\npublic sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime\n{\n    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder().WithImage(\"postgres:17\").Build();\n\n    protected override void ConfigureWebHost(IWebHostBuilder builder)\n    {\n        builder.UseEnvironment(\"Testing\");\n        builder.UseSetting(\"ConnectionStrings:Default\", _db.GetConnectionString());\n        builder.ConfigureTestServices(s =>\n        {\n            s.AddSingleton<TimeProvider>(new FakeTimeProvider(DateTimeOffset.Parse(\"2026-01-01Z\")));\n            s.AddAuthentication(TestAuthHandler.Scheme)\n             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ => { });\n        });\n    }\n\n    // xUnit v2 IAsyncLifetime; the factory itself is disposed by xUnit as IDisposable.\n    public Task InitializeAsync() => _db.StartAsync();\n    Task IAsyncLifetime.DisposeAsync() => _db.DisposeAsync().AsTask();\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "webapplicationfactory",
+            "integration-tests",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does `WebApplicationFactory<Program>` give you in an ASP.NET Core integration test?",
+              "options": [
+                {
+                  "text": "It starts the app on Kestrel on a random free port by default, so tests make real network calls exactly like a deployed client.",
+                  "correct": false
+                },
+                {
+                  "text": "It builds a minimal host containing only the controllers or endpoints under test, with all their dependencies replaced by auto-generated mocks.",
+                  "correct": false
+                },
+                {
+                  "text": "It boots the application's real `Program` (configuration, DI, middleware, routing, endpoints) on an in-memory `TestServer`, and `CreateClient()` returns an `HttpClient` that calls the pipeline without sockets; services can be overridden with `ConfigureTestServices`.",
+                  "correct": true
+                },
+                {
+                  "text": "It works only with MVC controllers; minimal API endpoints must be tested by invoking the handler delegates directly.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The factory uses your actual entry point, so routing, binding, validation, authorization, filters, serialization and middleware order are all exercised, while `TestServer` keeps everything in memory with no ports. Overrides go through `ConfigureWebHost`/`WithWebHostBuilder`, configuration settings and `ConfigureTestServices`. It does not use Kestrel by default (.NET 10 adds an opt-in to host on Kestrel for scenarios such as browser tests that need a real URL). It mocks nothing automatically; every real registration is used unless you replace it. It works with any endpoint type, minimal APIs and FastEndpoints included, since it hosts the whole application."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "efcore",
+            "inmemory-provider",
+            "testcontainers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "```csharp\nmodelBuilder.Entity<User>().HasIndex(u => u.Email).IsUnique();\n\n[Fact]\npublic async Task Duplicate_email_is_rejected()\n{\n    var db = new AppDb(new DbContextOptionsBuilder<AppDb>().UseInMemoryDatabase(\"t\").Options);\n    db.Users.Add(new User { Email = \"a@x.io\" });\n    db.Users.Add(new User { Email = \"a@x.io\" });\n    await Should.ThrowAsync<DbUpdateException>(() => db.SaveChangesAsync());\n}\n```\n\nWhat happens when this test runs?",
+              "options": [
+                {
+                  "text": "It passes: the InMemory provider enforces unique indexes from the model and throws `DbUpdateException` on the second row.",
+                  "correct": false
+                },
+                {
+                  "text": "It fails: the InMemory provider does not enforce unique indexes (or other relational constraints), so both rows are saved. Testing this needs a real database, e.g. PostgreSQL via Testcontainers.",
+                  "correct": true
+                },
+                {
+                  "text": "It fails at model building, because `HasIndex(...).IsUnique()` is a relational configuration that the InMemory provider rejects.",
+                  "correct": false
+                },
+                {
+                  "text": "It passes, but only because both entities are in the same `SaveChanges`; with two separate `SaveChanges` calls the duplicate would slip through.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The InMemory provider is a key-value store behind the EF API. It enforces primary keys, but it ignores unique indexes, foreign keys and check constraints, has no transactions, cannot run SQL, and evaluates queries with .NET semantics rather than database semantics. The test therefore fails, and worse, tests that do not assert on constraints pass while production fails. Use a real database (Testcontainers) for anything involving constraints, transactions, translation or provider-specific SQL. The index configuration is not rejected; it is simply not enforced. Saving in one or two calls makes no difference to the InMemory provider."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "testcontainers",
+            "xunit",
+            "isolation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An integration test suite needs a real PostgreSQL. Which setup gives reliable isolation at an acceptable speed?",
+              "options": [
+                {
+                  "text": "Start one PostgreSQL container per test method, so every test has a pristine database; start-up cost is negligible with Testcontainers.",
+                  "correct": false
+                },
+                {
+                  "text": "Point all tests at a shared developer database and rely on unique random data per test, so no clean-up is needed.",
+                  "correct": false
+                },
+                {
+                  "text": "Share one container across all collections and let xUnit run collections in parallel against the same tables; data races are prevented by EF Core change tracking.",
+                  "correct": false
+                },
+                {
+                  "text": "Start a container once per test run or collection (`ICollectionFixture` + `IAsyncLifetime`), apply migrations once, and reset state between tests (Respawn, per-test transaction rollback, or a database per class), parallelising only across isolated databases.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Container start-up and migrations cost seconds, so you pay them once per run or collection and then make each test start from a known state by cheap means: Respawn deletes data in dependency order, a rolled-back transaction discards changes, or each class gets its own database cloned from a template. Parallel collections must not share mutable tables. Container-per-test is correct but slow once the suite has hundreds of tests. A shared developer database is non-reproducible, can be broken by other people, and random data does not isolate tests that count rows or depend on absence. EF Core change tracking is per `DbContext` instance and does nothing to prevent cross-test interference in a shared database."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "httpclient",
+            "test-doubles",
+            "mocking"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service class depends on `HttpClient` to call a weather API. How should a unit test control the HTTP responses?",
+              "options": [
+                {
+                  "text": "Pass an `HttpClient` constructed with a stub `HttpMessageHandler` (overriding `SendAsync`) or use a library such as WireMock.Net, so the client's real code path runs against canned responses.",
+                  "correct": true
+                },
+                {
+                  "text": "Mock `HttpClient.GetAsync` with Moq: `mock.Setup(c => c.GetAsync(It.IsAny<string>()))`.",
+                  "correct": false
+                },
+                {
+                  "text": "Extract an `IHttpClient` interface from `HttpClient` with a source generator; `HttpClient` cannot be faked any other way.",
+                  "correct": false
+                },
+                {
+                  "text": "Call the real weather API in unit tests but mark them `[Trait(\"Category\",\"Slow\")]`; faking HTTP hides serialization bugs.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`HttpClient` delegates every request to its `HttpMessageHandler`, so a handler that returns prepared `HttpResponseMessage`s (or a local fake server like WireMock.Net) controls responses while keeping the real `HttpClient` behaviour (base address, headers, JSON deserialization). Moq cannot intercept `GetAsync`, which is non-virtual (only `SendAsync(HttpRequestMessage, CancellationToken)` is virtual, and mocking it is still more brittle than a handler). An interface wrapper is possible but unnecessary, and no such generator is standard. Calling the real third-party API makes tests slow, flaky and dependent on someone else's uptime and rate limits; serialization is still exercised with canned JSON responses."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "contract-tests",
+            "pact",
+            "microservices"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Service A (consumer) calls service B (provider). Both have thorough `WebApplicationFactory` tests. What does consumer-driven contract testing (e.g. Pact) add?",
+              "options": [
+                {
+                  "text": "Nothing new: if both services pass their own integration tests, they are compatible by construction.",
+                  "correct": false
+                },
+                {
+                  "text": "It runs both services together in a shared end-to-end environment and replays production traffic between them.",
+                  "correct": false
+                },
+                {
+                  "text": "It generates B's OpenAPI document from A's source code, so B cannot add new endpoints without A's approval.",
+                  "correct": false
+                },
+                {
+                  "text": "A's tests record the requests it makes and the response shapes it relies on as a contract; B's build verifies that contract against the real provider, so a provider change that breaks this consumer fails B's pipeline before deployment.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Each service's own integration tests check it against *its own* expectations; they cannot see that B renamed a field A depends on. Consumer-driven contracts capture A's actual usage (requests and the parts of responses it reads) and make B verify them in its CI, typically via a broker, giving fast, independent feedback without a shared environment. Passing separate test suites does not imply compatibility. Contract tests replace much of the need for end-to-end environments rather than requiring one, and they do not replay production traffic. They do not generate OpenAPI documents or restrict additive changes; B may add anything that does not break a recorded interaction."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.api-design.testing-aspnet.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "testing",
+            "webapplicationfactory",
+            "testcontainers",
+            "integration-tests"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "How would you test an ASP.NET Core API that uses EF Core with PostgreSQL, JWT authentication and an outbound HTTP call to a payment provider? Describe which kinds of tests you write, what you run for real and what you replace with test doubles, and how you keep the suite reliable and reasonably fast.",
+              "explanation": "Model answer: unit tests for pure domain and application logic (no framework). Integration tests through `WebApplicationFactory<Program>` cover the real pipeline: routing, binding, validation, authorization policies, serialization, problem details and middleware order, sending requests with the factory's `HttpClient`. The database is real: PostgreSQL in Testcontainers, started once per run or collection via `IAsyncLifetime`/fixtures, migrations applied once, state reset between tests with Respawn or transaction rollback; not the EF InMemory provider, which ignores constraints, transactions and SQL translation. Authentication is replaced by a test `AuthenticationHandler` (or tokens signed with a test key) so tests can choose claims and still exercise `[Authorize]` policies. The payment provider is replaced at the HTTP boundary with a stub `HttpMessageHandler` or WireMock.Net via `ConfigureTestServices`/`ConfigurePrimaryHttpMessageHandler`; the clock with `FakeTimeProvider`. Configuration overrides through `UseSetting`/environment. Optionally contract tests (Pact or OpenAPI diff) against consumers, and a few end-to-end smoke tests. Keep it reliable: deterministic data builders, no shared mutable state across parallel collections, no sleeps (fake time), tag container-based tests (`Category=Integration`) so unit tests run without Docker.",
+              "rubric": [
+                "Uses `WebApplicationFactory<Program>` (in-memory `TestServer`) to test the real HTTP pipeline, and explains overriding services and configuration (`ConfigureTestServices`, `UseSetting`/environment).",
+                "Uses a real PostgreSQL (Testcontainers) for data access and explains why the EF Core InMemory provider (or mocked `DbContext`) is unreliable: no constraints, transactions, SQL translation or provider-specific features.",
+                "Describes isolation and speed: container started once per run or collection, migrations applied once, state reset per test (Respawn, transaction rollback or database per class), careful handling of parallel test collections.",
+                "Replaces only external boundaries: a test authentication scheme instead of disabling auth, a stub `HttpMessageHandler`/WireMock for the payment provider, `FakeTimeProvider` for time.",
+                "Positions test types in a pyramid: unit tests for domain logic, integration tests for most API behaviour, and contract tests and/or a few end-to-end tests for cross-service compatibility."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

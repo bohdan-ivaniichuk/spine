@@ -1,0 +1,1270 @@
+{
+  "domain": "aspnet-data",
+  "topic": "pipeline",
+  "concepts": [
+    {
+      "slug": "middleware-order",
+      "title": "Middleware Pipeline and Ordering",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Middleware Pipeline and Ordering",
+          "note": "## What it is\n\nAn ASP.NET Core application is, at request time, one `RequestDelegate` — `Task (HttpContext context)` — composed at startup from an ordered list of middleware. Each middleware receives the *next* delegate and decides whether to call it, what to do before it, and what to do after it returns. Registration order in `Program.cs` is execution order on the way in and reverse order on the way out. That single rule explains almost every ordering bug.\n\n## How it works underneath\n\n`IApplicationBuilder` stores a list of `Func<RequestDelegate, RequestDelegate>`. `Build()` walks that list **backwards**, starting from a terminal delegate that returns 404, wrapping each component around the previous result. The pipeline is built once; per request only the delegates run.\n\n- `Use(...)` adds a component that may call `next` (or not — that is a short-circuit).\n- `Run(...)` adds a **terminal** delegate: it never receives `next`, so anything registered after it on the same branch is unreachable.\n- `Map(\"/admin\", branch)` forks on a path *prefix*. Inside the branch the matched segment is moved from `Request.Path` to `Request.PathBase`, and the branch **never rejoins** the main pipeline. `MapWhen(predicate, ...)` forks on any condition with the same no-rejoin rule; `UseWhen(predicate, ...)` runs a conditional sub-pipeline and then **rejoins** the main one unless the branch short-circuits.\n\n`app.Map(...)` is a pipeline branch; it has nothing to do with endpoint routing (`MapGet`, `MapControllers`). Endpoint routing splits dispatch in two: `UseRouting` *selects* an endpoint and stores it on the context (`HttpContext.GetEndpoint()`), and the endpoint middleware at the end *executes* it. Everything between the two can read endpoint metadata — `[Authorize]`, CORS policy names, rate-limiting policies — before the handler runs. That is why authorization, CORS and endpoint-specific rate limiting must sit after `UseRouting`.\n\nWith `WebApplication` (minimal hosting, .NET 6+) the host adds `UseRouting` at the start of the pipeline if you did not call it, and the endpoint middleware at the end. Since .NET 7 it also inserts `UseAuthentication` and `UseAuthorization` right after routing when the corresponding services are registered and you did not call them yourself. Calling any of them explicitly opts you out of the automatic placement — from then on, order is your responsibility.\n\n## The order and the reason for each slot\n\n```csharp\nvar app = builder.Build();\n\napp.UseExceptionHandler();        // 1. wraps everything below; sees only exceptions thrown after it\napp.UseHsts();                    // 2. production only, usually\napp.UseHttpsRedirection();        // 3. redirect before doing any real work\napp.UseStaticFiles();             // 4. cheap short-circuit; files served here are NOT authorized\napp.UseRouting();                 // 5. selects the endpoint, exposes its metadata\napp.UseCors();                    // 6. after routing (endpoint policies), before auth (preflight)\napp.UseAuthentication();          // 7. builds HttpContext.User from the request\napp.UseAuthorization();           // 8. evaluates endpoint policies against HttpContext.User\napp.UseRateLimiter();             // 9. after routing for endpoint policies; after authN to partition per user\napp.UseMiddleware<AuditMiddleware>(); // 10. custom middleware that needs the user / endpoint\napp.MapControllers();             // endpoints\n```\n\n- **Exception handling first**: a middleware is a `try`/`catch` around `next`; it cannot catch what ran before it.\n- **Static files before auth** short-circuit cheaply, which also means anything under `wwwroot` is public. Since .NET 9, `MapStaticAssets()` serves files as endpoints instead, so endpoint conventions such as `RequireAuthorization()` apply to them.\n- **CORS** must be after routing and before `UseAuthorization`: browsers send the `OPTIONS` preflight without credentials, so it has to be answered (the CORS middleware short-circuits preflights it accepts) before an authorization check rejects it.\n- **Authentication before authorization**: `UseAuthentication` only establishes identity — it lets anonymous requests through. `UseAuthorization` enforces policies. Swap them and every `[Authorize]` endpoint returns 401 even for a valid token, because the policy is evaluated against an empty `User` (unless the policy names its own schemes).\n- **The response-started rule**: once the first byte of the body is written, status code and headers are frozen (`Response.HasStarted`). Code after `await next()` can still log or measure, but setting a header there throws `InvalidOperationException`; use `Response.OnStarting(...)`.\n\n## What an interviewer probes\n\n- `Use` vs `Run` vs `Map` vs `UseWhen` — and what happens to the path inside `Map`.\n- Why `UseExceptionHandler` must be first, and what it cannot do once the response has started.\n- What changes when you call `UseRouting` explicitly vs relying on `WebApplication`.\n- Where CORS goes and why a misplaced `UseCors` shows up as a browser \"CORS error\" rather than a 401.\n\n## Common misconceptions\n\n- \"`UseAuthentication` protects endpoints\" — it only populates `User`; protection is authorization.\n- \"Service registration order matters like middleware order\" — `AddX()` order is mostly irrelevant; `UseX()` order is the pipeline.\n- \"`app.Map(\"/api\", ...)` is how you route APIs\" — it is a raw pipeline fork; endpoints use `MapGet`/`MapGroup`/`MapControllers`.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.middleware-order.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "middleware",
+            "pipeline"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between `app.Use`, `app.Run` and `app.Map` when building the ASP.NET Core middleware pipeline?",
+              "options": [
+                {
+                  "text": "`Use` adds middleware that receives `next` and may call it or short-circuit; `Run` adds a terminal delegate that never receives `next`; `Map` forks the pipeline on a path prefix, and the branch does not rejoin the main pipeline.",
+                  "correct": true
+                },
+                {
+                  "text": "`Use` adds middleware that the framework always continues past automatically after the delegate returns; `Run` adds a middleware whose own `next` call is optional; `Map` registers an endpoint the way `MapGet` does, but for all HTTP methods.",
+                  "correct": false
+                },
+                {
+                  "text": "`Use` and `Run` are equivalent except that `Run` executes its delegate on a separate thread-pool work item; `Map` forks on a path prefix and, like `UseWhen`, rejoins the main pipeline after the branch completes.",
+                  "correct": false
+                },
+                {
+                  "text": "`Use` registers middleware for every request, `Run` registers middleware that runs only once at application start-up, and `Map` attaches a middleware to a specific endpoint selected by `UseRouting`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Use` takes the next `RequestDelegate` and the middleware decides whether to invoke it (not calling it short-circuits); `Run` is terminal by signature — it receives no `next`, so anything registered after it on the same branch is unreachable; `Map` builds a separate sub-pipeline selected by a path prefix, moves the matched segment from `Path` to `PathBase`, and never returns to the main pipeline. The 'framework continues automatically' option is wrong: if a `Use` delegate does not call `next`, nothing downstream runs, and `Map` is a raw pipeline fork that is unrelated to endpoint routing's `MapGet`. The 'separate thread' option is wrong on both counts: `Run` runs inline like any other delegate, and it is `UseWhen`, not `Map`, that rejoins the main pipeline. The 'runs once at start-up' option confuses pipeline *construction* (once) with `Run` delegates (which execute per request), and `Map` is evaluated before and independently of `UseRouting`'s endpoint selection."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.middleware-order.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "middleware",
+            "authentication",
+            "authorization"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An API uses JWT bearer authentication as the default scheme. A request with a valid token hits `GET /orders`, which carries `[Authorize]` (default policy, no explicit schemes). What does the client receive?\n\n```csharp\nvar app = builder.Build();\napp.UseAuthorization();\napp.UseAuthentication();\napp.MapControllers();\napp.Run();\n```",
+              "options": [
+                {
+                  "text": "200 OK: authorization is deferred until the endpoint executes, and by then the authentication middleware has populated `HttpContext.User`.",
+                  "correct": false
+                },
+                {
+                  "text": "401 Unauthorized: the authorization middleware evaluates the policy before the authentication middleware has populated `HttpContext.User`, so the user is anonymous and the default scheme issues a challenge.",
+                  "correct": true
+                },
+                {
+                  "text": "403 Forbidden: the token is valid, so the user is known, but the authorization middleware rejects any user it sees before authentication has completed.",
+                  "correct": false
+                },
+                {
+                  "text": "The application fails at start-up with an `InvalidOperationException`, because `WebApplication` validates that `UseAuthentication` is registered before `UseAuthorization`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Because both calls are explicit, `WebApplication` does not insert them for you, and the pipeline runs them in the written order. `AuthorizationMiddleware` reads the endpoint's `[Authorize]` metadata (routing was added implicitly at the start) and evaluates the default policy against `HttpContext.User`; with no schemes on the policy it does not authenticate on its own, so `User` is still the empty anonymous principal, `RequireAuthenticatedUser` fails, and `ChallengeAsync` on the default JWT scheme produces 401. The authentication middleware never gets a chance to read the token for this request. The '200' option describes a misconception that authorization is lazy — in endpoint routing it is enforced by the middleware, before the endpoint runs. The '403' option is wrong because 403 (`Forbid`) is for an *authenticated* user who fails a requirement; here the user is unauthenticated. The 'start-up failure' option is wrong: no such ordering validation exists — misordering compiles and starts, which is exactly why it is a classic bug."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.middleware-order.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "middleware",
+            "pipeline",
+            "routing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does `GET /admin/users` return with this pipeline?\n\n```csharp\napp.Map(\"/admin\", admin =>\n{\n    admin.Run(ctx => ctx.Response.WriteAsync($\"{ctx.Request.PathBase}|{ctx.Request.Path}\"));\n});\napp.Run(ctx => ctx.Response.WriteAsync(\"main\"));\n```",
+              "options": [
+                {
+                  "text": "`|/admin/users`: `Map` only selects the branch; `PathBase` and `Path` are left untouched.",
+                  "correct": false
+                },
+                {
+                  "text": "`/admin|/users`: inside the branch the matched prefix is moved from `Path` to `PathBase`.",
+                  "correct": true
+                },
+                {
+                  "text": "`main`: `Map` matches only the exact path `/admin`, so `/admin/users` falls through to the main pipeline.",
+                  "correct": false
+                },
+                {
+                  "text": "`/admin|/users` followed by `main`: the branch runs and then the request rejoins the main pipeline, which writes `main`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Map` matches on a path-segment prefix (`/admin`, `/admin/`, `/admin/users`, but not `/administrator`), and for the duration of the branch it appends the matched segment to `PathBase` and removes it from `Path` — this is what lets a branch (or a mounted sub-application) behave as if it were hosted at the root. The 'untouched' option is wrong: the path adjustment is documented `Map` behaviour and the reason `UsePathBase` exists as a sibling. The 'exact match only' option confuses `Map` with an exact route template; `Map` is a prefix match on whole segments. The 'rejoins' option describes `UseWhen`; a `Map` branch never returns to the main pipeline, and here the branch ends with a terminal `Run` anyway."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.middleware-order.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "middleware",
+            "response-headers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "This timing middleware throws `InvalidOperationException: Headers are read-only, response has already started` for most requests. Which fix is correct?\n\n```csharp\napp.Use(async (ctx, next) =>\n{\n    var sw = Stopwatch.StartNew();\n    await next(ctx);\n    ctx.Response.Headers[\"X-Elapsed-Ms\"] = sw.ElapsedMilliseconds.ToString();\n});\n```",
+              "options": [
+                {
+                  "text": "Use `ctx.Response.Headers.Append(...)` instead of the indexer, because `Append` adds to the trailing header block, which stays writable after the body starts.",
+                  "correct": false
+                },
+                {
+                  "text": "Register the middleware before `UseRouting` so it runs before the endpoint writes its body.",
+                  "correct": false
+                },
+                {
+                  "text": "Register a callback with `ctx.Response.OnStarting(...)` before calling `next`, and set the header inside it; the callback runs just before the headers are sent.",
+                  "correct": true
+                },
+                {
+                  "text": "Call `await ctx.Response.Body.FlushAsync()` before setting the header so the buffered body is committed first and the header block is reopened.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Once the endpoint writes the first byte of the body, `Response.HasStarted` becomes true and the status line and headers are frozen; code after `await next(ctx)` runs too late to change them. `OnStarting` registers a callback that the server invokes immediately before sending headers, which is the documented way to add a header computed late (the elapsed time then covers everything up to the first write, which is usually what you want; for full duration, log it instead). `Headers.Append` writes to the same frozen header collection and throws the same exception — trailers are a separate API (`AppendTrailer`) and only for HTTP/2+ clients that declare support. Moving the middleware before routing changes nothing: it still awaits `next`, and the endpoint still writes before control returns. Flushing makes it worse: a flush *starts* the response, and nothing reopens a sent header block."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.middleware-order.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "middleware",
+            "pipeline",
+            "cors",
+            "authorization"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain how the ASP.NET Core request pipeline is built and executed, then put these into the correct order and justify each position: exception handling, HTTPS redirection, static files, routing, CORS, authentication, authorization, rate limiting, endpoints. What does `WebApplication` add for you, and what goes wrong with two typical misorderings?",
+              "rubric": [
+                "Explains that middleware are `RequestDelegate`s composed once at startup in registration order, each wrapping the next (code before `next` runs on the way in, after it on the way out), and that a middleware can short-circuit by not calling `next`.",
+                "Places the exception handler first and justifies it: it can only catch exceptions thrown by middleware/endpoints registered after it (and cannot rewrite a response that has already started).",
+                "Places routing before CORS, authorization and endpoint-specific rate limiting because they read endpoint metadata selected by `UseRouting`, and places CORS before authentication/authorization so unauthenticated preflight `OPTIONS` requests are answered.",
+                "States that authentication must precede authorization because authentication only populates `HttpContext.User` (anonymous requests pass through) while authorization evaluates policies against it; reversing them yields 401 for valid credentials.",
+                "Mentions that `WebApplication` adds `UseRouting` at the start and endpoint execution at the end when not called explicitly (and, since .NET 7, `UseAuthentication`/`UseAuthorization` when their services are registered), and that explicit calls opt out of that automatic placement."
+              ],
+              "explanation": "Model answer: `IApplicationBuilder` collects `Func<RequestDelegate, RequestDelegate>` components; `Build()` composes them in reverse around a terminal 404 delegate, producing a single delegate invoked per request. Each middleware does work before `await next(ctx)`, after it, or short-circuits. Order: `UseExceptionHandler` (a try/catch around everything after it; it cannot replace a response that has started), `UseHsts`/`UseHttpsRedirection` (redirect before doing work), `UseStaticFiles` (cheap short-circuit; files are public — or `MapStaticAssets` as endpoints since .NET 9), `UseRouting` (selects the endpoint and exposes metadata), `UseCors` (needs the endpoint's CORS policy, must answer credential-less preflights before authorization rejects them), `UseAuthentication` (builds `User`, never rejects), `UseAuthorization` (enforces `[Authorize]`/policies from endpoint metadata), `UseRateLimiter` (after routing for endpoint policies; after authentication if partitioned per user), custom middleware, then endpoints. `WebApplication` adds routing at the start and endpoint execution at the end if you do not, and since .NET 7 inserts authentication/authorization after routing when their services exist; calling them explicitly opts you out. Misorderings: authorization before authentication returns 401 for valid tokens; CORS after authorization makes preflights fail, surfacing as a browser CORS error; an exception handler registered after a throwing middleware never sees that exception."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "minimal-vs-controllers-fastendpoints",
+      "title": "Minimal APIs vs Controllers vs FastEndpoints",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Minimal APIs vs Controllers vs FastEndpoints",
+          "note": "## What it is\n\nASP.NET Core offers three mainstream ways to define HTTP endpoints, and all three sit on the same foundation — **endpoint routing**, the same middleware pipeline, the same authentication, authorization, CORS, rate limiting and output caching. The choice is about programming model, conventions and per-request machinery, not about capabilities of the server.\n\n- **Controllers (MVC)**: classes deriving from `ControllerBase`, attribute routing, `[ApiController]` conventions, the MVC filter pipeline and `ModelState`.\n- **Minimal APIs**: `app.MapGet(\"/orders/{id}\", handler)` — a delegate per route, organised with `MapGroup` (.NET 7+), extended with endpoint filters (.NET 7+).\n- **FastEndpoints**: an open-source library that implements the **REPR** pattern (Request–Endpoint–Response): one class per endpoint, with a request DTO and a response DTO, registered as ordinary route endpoints.\n\n## How each works underneath\n\n**Controllers.** At startup MVC builds an *application model* (controllers, actions, conventions) and registers one endpoint per action. Per request the `ControllerActionInvoker` creates the controller (constructor injection of everything any action needs), runs authorization/resource filters, model binding and validation into `ModelState`, action filters, the action, then result filters and the `IActionResult`. `[ApiController]` adds binding-source inference, an automatic 400 `ValidationProblemDetails` when `ModelState` is invalid, and `ProblemDetails` bodies for error status codes. Controllers support content negotiation (JSON, XML formatters). MVC is not supported under Native AOT.\n\n**Minimal APIs.** At startup `RequestDelegateFactory` inspects the handler's parameters (route, query, header, body, services, `HttpContext`, `CancellationToken`, `[AsParameters]`) and generates a specialised `RequestDelegate`; with Native AOT the **Request Delegate Generator** (a source generator, .NET 8+) emits that code at compile time instead of using reflection. There is no `ModelState` and no MVC filter pipeline; cross-cutting logic is an `IEndpointFilter` that sees the already-bound arguments. `TypedResults` plus `Results<Ok<T>, NotFound>` give compile-time-checked return types and OpenAPI metadata. Output is JSON only (no content negotiation). .NET 10 adds built-in DataAnnotations validation via `builder.Services.AddValidation()`.\n\n**FastEndpoints.** Endpoint classes such as `Endpoint<TRequest, TResponse>` declare their route, verbs and policies in `Configure()` and their logic in `HandleAsync(req, ct)`; the library maps them onto endpoint routing (not MVC). It binds route, query, headers, claims and body into **one request DTO**, integrates FluentValidation through `Validator<TRequest>` (registered as **singletons** — no state, resolve scoped services inside the rule), and offers pre/post-processors, its own error-response shape (switchable to `ProblemDetails`) and Swagger generation.\n\n```csharp\n// Minimal API\napp.MapGet(\"/orders/{id:int}\", async Task<Results<Ok<OrderDto>, NotFound>> (\n        int id, IOrderReader orders, CancellationToken ct) =>\n        await orders.FindAsync(id, ct) is { } o ? TypedResults.Ok(o) : TypedResults.NotFound())\n   .RequireAuthorization(\"orders.read\");\n\n// FastEndpoints (v8) — REPR: one class, one request, one response\npublic sealed class GetOrderEndpoint(IOrderReader orders) : Endpoint<GetOrderRequest, OrderDto>\n{\n    public override void Configure()\n    {\n        Get(\"/orders/{id}\");\n        Policies(\"orders.read\");\n    }\n\n    public override async Task HandleAsync(GetOrderRequest req, CancellationToken ct)\n    {\n        var order = await orders.FindAsync(req.Id, ct);\n        if (order is null) { await Send.NotFoundAsync(ct); return; }\n        await Send.OkAsync(order, ct);\n    }\n}\n```\n\n## Trade-offs an interviewer expects\n\n- **Cohesion.** A 20-action controller injects the union of its actions' dependencies and grows into a \"god controller\". Minimal APIs inject per handler; REPR goes further: one file per use case, which fits vertical slices and CQRS.\n- **Conventions vs explicitness.** MVC gives model-state validation, filters, formatters, versioning and conventions for free; minimal APIs make you assemble what you need (groups, filters, validation). FastEndpoints brings its own conventions — productive, but a third-party dependency with its own major-version upgrade cadence that every new hire must learn.\n- **Performance.** Minimal APIs and FastEndpoints do less work per request than MVC (no `ModelState`, no filter pipeline), and minimal APIs are the only one of the three that supports Native AOT. In a typical database-bound API the difference is rarely the bottleneck; quote it as a secondary argument.\n- **Testability.** `TypedResults` handlers are plain methods you can call and assert on by type; controllers and FastEndpoints endpoints are tested through `WebApplicationFactory` or their own test helpers.\n\n## Common misconceptions\n\n- \"Minimal APIs are for prototypes\" — they are a full production model with auth, OpenAPI, groups, filters and (.NET 10) validation.\n- \"Controllers are legacy\" — they remain fully supported and are the right call when you need MVC features (formatters, model binders, filters, conventions) or have a large existing codebase.\n- \"FastEndpoints is a different web server\" — it runs on Kestrel and the standard ASP.NET Core pipeline; it only replaces how endpoints are declared and bound.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.minimal-vs-controllers-fastendpoints.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "minimal-apis",
+            "controllers",
+            "native-aot"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about minimal APIs versus controllers in ASP.NET Core 10 is accurate?",
+              "options": [
+                {
+                  "text": "Minimal APIs can be published with Native AOT because the Request Delegate Generator emits the binding code at compile time; MVC controllers are not supported under Native AOT.",
+                  "correct": true
+                },
+                {
+                  "text": "Controllers are faster per request because MVC compiles each action invoker at build time, whereas minimal APIs use reflection to bind parameters on every request.",
+                  "correct": false
+                },
+                {
+                  "text": "Minimal APIs run the full MVC filter pipeline (authorization, resource, action, exception and result filters) when those attributes are placed on the handler method.",
+                  "correct": false
+                },
+                {
+                  "text": "Minimal APIs cannot use dependency injection, authorization policies or OpenAPI, so they are meant for prototypes and tiny microservices.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Minimal APIs were designed to be trimming- and AOT-friendly: `RequestDelegateFactory` builds an optimised delegate once at startup, and under Native AOT the Request Delegate Generator source generator produces the same logic at compile time; MVC relies on runtime reflection over its application model and is not supported with Native AOT. The 'controllers are faster' option inverts reality — MVC does more work per request (`ModelState`, filter pipeline, action invoker), and minimal APIs do not reflect per request; their delegate is generated once at startup. The 'MVC filter pipeline' option is wrong: MVC filter attributes such as `ActionFilterAttribute` are ignored on minimal handlers; the minimal-API extension point is `IEndpointFilter`. The 'prototypes only' option is a common prejudice: minimal APIs support DI (parameter injection), `RequireAuthorization`, OpenAPI via `TypedResults`/metadata, route groups and, in .NET 10, built-in validation."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.minimal-vs-controllers-fastendpoints.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "minimal-apis",
+            "route-groups",
+            "authorization"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens for an anonymous request to `GET /api/health`?\n\n```csharp\nvar api = app.MapGroup(\"/api\").RequireAuthorization();\n\napi.MapGet(\"/orders\", (IOrderReader r) => r.ListAsync());\napi.MapGet(\"/health\", () => TypedResults.Ok(\"ok\")).AllowAnonymous();\n```",
+              "options": [
+                {
+                  "text": "401: conventions applied to a group take precedence over conventions applied to an endpoint inside it, so `RequireAuthorization` on the group wins.",
+                  "correct": false
+                },
+                {
+                  "text": "The application fails at startup because the endpoint carries conflicting `IAuthorizeData` and `IAllowAnonymous` metadata.",
+                  "correct": false
+                },
+                {
+                  "text": "200: the endpoint carries both the group's authorization metadata and `IAllowAnonymous`, and the authorization middleware skips policy evaluation when `IAllowAnonymous` is present.",
+                  "correct": true
+                },
+                {
+                  "text": "200, but only because `/health` is not covered by the group prefix once `AllowAnonymous` is applied; `AllowAnonymous` removes the endpoint from the group.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A route group applies its conventions to every endpoint it contains, so `/api/health` ends up with both `IAuthorizeData` (from the group) and `IAllowAnonymous` (from the endpoint) in its metadata. The authorization middleware checks for `IAllowAnonymous` and, when present, skips evaluating the policy — the same rule as `[AllowAnonymous]` on a controller action inside an `[Authorize]` controller. The 'group wins' option is wrong: there is no precedence of group over endpoint; both contribute metadata and `AllowAnonymous` is designed to override. The 'startup failure' option is wrong because combining the two is a supported pattern and nothing validates it at startup. The 'removes from the group' option is wrong: the route is still `/api/health` and still receives the group's other conventions (filters, tags, rate limiting); only authorization is bypassed."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.minimal-vs-controllers-fastendpoints.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "fastendpoints",
+            "repr",
+            "validation",
+            "di"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your team is adopting FastEndpoints (v8). Which statement is true?",
+              "options": [
+                {
+                  "text": "It replaces Kestrel with its own optimised HTTP server, which is where its performance advantage over MVC comes from.",
+                  "correct": false
+                },
+                {
+                  "text": "It generates MVC controllers from endpoint classes at build time, so existing MVC action filters and `[ApiController]` conventions apply unchanged.",
+                  "correct": false
+                },
+                {
+                  "text": "Its `Validator<TRequest>` instances are created per request from the request scope, so injecting a scoped `DbContext` into a validator's constructor is the recommended way to run database checks.",
+                  "correct": false
+                },
+                {
+                  "text": "Endpoint classes are registered on ASP.NET Core endpoint routing, so standard middleware such as authentication, authorization, CORS and rate limiting applies to them unchanged.",
+                  "correct": true
+                }
+              ],
+              "explanation": "FastEndpoints is a library on top of ASP.NET Core's endpoint routing: each endpoint class becomes a route endpoint, so the normal pipeline — `UseAuthentication`, `UseAuthorization`, CORS, rate limiting, output caching — applies as it does to minimal APIs. The 'own HTTP server' option is wrong: it runs on Kestrel; its overhead is close to minimal APIs because it avoids the MVC invoker, not because it replaces the server. The 'generates MVC controllers' option is wrong: it does not use MVC at all, so MVC filters and `[ApiController]` behaviour do not apply; it has its own pre/post-processors and validation. The 'validators are scoped' option is a dangerous misconception: FastEndpoints registers validators as **singletons** for performance, so constructor-injecting a scoped `DbContext` would capture one instance across requests; the documented approach is to keep validators stateless and resolve scoped services inside the rule (for example `Resolve<T>()` within an async rule), or to do data-dependent checks in the handler."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.minimal-vs-controllers-fastendpoints.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "minimal-apis",
+            "typed-results",
+            "openapi",
+            "testing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why declare a minimal-API handler as returning `Task<Results<Ok<OrderDto>, NotFound>>` and use `TypedResults`, instead of returning `Task<IResult>` built with `Results.Ok(...)`?",
+              "options": [
+                {
+                  "text": "`Results<Ok<OrderDto>, NotFound>` enforces at runtime that only 200 or 404 can leave the endpoint, so exceptions and middleware cannot produce any other status code.",
+                  "correct": false
+                },
+                {
+                  "text": "The union type contributes response metadata through `IEndpointMetadataProvider`, so OpenAPI documents 200 with `OrderDto` and 404 without extra `Produces` calls, and unit tests can assert on the concrete result type.",
+                  "correct": true
+                },
+                {
+                  "text": "`TypedResults` switches the endpoint to source-generated `System.Text.Json` serialization automatically, which `Results.Ok` cannot use.",
+                  "correct": false
+                },
+                {
+                  "text": "`IResult` cannot represent a 404 from an async handler, because `Results.NotFound()` only works in synchronous lambdas.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`Ok<T>`, `NotFound` and the `Results<T1, T2, ...>` union implement `IEndpointMetadataProvider`, so the framework learns the possible responses (status codes and body types) from the signature and feeds OpenAPI; because the return types are concrete, a unit test can call the handler and assert `result.Result is Ok<OrderDto>` without spinning up a server. It is also compile-time checked: returning a `BadRequest` from that signature does not compile. The 'enforces at runtime' option is wrong: the union constrains what the *handler* can return, not what the pipeline can send — exceptions still become 500s, authorization still produces 401/403. The 'source-generated serialization' option is wrong: serializer configuration (`JsonSerializerContext` registered via `ConfigureHttpJsonOptions`) is independent of `TypedResults` vs `Results`. The 'cannot represent 404' option is false — `Results.NotFound()` works from any handler; it just returns the untyped `IResult`, which loses the metadata and test ergonomics."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.minimal-vs-controllers-fastendpoints.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "minimal-apis",
+            "controllers",
+            "fastendpoints",
+            "repr"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are starting a new .NET 10 HTTP API for a team of six. Compare controllers, minimal APIs and FastEndpoints (REPR) and say which you would choose and under which conditions you would choose differently. Cover the programming model, cross-cutting concerns, validation, performance/AOT, and long-term maintainability.",
+              "rubric": [
+                "Explains that all three run on the same ASP.NET Core endpoint routing and middleware pipeline, so auth, CORS, rate limiting and caching are not a differentiator.",
+                "Contrasts the extension points: MVC filters and `ModelState`/`[ApiController]` automatic 400 for controllers, `IEndpointFilter` and route groups for minimal APIs, pre/post-processors and built-in FluentValidation `Validator<T>` for FastEndpoints (and .NET 10 `AddValidation()` for minimal APIs).",
+                "Discusses cohesion: fat controllers with constructor injection for all actions vs per-handler injection vs one class per use case (REPR), and how that maps to vertical slices.",
+                "Mentions performance and deployment correctly: minimal APIs/FastEndpoints do less per-request work than MVC, only minimal APIs support Native AOT, and the gap rarely matters for I/O-bound APIs.",
+                "Weighs non-technical costs and gives a conditional recommendation: third-party dependency and upgrade cadence for FastEndpoints, team familiarity, existing MVC investment (formatters, model binders, filters) favouring controllers."
+              ],
+              "explanation": "Model answer: all three are endpoint-routing citizens, so middleware-level concerns (authentication, authorization, CORS, rate limiting, output caching, health checks) work identically. Controllers bring the most built-in convention: `[ApiController]` inference and automatic `ValidationProblemDetails`, a rich filter pipeline, formatters and content negotiation, and established versioning libraries — at the cost of more per-request machinery, no Native AOT, and controllers that accumulate dependencies. Minimal APIs are explicit and lightweight: per-handler parameter injection, `MapGroup` for shared conventions, `IEndpointFilter` for cross-cutting logic on bound arguments, `TypedResults` for OpenAPI and unit tests, Native AOT via the Request Delegate Generator, and since .NET 10 DataAnnotations validation via `AddValidation()`; you assemble structure yourself, and without discipline `Program.cs` becomes a dumping ground. FastEndpoints formalises REPR — one class per endpoint, one request DTO bound from all sources, singleton FluentValidation validators, processors — which suits vertical slices and large teams, but adds a third-party dependency with breaking major versions and a learning curve. A reasonable choice for a new service is minimal APIs organised as one static class (or file) per feature, or FastEndpoints if the team already knows it; choose controllers when migrating an MVC codebase or needing MVC-only features. Performance differences matter only for very high-throughput, non-I/O-bound endpoints."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "model-binding-validation",
+      "title": "Model Binding and Validation",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Model Binding and Validation",
+          "note": "## What it is\n\n**Model binding** turns an HTTP request (route values, query string, headers, body, form, plus services and special types) into typed handler parameters. **Validation** decides whether those values are acceptable *as input* and, if not, produces a client error — in ASP.NET Core, conventionally an RFC 9457 `ProblemDetails` (`application/problem+json`; RFC 9457 obsoletes RFC 7807) with an `errors` dictionary.\n\n## How binding works underneath\n\n**Sources.** `[FromRoute]`, `[FromQuery]`, `[FromHeader]`, `[FromBody]`, `[FromForm]`, `[FromServices]`, `[FromKeyedServices]` (.NET 8), plus special types bound without attributes: `HttpContext`, `HttpRequest`, `CancellationToken` (bound to `RequestAborted`), `ClaimsPrincipal`, `IFormFile`, `Stream`/`PipeReader`. Only one parameter can come from the body.\n\n**Inference.**\n- *Minimal APIs* (`RequestDelegateFactory`): a parameter whose name matches a route parameter binds from the route; other simple types (anything with a static `TryParse` or `BindAsync`) bind from the query; types registered in DI bind from services; a complex type binds from the JSON body. `[AsParameters]` (.NET 7) flattens a parameter object into its own sources.\n- *Controllers with `[ApiController]`*: complex types infer `[FromBody]`, `IFormFile` infers `[FromForm]`, names matching the route template infer `[FromRoute]`, everything else `[FromQuery]`.\n\n**Failure behaviour differs.** In MVC a conversion failure (\"abc\" for an `int`) becomes a `ModelState` error and, with `[ApiController]`, the automatic 400. In minimal APIs a binding failure (unparseable query value, missing required parameter, malformed JSON) short-circuits with **400 before the handler runs**; `RouteHandlerOptions.ThrowOnBadRequest` defaults to `true` only in Development, where a `BadHttpRequestException` is thrown so the developer exception page shows it. In Production you get a bare 400 and a Debug-level log unless status-code pages or the ProblemDetails service write a body.\n\n## How validation works\n\n- **MVC.** After binding, `ObjectModelValidator` runs DataAnnotations (and `IValidatableObject`) and fills `ModelState`. `[ApiController]` registers `ModelStateInvalidFilter`, which short-circuits with 400 `ValidationProblemDetails` before the action runs (`ApiBehaviorOptions.SuppressModelStateInvalidFilter` disables it; `InvalidModelStateResponseFactory` reshapes it). With nullable reference types enabled, non-nullable reference properties are implicitly required.\n- **Minimal APIs.** Before .NET 10, DataAnnotations on parameters were simply ignored. .NET 10 adds `builder.Services.AddValidation()`: a source generator discovers validatable parameter types and an endpoint filter returns 400 with `HttpValidationProblemDetails` (opt out per endpoint with `DisableValidation()`).\n- **Value types and `[Required]`.** `[Required] int Quantity` never fails — a missing JSON property deserializes to `0`, which is not null. Use `int?` with `[Required]`, a `[Range]`, or the C# 11 `required` modifier, which `System.Text.Json` (.NET 7+) enforces by failing deserialization.\n\n## Where FluentValidation belongs\n\nFluentValidation's own docs no longer recommend the `FluentValidation.AspNetCore` *auto-validation* integration for new projects: it plugs into MVC's **synchronous** validation pipeline, so async rules (`MustAsync`, `CustomAsync`) cannot run there (they throw `AsyncValidatorInvokedSynchronouslyException`), and it does nothing for minimal APIs. Preferred placements:\n\n1. **Explicit call in the handler** (`await validator.ValidateAsync(req, ct)`) — most transparent.\n2. **A reusable endpoint filter** for minimal APIs — validates bound arguments, returns `TypedResults.ValidationProblem(...)`.\n3. **The framework's integration** where it is first-class — FastEndpoints runs `Validator<TRequest>` before `HandleAsync` (validators are singletons).\n4. **A MediatR-style pipeline behaviour** if the application layer already uses one — but then the HTTP layer must translate the resulting exception or result into 400.\n\nKeep the layering honest: request validation checks *shape* (required, ranges, formats, cross-field rules). Business invariants (\"an order cannot be shipped twice\") belong in the domain and map to 409/422. Uniqueness checks against the database race with concurrent requests; the unique constraint is the real guard.\n\n```csharp\npublic sealed class ValidationFilter<T>(IValidator<T> validator) : IEndpointFilter\n{\n    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)\n    {\n        var arg = ctx.Arguments.OfType<T>().FirstOrDefault();\n        if (arg is null) return await next(ctx);   // nothing of type T bound on this endpoint\n\n        var result = await validator.ValidateAsync(arg, ctx.HttpContext.RequestAborted);\n        return result.IsValid\n            ? await next(ctx)\n            : TypedResults.ValidationProblem(result.ToDictionary()); // 400, errors keyed by property\n    }\n}\n\napp.MapPost(\"/orders\", (CreateOrder cmd, IOrderService svc, CancellationToken ct) => svc.CreateAsync(cmd, ct))\n   .AddEndpointFilter<ValidationFilter<CreateOrder>>();\n```\n\n## What an interviewer probes\n\n- What `[ApiController]` changes, and how the automatic 400 differs from checking `ModelState.IsValid` yourself.\n- Why `[Required]` on an `int` is a no-op; how missing vs `null` vs default differ in JSON.\n- Where FluentValidation runs in each programming model, and why not auto-validation.\n- What shape errors take (`ValidationProblemDetails.errors`) and how 400 vs 422 is decided (shape vs semantic).\n\n## Common misconceptions\n\n- \"Validation happens in the model binder\" — binding converts types; validation is a separate step after it.\n- \"Minimal APIs validate DataAnnotations\" — only with `AddValidation()` on .NET 10.\n- \"Without `[ApiController]` an invalid model returns 400\" — without it, the action runs and you must check `ModelState`.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "model-binding",
+            "validation",
+            "problem-details"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A controller decorated with `[ApiController]` has `[HttpPost] public IActionResult Create(CreateOrder cmd)`, and `CreateOrder.Email` carries `[EmailAddress]`. A client posts `{\"email\":\"not-an-email\"}`. What happens?",
+              "options": [
+                {
+                  "text": "The action runs with `ModelState.IsValid == false`, and returns 200 unless the action checks `ModelState` and returns `BadRequest(ModelState)` itself.",
+                  "correct": false
+                },
+                {
+                  "text": "The framework throws a `ValidationException` that the global exception handler converts into a 400 response.",
+                  "correct": false
+                },
+                {
+                  "text": "The action never runs: `ModelStateInvalidFilter` short-circuits with 400 and a `ValidationProblemDetails` body whose `errors` dictionary contains the `Email` failure.",
+                  "correct": true
+                },
+                {
+                  "text": "The action never runs and the response is 422 Unprocessable Entity, because the JSON was syntactically valid but semantically invalid.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`[ApiController]` registers `ModelStateInvalidFilter`, an action filter that inspects `ModelState` after binding and validation and, if invalid, short-circuits with `BadRequestObjectResult` wrapping `ValidationProblemDetails` (`type`, `title`, `status: 400`, `traceId`, `errors: { \"Email\": [...] }`). The 'action runs' option describes controllers *without* `[ApiController]` (or with `SuppressModelStateInvalidFilter = true`): then you must check `ModelState.IsValid` yourself. The 'throws `ValidationException`' option is wrong: DataAnnotations validation records errors in `ModelState`; it does not throw (that is closer to how some FluentValidation/MediatR setups behave). The '422' option confuses a common API-design convention with the framework default: the automatic response is 400; you can reshape it via `InvalidModelStateResponseFactory` if your API uses 422."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "validation",
+            "model-binding",
+            "system-text-json"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Given this request DTO, a client posts `{\"sku\":\"A-1\"}` (no `quantity`) to a controller with `[ApiController]`. What happens?\n\n```csharp\npublic sealed class AddLine\n{\n    [Required] public string Sku { get; set; } = \"\";\n    [Required] public int Quantity { get; set; }\n}\n```",
+              "options": [
+                {
+                  "text": "400: `[Required]` detects that the `quantity` property was absent from the JSON payload.",
+                  "correct": false
+                },
+                {
+                  "text": "The action runs with `Quantity == 0`: the missing property deserializes to the default `0`, and `[Required]` only fails for `null`, which an `int` can never be.",
+                  "correct": true
+                },
+                {
+                  "text": "400 from `System.Text.Json`, because it rejects any payload that omits a non-nullable value-type property.",
+                  "correct": false
+                },
+                {
+                  "text": "The action runs with `Quantity == 0` only because `Sku` is valid; `[Required]` is evaluated lazily and stops after the first property that passes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`RequiredAttribute` checks for `null` (and, for strings, empty/whitespace). A non-nullable `int` is never null: when `quantity` is missing, `System.Text.Json` leaves the property at its default `0`, and validation passes. Fixes: make it `int?` with `[Required]` (missing becomes `null` and fails), add a semantic rule such as `[Range(1, 1000)]`, or use the C# 11 `required` modifier, which `System.Text.Json` (.NET 7+) enforces by failing deserialization when the property is absent (MVC then reports a 400). The '`[Required]` detects absence' option is the core misconception: DataAnnotations validate the bound object, not the raw JSON, so 'absent' and 'default' are indistinguishable. The 'System.Text.Json rejects' option is wrong: by default missing properties are allowed; only `required` members or `[JsonRequired]` change that. The 'lazy evaluation' option is invented: all properties are validated and all errors are collected."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "minimal-apis",
+            "model-binding",
+            "bad-request"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In Production, a client calls `GET /items?page=abc` on this minimal API endpoint. The app calls `app.UseExceptionHandler()` but does not use status-code pages. What does the client get?\n\n```csharp\napp.MapGet(\"/items\", (int page, IItemService items) => items.GetPage(page));\n```",
+              "options": [
+                {
+                  "text": "The handler runs with `page = 0`, because unparseable query values fall back to the parameter's default value.",
+                  "correct": false
+                },
+                {
+                  "text": "A 500 response produced by the exception handler, because `int.Parse` throws a `FormatException` inside the generated request delegate.",
+                  "correct": false
+                },
+                {
+                  "text": "404 Not Found, because the route does not match when a query parameter has the wrong type.",
+                  "correct": false
+                },
+                {
+                  "text": "400 Bad Request without a body: the generated delegate fails to bind `page`, logs at Debug and short-circuits; `ThrowOnBadRequest` is `false` outside Development, so no exception reaches the exception handler.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`RequestDelegateFactory` binds `int page` with `int.TryParse`; on failure it sets 400, logs at Debug and does not invoke the handler. `RouteHandlerOptions.ThrowOnBadRequest` defaults to `IsDevelopment()`, so in Development a `BadHttpRequestException` is thrown (and the developer exception page shows the details), while in Production the client gets a bare 400. Adding `AddProblemDetails()` together with `UseStatusCodePages()` turns that bare status into a `ProblemDetails` body. The 'falls back to default' option is wrong: a *missing* optional parameter (`int? page` or `int page = 1`) uses its default, but a present, unparseable value is a binding failure. The '500 FormatException' option is wrong: the generated code uses `TryParse`, not `Parse`. The '404' option confuses query binding with route constraints: query values never participate in route matching (a route constraint such as `{id:int}` mismatch is what yields 404)."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "fluentvalidation",
+            "validation",
+            "aspnet-core",
+            "async"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Why does FluentValidation's own documentation discourage using the `FluentValidation.AspNetCore` automatic validation integration in new projects?",
+              "options": [
+                {
+                  "text": "Because it validates on a background thread after the action has already run, so invalid commands can reach the database.",
+                  "correct": false
+                },
+                {
+                  "text": "Because it plugs into MVC's synchronous validation pipeline, so asynchronous rules such as `MustAsync` cannot run there, and it does not cover minimal APIs.",
+                  "correct": true
+                },
+                {
+                  "text": "Because FluentValidation validators cannot be resolved from DI unless they are invoked manually.",
+                  "correct": false
+                },
+                {
+                  "text": "Because it disables DataAnnotations completely, which breaks `[ApiController]`'s automatic 400 response.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Auto-validation hooks FluentValidation into MVC's `IObjectModelValidator` pipeline, which is synchronous; validators with async rules throw `AsyncValidatorInvokedSynchronouslyException` there, and the integration only exists for MVC, not minimal APIs. The maintainers therefore recommend manual validation (inject `IValidator<T>`, call `ValidateAsync`) or a filter/framework integration you control, such as an endpoint filter or FastEndpoints' built-in validation. The 'after the action' option is wrong: when used, auto-validation runs during model validation, before `ModelStateInvalidFilter` and the action. The 'cannot be resolved from DI' option is wrong: `AddValidatorsFromAssemblyContaining<T>()` registers validators in DI regardless of auto-validation. The 'disables DataAnnotations' option is wrong: by default both run side by side (there is an option to disable DataAnnotations, but it is not the reason for the recommendation) and the automatic 400 continues to work."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.mcq.5",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "minimal-apis",
+            "validation",
+            "dotnet-10",
+            "problem-details"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "On .NET 10, a minimal API endpoint takes a `CreateUser` record whose properties carry `[Required]` and `[StringLength(50)]`. Which statement is true?",
+              "options": [
+                {
+                  "text": "The attributes are enforced automatically for every minimal API endpoint since .NET 8; no registration is needed.",
+                  "correct": false
+                },
+                {
+                  "text": "The attributes are enforced only after calling `builder.Services.AddValidation()`; invalid input then yields a 400 with an `HttpValidationProblemDetails` body before the handler runs.",
+                  "correct": true
+                },
+                {
+                  "text": "The attributes are enforced only if the endpoint is converted to a controller action, because minimal APIs cannot evaluate DataAnnotations at all.",
+                  "correct": false
+                },
+                {
+                  "text": "Calling `AddValidation()` makes failed validation throw `ValidationException`, which the app must translate into 400 in an `IExceptionHandler`.",
+                  "correct": false
+                }
+              ],
+              "explanation": ".NET 10 introduced built-in validation for minimal APIs: `AddValidation()` registers the services, a source generator discovers the parameter types to validate, and an endpoint filter returns 400 `HttpValidationProblemDetails` with an `errors` dictionary before the handler is invoked (an endpoint can opt out with `DisableValidation()`). The 'automatic since .NET 8' option is wrong: before .NET 10 the attributes were ignored by minimal APIs, which is why teams wrote endpoint filters or used libraries. The 'must convert to a controller' option was the old workaround, not a limitation of .NET 10. The 'throws `ValidationException`' option is wrong: the built-in filter produces the 400 result directly; no exception is thrown."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.model-binding-validation.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "validation",
+            "fluentvalidation",
+            "problem-details",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Where would you put input validation in an ASP.NET Core API, and how would you make every endpoint return validation errors in the same format? Cover DataAnnotations vs FluentValidation, controllers vs minimal APIs, what belongs in request validation vs the domain, and which status codes you use.",
+              "rubric": [
+                "Separates request/shape validation at the HTTP edge (required, formats, ranges, cross-field rules) from business invariants enforced in the domain/application layer, and notes that uniqueness must ultimately be guarded by a database constraint.",
+                "Describes the built-in mechanisms: `[ApiController]`'s automatic 400 with `ValidationProblemDetails` for controllers, and for minimal APIs either .NET 10 `AddValidation()` or a custom endpoint filter.",
+                "Places FluentValidation correctly: explicit `ValidateAsync` in handlers or an endpoint filter (or framework integration such as FastEndpoints), and explains why MVC auto-validation is discouraged (synchronous pipeline, async rules, minimal APIs not covered).",
+                "Standardises the error contract on RFC 9457/7807 `ProblemDetails` with an `errors` dictionary keyed by property, produced via `AddProblemDetails()`/`IProblemDetailsService` or `TypedResults.ValidationProblem`, including a trace/correlation id.",
+                "Justifies status codes: 400 for malformed or invalid input, 422 (or 409) for well-formed requests that violate business rules or state, and is consistent across endpoints."
+              ],
+              "explanation": "Model answer: validate the *shape* of a request at the HTTP boundary and the *invariants* inside the domain. Shape validation: required fields, lengths, formats, ranges and cross-field consistency — DataAnnotations for simple cases, FluentValidation when rules are conditional, async or shared. For controllers, `[ApiController]` already short-circuits with 400 `ValidationProblemDetails`; for minimal APIs on .NET 10, `AddValidation()` does the same for DataAnnotations, otherwise an endpoint filter resolves `IValidator<T>`, calls `ValidateAsync` and returns `TypedResults.ValidationProblem(result.ToDictionary())`. Avoid FluentValidation's MVC auto-validation: it runs synchronously (async rules throw) and does not cover minimal APIs. FastEndpoints runs its singleton `Validator<T>` automatically. Business rules — \"cannot cancel a shipped order\" — live in the domain and surface as domain errors mapped centrally to 409/422; uniqueness checks in validators are only UX hints, the unique index is the guard. One contract everywhere: `AddProblemDetails()` with `CustomizeProblemDetails` adding `traceId`, `application/problem+json`, `errors` keyed by property path. 400 for malformed/invalid input, 422/409 for semantically invalid requests, documented in OpenAPI."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "exception-handling",
+      "title": "Global Exception Handling and ProblemDetails",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Global Exception Handling and ProblemDetails",
+          "note": "## What it is\n\nGlobal exception handling is the single place where an unhandled exception becomes an HTTP response. It is a contract in two directions: towards **clients** (a stable `ProblemDetails` shape, the right status code, no leaked internals) and towards **operations** (one log entry with the exception, a `traceId` that links the response to traces and logs). In ASP.NET Core 8+ the building blocks are `UseExceptionHandler`, `IExceptionHandler` and `IProblemDetailsService`.\n\n## How it works underneath\n\n`ExceptionHandlerMiddleware` wraps the rest of the pipeline in `try { await next(context); } catch`. On an exception:\n\n1. If `Response.HasStarted` is true, it **cannot** help: it logs and rethrows, and the server aborts the connection (the client sees a truncated body or a reset stream).\n2. Otherwise it clears the response (headers, body, selected endpoint, route values), sets the status to 500 — or to whatever `ExceptionHandlerOptions.StatusCodeSelector` returns (.NET 9+) — and exposes the error through `IExceptionHandlerFeature`/`IExceptionHandlerPathFeature`.\n3. It calls every registered `IExceptionHandler` **in registration order** until one returns `true`. Handlers are registered with `AddExceptionHandler<T>()` as **singletons**: inject only singleton-safe services, and get request-scoped ones from `httpContext.RequestServices` if needed.\n4. If none handled it, it falls back to `ExceptionHandlerOptions.ExceptionHandler` (a delegate), or re-executes the pipeline with `ExceptionHandlingPath` (`UseExceptionHandler(\"/error\")`), or asks `IProblemDetailsService` to write a default 500 `ProblemDetails`. A re-execution that ends in 404 makes the middleware rethrow the original exception unless `AllowStatusCode404Response` is set (.NET 7+).\n\n`app.UseExceptionHandler()` with no path or delegate requires `AddProblemDetails()` (or configured options); otherwise startup fails with an `InvalidOperationException` explaining exactly that. `AddProblemDetails()` registers `IProblemDetailsService`, which `UseExceptionHandler`, `UseStatusCodePages` and the developer exception page all use, and `CustomizeProblemDetails` is the hook for adding a `traceId` or other extensions to every problem response. `TryWriteAsync` returns `false` when the client's `Accept` header rules out JSON; the status code still goes out.\n\nTwo version-specific behaviours worth naming:\n\n- **.NET 10**: when an `IExceptionHandler` returns `true`, the middleware no longer emits its own diagnostics (the error log entry and the exception metrics) for that exception. If your handler does not log, upgrading silently drops your 500 logs; `ExceptionHandlerOptions.SuppressDiagnosticsCallback` lets you opt back in.\n- A request aborted by the client surfaces as an `OperationCanceledException`/`IOException` while `RequestAborted` is signalled; the middleware treats that as a client disconnect (Debug log, status 499) rather than a server error.\n\n## Mapping domain errors\n\nDecide which failures are **expected** (not found, conflict, rule violated, validation) and which are **bugs** (null reference, timeout, SQL error). Expected failures map to 4xx with a useful `detail`; bugs map to 500 with a generic message, the details only in logs (and in the response only in Development). Two strategies:\n\n- **Domain exceptions + one mapping handler**: simple, keeps handlers clean, but exceptions are control flow — each throw captures a stack trace. .NET 9 made throw/catch roughly 2-4x faster, yet it remains far more expensive than returning a value, and the signature does not show what can fail.\n- **Result types** (`Result<T, Error>`, `OneOf`): failures are explicit in the signature and cheap; the endpoint translates `Error` to `ProblemDetails`. The global handler then exists only for genuine bugs.\n\nMany codebases combine them: results inside the application layer, a global `IExceptionHandler` as the safety net.\n\n```csharp\nbuilder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>\n    ctx.ProblemDetails.Extensions.TryAdd(\"traceId\", Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier));\nbuilder.Services.AddExceptionHandler<DomainExceptionHandler>();   // runs first\nbuilder.Services.AddExceptionHandler<FallbackExceptionHandler>(); // safety net, logs and returns 500\n\napp.UseExceptionHandler();   // first in the pipeline\n\nsealed class DomainExceptionHandler(IProblemDetailsService problems) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext http, Exception ex, CancellationToken ct)\n    {\n        int? status = ex switch\n        {\n            NotFoundException => StatusCodes.Status404NotFound,\n            ConflictException => StatusCodes.Status409Conflict,\n            BusinessRuleException => StatusCodes.Status422UnprocessableEntity,\n            _ => null\n        };\n        if (status is null) return false;              // not ours: next handler\n\n        http.Response.StatusCode = status.Value;\n        await problems.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = http,\n            Exception = ex,\n            ProblemDetails = new ProblemDetails { Status = status, Detail = ex.Message }\n        });\n        return true;\n    }\n}\n```\n\n## What an interviewer probes\n\n- Where `UseExceptionHandler` goes and what it cannot catch (anything registered before it; anything after the response started).\n- Order, lifetime and fall-through of multiple `IExceptionHandler`s.\n- What you return in Production vs Development, and how a support engineer finds the log entry for a given 500 (`traceId`).\n- Exceptions vs result types for expected failures — with the cost argument stated accurately.\n\n## Common misconceptions\n\n- \"A `try/catch` in every controller is global handling\" — it duplicates mapping and misses exceptions from middleware, filters and serialization.\n- \"MVC exception filters are enough\" — they only see exceptions from MVC actions; not from middleware, minimal APIs, or result execution.\n- \"Returning `exception.Message` is fine\" — infrastructure messages leak SQL, hostnames and internals.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.exception-handling.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "iexceptionhandler",
+            "problem-details",
+            "di"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An API registers two handlers and calls `app.UseExceptionHandler()` first in the pipeline:\n\n```csharp\nbuilder.Services.AddProblemDetails();\nbuilder.Services.AddExceptionHandler<DomainExceptionHandler>();   // returns false for non-domain exceptions\nbuilder.Services.AddExceptionHandler<FallbackExceptionHandler>();\n```\n\nWhich statement describes how the handlers are used?",
+              "options": [
+                {
+                  "text": "Both handlers are invoked for every exception, in reverse registration order (like middleware unwinding), and the last one to write the response wins.",
+                  "correct": false
+                },
+                {
+                  "text": "They are invoked in registration order until one returns `true`; they are singletons; if none returns `true`, the middleware falls back to its configured path/delegate or to a default 500 `ProblemDetails`.",
+                  "correct": true
+                },
+                {
+                  "text": "They are resolved per request from the request scope, so `FallbackExceptionHandler` can safely take a scoped `DbContext` in its constructor to record the failure.",
+                  "correct": false
+                },
+                {
+                  "text": "Only the most recently registered handler is used, because `AddExceptionHandler<T>` replaces the previous `IExceptionHandler` registration.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`AddExceptionHandler<T>()` adds `IExceptionHandler` as a singleton (multiple registrations are allowed, not replaced); the middleware enumerates them in registration order and stops at the first `TryHandleAsync` that returns `true`. If none does, it uses `ExceptionHandlerOptions.ExceptionHandler`/`ExceptionHandlingPath` if configured, otherwise the `IProblemDetailsService` default 500 response. Hence specific handlers are registered first and a catch-all last. The 'reverse order, all invoked' option mixes up middleware unwinding with handler dispatch; dispatch is short-circuiting. The 'resolved per request' option is the dangerous misconception: handlers are singletons, so a constructor-injected scoped `DbContext` would be a captive dependency (and scope validation rejects it in Development); resolve scoped services from `httpContext.RequestServices` instead. The 'replaces the previous registration' option is wrong: each call adds another `IExceptionHandler` registration and the middleware resolves all of them as `IEnumerable<IExceptionHandler>`, which is the whole point of a handler chain."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.exception-handling.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "middleware",
+            "pipeline"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A tenant-resolution middleware throws `TenantNotFoundException` for unknown hosts. The team registered an `IExceptionHandler` that maps it to 404, but clients get an empty 500. Why?\n\n```csharp\nvar app = builder.Build();\napp.UseMiddleware<TenantResolutionMiddleware>();\napp.UseExceptionHandler();\napp.MapControllers();\n```",
+              "options": [
+                {
+                  "text": "`IExceptionHandler` implementations are only invoked for exceptions thrown inside endpoints, never for exceptions thrown by middleware.",
+                  "correct": false
+                },
+                {
+                  "text": "The handler must return `false` after writing the 404 so that the middleware commits the response.",
+                  "correct": false
+                },
+                {
+                  "text": "`TenantResolutionMiddleware` runs before `UseExceptionHandler`, so the exception propagates outside the exception handler's `try/catch` and the server returns a bare 500.",
+                  "correct": true
+                },
+                {
+                  "text": "Exceptions thrown from convention-based middleware are wrapped in `TargetInvocationException`, so the handler's type check never matches.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The exception handler is a `try/catch` around everything registered after it. `TenantResolutionMiddleware` is registered earlier, so its exception propagates past the handler entirely and reaches the server (Kestrel), which logs it and sends an empty 500 if the response has not started. Moving `UseExceptionHandler()` to the top fixes it. The 'only endpoints' option is wrong: any exception from middleware registered *after* `UseExceptionHandler` is handled, regardless of where it originates. The 'return `false`' option inverts the contract: `true` means handled; `false` passes to the next handler/fallback. The `TargetInvocationException` option is invented: the original exception propagates unchanged from convention-based middleware, so a type check on `TenantNotFoundException` would match if the handler ever saw it."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.exception-handling.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "streaming",
+            "response-started"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An endpoint streams a large CSV with `await foreach` and writes rows directly to `Response.Body`. Halfway through, the database throws. `UseExceptionHandler()` is first in the pipeline. What does the client observe?",
+              "options": [
+                {
+                  "text": "A truncated response: the status line and headers (200) were already sent, so the exception handler logs that the response has started, rethrows, and the server aborts the connection or stream.",
+                  "correct": true
+                },
+                {
+                  "text": "A clean 500 `ProblemDetails` response, because the exception handler clears the partially written body and resets the status code before writing.",
+                  "correct": false
+                },
+                {
+                  "text": "The CSV rows written so far followed by a `ProblemDetails` JSON object appended to the same body, with the original 200 status.",
+                  "correct": false
+                },
+                {
+                  "text": "A clean 500, because Kestrel buffers the whole response body until the endpoint returns, so nothing has been sent yet.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Once the first body bytes are written and flushed, `Response.HasStarted` is true and the 200 status line and headers are on the wire; nothing can change them. The exception handler middleware checks `HasStarted`, logs that the response has already started and rethrows; Kestrel then aborts the connection (HTTP/1.1, so a client relying on `Content-Length` or chunked framing detects an incomplete body) or resets the stream (HTTP/2). Design implications: validate and open the data source before writing, or use a format that lets the client detect incompleteness. The 'clears the body' option describes what the middleware does only when the response has *not* started — `Clear()` throws once it has. The 'appends `ProblemDetails`' option is wrong: the handler never writes into a started response, because it would corrupt the payload. The 'Kestrel buffers everything' option is a misconception: Kestrel buffers only a small amount and sends as you write and flush; streaming responses are not buffered in full."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.exception-handling.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "dotnet-10",
+            "logging",
+            "iexceptionhandler"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After upgrading an API from .NET 8 to .NET 10, 500 errors no longer appear in the logs. The `FallbackExceptionHandler : IExceptionHandler` writes a `ProblemDetails` response and returns `true`, but never logs. What changed, and what is the fix?",
+              "options": [
+                {
+                  "text": "Nothing in the middleware changed; .NET 10 lowered the default log level of `Microsoft.AspNetCore` to `Warning`, so raise it to `Information`.",
+                  "correct": false
+                },
+                {
+                  "text": "In .NET 10, `IExceptionHandler` implementations run after the response is sent, so any logging must move into a middleware.",
+                  "correct": false
+                },
+                {
+                  "text": "In .NET 10, `UseExceptionHandler()` without arguments is a no-op unless `AddExceptionHandler` is called with `LogLevel.Error`.",
+                  "correct": false
+                },
+                {
+                  "text": "In .NET 10 the exception handler middleware suppresses its own diagnostics (log entry and metrics) when an `IExceptionHandler` reports the exception as handled; log in the handler, or set `ExceptionHandlerOptions.SuppressDiagnosticsCallback` to return `false`.",
+                  "correct": true
+                }
+              ],
+              "explanation": ".NET 10 changed `ExceptionHandlerMiddleware`: if a DI-registered `IExceptionHandler` returns `true`, the middleware treats the exception as handled and, by default, does not record its own diagnostics for it. Code that relied on the middleware's 'An unhandled exception has occurred' error log loses it. Either log explicitly inside the handler (the clearer contract: the handler that decides 'this is a 500' also records it), or configure `SuppressDiagnosticsCallback` to return `false` to restore the previous behaviour. The 'log level' option is invented; nothing in the default logging configuration changed. The 'runs after the response is sent' option is wrong: handlers run before the response is written — they are the ones writing it. The 'no-op unless' option is wrong: `AddExceptionHandler<T>()` has no log-level parameter, and `UseExceptionHandler()` behaves as before."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.exception-handling.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "result-pattern",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service throws `OrderNotFoundException` for every missing order, and a global `IExceptionHandler` maps it to 404. Under a scraping bot, 40% of requests are misses. Which assessment is most accurate?",
+              "options": [
+                {
+                  "text": "It is free since .NET 9: the runtime's new exception-handling implementation made throw/catch zero-cost, so exceptions and return values perform the same.",
+                  "correct": false
+                },
+                {
+                  "text": "Each throw still captures a stack trace and unwinds frames, so expected, high-frequency outcomes are better modelled as results (for example `Order?` or `Result<Order, Error>`) translated to 404 at the endpoint; .NET 9 made exceptions faster, not cheap.",
+                  "correct": true
+                },
+                {
+                  "text": "The approach is required: `IExceptionHandler` is the only supported way to produce `ProblemDetails`, so endpoints cannot return 404 problem responses themselves.",
+                  "correct": false
+                },
+                {
+                  "text": "The cost is irrelevant because exceptions are only expensive in Debug builds; Release builds compile `throw` into a jump.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Throwing allocates the exception, captures the stack trace and walks frames to find a handler; .NET 9 replaced CoreCLR's exception-handling implementation with the managed one from NativeAOT, measured at roughly 2-4x faster, but it is still orders of magnitude slower than returning a value. Using exceptions for an expected 40% case also hides failure modes from method signatures. The usual answer: return a result (`null`, `Result<T, Error>`, `OneOf`) for expected outcomes, map it to `TypedResults.Problem`/`NotFound` at the endpoint, and keep the global handler as a safety net for bugs. The 'zero-cost since .NET 9' option overstates the improvement. The 'only supported way' option is wrong: endpoints can return `TypedResults.Problem(...)`, `Results.NotFound()` or `ValidationProblem` directly. The 'only in Debug' option is wrong: stack-trace capture and unwinding happen in Release too; the JIT does not turn `throw` into a jump."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.exception-handling.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "exception-handling",
+            "problem-details",
+            "iexceptionhandler",
+            "observability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "How would you implement global error handling for a .NET 10 Web API so that domain errors (not found, conflict, business-rule violation, validation) and unexpected failures are returned consistently? Describe the pipeline position, the components you use, how domain errors are mapped, what differs between Development and Production, and how a support engineer correlates a client's error response with the server logs.",
+              "rubric": [
+                "Uses `UseExceptionHandler()` placed first in the pipeline with `AddProblemDetails()` and one or more `IExceptionHandler` implementations, explaining registration-order dispatch, `true`/`false` semantics and singleton lifetime.",
+                "Maps expected domain errors to specific status codes (404, 409, 422, 400 with an `errors` dictionary) and unknown exceptions to 500 with a generic message, using `ProblemDetails` (`application/problem+json`).",
+                "Avoids leaking internals in Production (no stack traces, SQL or exception messages from infrastructure), while allowing details in Development.",
+                "Adds a correlation handle (`traceId` from `Activity.Current?.Id` or `TraceIdentifier`, via `CustomizeProblemDetails`) and logs unexpected exceptions once at Error level with that id — noting that .NET 10 suppresses the middleware's own diagnostics when a handler returns `true`.",
+                "Mentions the limits or alternatives: no recovery once the response has started (streaming), and result types instead of exceptions for high-frequency expected failures."
+              ],
+              "explanation": "Model answer: `builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx => ctx.ProblemDetails.Extensions.TryAdd(\"traceId\", Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier))`, then `AddExceptionHandler<DomainExceptionHandler>()` and `AddExceptionHandler<FallbackExceptionHandler>()` — invoked in registration order until one returns `true`, both singletons. `app.UseExceptionHandler()` is the first middleware so it wraps everything. The domain handler maps `NotFoundException`→404, `ConflictException`→409, `BusinessRuleException`→422 with an error `code` extension, `DomainValidationException`→400 `HttpValidationProblemDetails`; it logs at Information/Warning because these are expected. The fallback logs at Error (on .NET 10 the middleware no longer logs exceptions a handler reports as handled) and returns 500 with a generic title; exception details only when `IHostEnvironment.IsDevelopment()`. `UseStatusCodePages()` gives bare 404/405 responses the same shape. Support correlates via the `traceId` shown to the client, which matches the W3C trace id in logs and traces. Caveats: once a streaming response has started, nothing can be rewritten — the connection is aborted; for frequent expected failures, prefer results over exceptions and keep the handler as a safety net."
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "aspnet-data.pipeline.exception-handling.kata.1",
+          "title": "Map domain exceptions to ProblemDetails with IExceptionHandler",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 40,
+          "translations": {
+            "en": {
+              "task": "Implement global error handling for an ASP.NET Core minimal API (.NET 8 or later; target .NET 10) in a single `Program.cs` using only the shared framework (no third-party packages).\n\n**Domain exceptions** (define them):\n- `DomainException` — abstract base, takes a message.\n- `NotFoundException(string resource, object key)` — message `\"{resource} '{key}' was not found.\"`.\n- `ConflictException(string message)`.\n- `BusinessRuleException(string code, string message)` — exposes `Code`.\n- `DomainValidationException(IReadOnlyDictionary<string, string[]> errors)` — exposes `Errors`.\n\n**Handlers** (implement `IExceptionHandler`):\n- `DomainExceptionHandler` handles only `DomainException` and returns `false` for anything else. Mapping:\n  - `NotFoundException` -> 404, `ConflictException` -> 409, `BusinessRuleException` -> 422 with a `code` extension member, `DomainValidationException` -> 400 with an `errors` object keyed by field (validation problem shape), any other `DomainException` -> 422.\n  - `detail` is the exception message. Log at `Information` (these are expected outcomes, not errors).\n- `FallbackExceptionHandler` handles everything else: 500, title `\"An unexpected error occurred.\"`, logs the exception at `Error` with method and path. `detail` contains `exception.ToString()` **only** in Development and is absent otherwise.\n\n**Response contract** for every error, including bare status codes such as an unmatched route:\n- Content type `application/problem+json`, `status` equal to the HTTP status code.\n- `instance` = `\"{METHOD} {path}\"` of the failed request.\n- A `traceId` extension equal to `Activity.Current?.Id ?? HttpContext.TraceIdentifier`.\n- Written through `IProblemDetailsService` so that customisation lives in one place.\n\n**Pipeline**: the exception handler must cover every middleware and endpoint. Handlers must be safe as singletons.\n\n**Demo endpoints** (so the behaviour can be exercised with curl/`.http`):\n- `GET /orders/{id:int}` -> 200 for `id == 1`, otherwise `NotFoundException(\"Order\", id)`.\n- `POST /orders/{id:int}/ship` -> `ConflictException`.\n- `POST /orders/{id:int}/discount` -> `BusinessRuleException(\"discount.limit\", ...)`.\n- `POST /customers` -> `DomainValidationException` with errors for `email` and `name`.\n- `GET /boom` -> `InvalidOperationException`.\n\n**Examples**\n- `GET /orders/7` -> `404 {\"type\":\"https://tools.ietf.org/html/rfc9110#section-15.5.5\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"Order '7' was not found.\",\"instance\":\"GET /orders/7\",\"traceId\":\"00-...\"}`\n- `POST /orders/1/discount` -> `422`, body contains `\"code\":\"discount.limit\"`\n- `POST /customers` -> `400`, body contains `\"errors\":{\"email\":[...],\"name\":[...]}`\n- `GET /boom` in Production -> `500`, no `detail`; one Error log entry with the exception\n- `GET /nope` -> `404` with the same `ProblemDetails` shape (no exception involved)",
+              "rubric": [
+                "`UseExceptionHandler()` is the first middleware, `AddProblemDetails()` is registered, and the handlers are registered with `AddExceptionHandler<T>()` in the right order (domain first, fallback last); `UseStatusCodePages()` gives bare status codes the same shape.",
+                "`DomainExceptionHandler` returns `false` for non-domain exceptions, maps each domain type to the specified status (404/409/422/400), sets `Response.StatusCode`, uses `HttpValidationProblemDetails` for validation errors and a `code` extension for business rules.",
+                "`FallbackExceptionHandler` logs once at Error and returns 500 with a generic title; exception details appear only when `IHostEnvironment.IsDevelopment()` is true.",
+                "`instance` and `traceId` are added centrally (for example `CustomizeProblemDetails`), all responses go through `IProblemDetailsService`, and handlers depend only on singleton-safe services.",
+                "The code compiles on .NET 8+, uses no third-party packages, and the demo endpoints produce the example responses."
+              ],
+              "referenceSolution": "using System.Diagnostics;\nusing Microsoft.AspNetCore.Diagnostics;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\n\n// One place for cross-cutting ProblemDetails fields: used by UseExceptionHandler,\n// UseStatusCodePages and every IProblemDetailsService.TryWriteAsync call below.\nbuilder.Services.AddProblemDetails(options =>\n{\n    options.CustomizeProblemDetails = ctx =>\n    {\n        var request = ctx.HttpContext.Request;\n        ctx.ProblemDetails.Instance = $\"{request.Method} {request.Path}\";\n        ctx.ProblemDetails.Extensions.TryAdd(\"traceId\", Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier);\n    };\n});\n\n// Invoked in registration order until one returns true: specific first, catch-all last.\nbuilder.Services.AddExceptionHandler<DomainExceptionHandler>();\nbuilder.Services.AddExceptionHandler<FallbackExceptionHandler>();\n\nvar app = builder.Build();\n\napp.UseExceptionHandler();   // first: it only sees exceptions thrown by what is registered after it\napp.UseStatusCodePages();    // bare 4xx/5xx (e.g. unmatched route) get the same ProblemDetails shape\n\napp.MapGet(\"/orders/{id:int}\", (int id) =>\n    id == 1 ? Results.Ok(new { id, status = \"open\" }) : throw new NotFoundException(\"Order\", id));\n\napp.MapPost(\"/orders/{id:int}/ship\", (int id) =>\n{\n    throw new ConflictException($\"Order {id} has already been shipped.\");\n});\n\napp.MapPost(\"/orders/{id:int}/discount\", (int id) =>\n{\n    throw new BusinessRuleException(\"discount.limit\", $\"Order {id} cannot be discounted by more than 30%.\");\n});\n\napp.MapPost(\"/customers\", () =>\n{\n    throw new DomainValidationException(new Dictionary<string, string[]>\n    {\n        [\"email\"] = [\"'email' must be a valid e-mail address.\"],\n        [\"name\"] = [\"'name' must not be empty.\"],\n    });\n});\n\napp.MapGet(\"/boom\", () =>\n{\n    throw new InvalidOperationException(\"Connection string 'Orders' points to db-prod-7.internal.\");\n});\n\napp.Run();\n\n// ---------------------------------------------------------------- domain exceptions\n\npublic abstract class DomainException(string message) : Exception(message);\n\npublic sealed class NotFoundException(string resource, object key)\n    : DomainException($\"{resource} '{key}' was not found.\")\n{\n    public string Resource { get; } = resource;\n    public object Key { get; } = key;\n}\n\npublic sealed class ConflictException(string message) : DomainException(message);\n\npublic sealed class BusinessRuleException(string code, string message) : DomainException(message)\n{\n    public string Code { get; } = code;\n}\n\npublic sealed class DomainValidationException(IReadOnlyDictionary<string, string[]> errors)\n    : DomainException(\"One or more validation errors occurred.\")\n{\n    public IReadOnlyDictionary<string, string[]> Errors { get; } = errors;\n}\n\n// ---------------------------------------------------------------- handlers (singletons)\n\npublic sealed class DomainExceptionHandler(\n    IProblemDetailsService problemDetails,\n    ILogger<DomainExceptionHandler> logger) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)\n    {\n        if (exception is not DomainException domain)\n            return false;   // not ours: let the next handler decide\n\n        ProblemDetails problem = domain switch\n        {\n            NotFoundException e => new ProblemDetails\n            {\n                Status = StatusCodes.Status404NotFound,\n                Detail = e.Message,\n            },\n            ConflictException e => new ProblemDetails\n            {\n                Status = StatusCodes.Status409Conflict,\n                Detail = e.Message,\n            },\n            BusinessRuleException e => new ProblemDetails\n            {\n                Status = StatusCodes.Status422UnprocessableEntity,\n                Title = \"Business rule violated\",\n                Detail = e.Message,\n                Extensions = { [\"code\"] = e.Code },\n            },\n            DomainValidationException e => new HttpValidationProblemDetails(new Dictionary<string, string[]>(e.Errors))\n            {\n                Status = StatusCodes.Status400BadRequest,\n                Detail = e.Message,\n            },\n            _ => new ProblemDetails\n            {\n                Status = StatusCodes.Status422UnprocessableEntity,\n                Detail = domain.Message,\n            },\n        };\n\n        logger.LogInformation(\"Domain error {ErrorType} for {Method} {Path}: {Message}\",\n            domain.GetType().Name, httpContext.Request.Method, httpContext.Request.Path, domain.Message);\n\n        // The default writer derives type/title from the response status, so set it first.\n        httpContext.Response.StatusCode = problem.Status!.Value;\n        await problemDetails.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = httpContext,\n            ProblemDetails = problem,\n            Exception = exception,\n        });\n        return true;   // handled even if Accept ruled out a JSON body: the status code still goes out\n    }\n}\n\npublic sealed class FallbackExceptionHandler(\n    IProblemDetailsService problemDetails,\n    IHostEnvironment environment,\n    ILogger<FallbackExceptionHandler> logger) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)\n    {\n        // .NET 10 suppresses the middleware's own diagnostics for exceptions a handler reports as\n        // handled, so the handler that turns this into a 500 is also the one that records it.\n        logger.LogError(exception, \"Unhandled exception for {Method} {Path}\",\n            httpContext.Request.Method, httpContext.Request.Path);\n\n        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;\n        await problemDetails.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = httpContext,\n            Exception = exception,\n            ProblemDetails = new ProblemDetails\n            {\n                Status = StatusCodes.Status500InternalServerError,\n                Title = \"An unexpected error occurred.\",\n                // Never leak internals (SQL, hosts, stack traces) outside Development.\n                Detail = environment.IsDevelopment() ? exception.ToString() : null,\n            },\n        });\n        return true;\n    }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "custom-middleware",
+      "title": "Writing Custom Middleware",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Writing Custom Middleware",
+          "note": "## What it is\n\nCustom middleware is a component in the ASP.NET Core pipeline that you write yourself to handle a cross-cutting HTTP concern for every request in its branch: correlation ids, request logging, tenant resolution, idempotency keys, security headers. It sees `HttpContext` and the `next` delegate — nothing about controllers, actions or bound arguments.\n\n## Three ways to write one\n\n1. **Inline** — `app.Use(async (HttpContext ctx, RequestDelegate next) => { ...; await next(ctx); })`. Prefer this overload (.NET 6+) to the older `Func<Task>` one, which allocates a closure per request.\n2. **Convention-based class** — a class with a constructor taking `RequestDelegate next` (plus other dependencies) and a public `Invoke`/`InvokeAsync(HttpContext, ...)` method, registered with `app.UseMiddleware<T>()`. It is **created once** when the pipeline is built, so it is effectively a singleton: constructor dependencies come from the root provider and must be singleton-safe. Scoped services (a `DbContext`, a per-request `ITenantContext`) go into **`InvokeAsync` parameters**, which are resolved from the request scope on every call. Extra constructor arguments can be passed through `UseMiddleware<T>(args)`.\n3. **Factory-based (`IMiddleware`)** — implement `InvokeAsync(HttpContext, RequestDelegate)`, **register the class in DI** with any lifetime, and `UseMiddleware<T>()` asks `IMiddlewareFactory` to resolve it from the request scope per request (and release it afterwards). Constructor injection of scoped services is then fine; the trade-off is a DI resolution per request and no extra `UseMiddleware` arguments.\n\nConstructor-injecting a scoped service into a convention-based middleware is the classic bug: in Development, scope validation throws `InvalidOperationException` (\"Cannot resolve scoped service ... from root provider\") when the pipeline is built; with validation off it silently becomes a captive dependency — one `DbContext` shared by all concurrent requests.\n\n## Rules of good middleware\n\n- **Call `next` at most once**, or deliberately short-circuit by writing a response and returning.\n- **Headers are frozen once the body starts.** Set headers before `next`, or in `Response.OnStarting(...)`; code after `next` may log and measure, not modify. Headers set before `next` are wiped if the exception handler clears the response, while `OnStarting` callbacks still run when the error response is sent — that is the more robust place for a correlation header.\n- **Reading the request body consumes it.** Call `Request.EnableBuffering()`, read with `leaveOpen: true`, and reset `Position = 0`, or the endpoint sees an empty body. Bound the size: buffering spills to disk above 30 KB by default but still costs I/O.\n- **Swapping `Response.Body`** to capture output (caching, idempotency) disables streaming for that request and holds the response in memory; restore the original stream in `finally`.\n- **Flow cancellation**: pass `context.RequestAborted` to any I/O you start.\n- Ship a `UseXxx()` extension method so the registration point documents the ordering assumption.\n\n## Three classic examples\n\n- **Correlation id.** Accept an incoming `X-Correlation-ID` only if it is short and safe (it ends up in logs — log injection), otherwise generate one (or reuse the W3C trace id from `Activity.Current`). Put it in a logging scope so every log line in the request carries it, echo it in the response, and forward it on outgoing `HttpClient` calls (a `DelegatingHandler`). With OpenTelemetry, the W3C `traceparent` already correlates services; a separate correlation id is still useful for business-level flows that cross queues.\n- **Request logging.** Prefer the built-ins: `UseHttpLogging()` (.NET 6+, `HttpLoggingFields`, per-endpoint `WithHttpLogging`, `IHttpLoggingInterceptor` in .NET 8) or Serilog's `UseSerilogRequestLogging()` (one summary event per request). Body logging is expensive and a PII risk; register the logger early enough to see the final status code.\n- **Idempotency key.** For unsafe methods (`POST`, `PATCH`), the client sends `Idempotency-Key`. The middleware atomically reserves the key (insert-if-absent), fingerprints the request, runs the endpoint once, stores status/headers/body, and replays the stored response for retries. Same key with a different payload → 422; same key still in flight → 409 (or wait); 5xx usually releases the key so the client can retry. Scope keys per caller and expire them (TTL). In a multi-instance deployment the store must be shared (Redis `SET NX` with expiry, or a table with a unique key) — an in-memory dictionary only works on one instance.\n\n```csharp\npublic sealed class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)\n{\n    public const string HeaderName = \"X-Correlation-ID\";\n\n    public async Task InvokeAsync(HttpContext context)   // scoped services would be extra parameters here\n    {\n        string incoming = context.Request.Headers[HeaderName].ToString();\n        string id = IsSafe(incoming) ? incoming : Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;\n\n        context.Items[HeaderName] = id;\n        context.Response.OnStarting(() =>\n        {\n            context.Response.Headers[HeaderName] = id;   // also present on error responses\n            return Task.CompletedTask;\n        });\n\n        using (logger.BeginScope(new Dictionary<string, object> { [\"CorrelationId\"] = id }))\n        {\n            await next(context);\n        }\n    }\n\n    private static bool IsSafe(string value) =>\n        value.Length is > 0 and <= 64 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');\n}\n\npublic static class CorrelationIdExtensions\n{\n    public static IApplicationBuilder UseCorrelationId(this IApplicationBuilder app) =>\n        app.UseMiddleware<CorrelationIdMiddleware>();\n}\n```\n\n## What an interviewer probes\n\n- Lifetime of a convention-based middleware and how to use a scoped service inside it.\n- Convention-based vs `IMiddleware`.\n- Why a body-logging middleware \"breaks\" model binding, and how to fix it.\n- The race in a naive idempotency implementation (check-then-act).\n\n## Common misconceptions\n\n- \"Middleware is instantiated per request\" — only `IMiddleware` is; convention-based instances live for the application's lifetime.\n- \"`HttpContext.Items` makes the id appear in logs\" — only a logging scope (or enricher) does.\n- \"Idempotency is just a cache lookup\" — without an atomic reservation, two concurrent retries both execute.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "di",
+            "lifetimes",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What happens when this middleware is registered with `app.UseMiddleware<AuditMiddleware>()` in an app running in the Development environment (`AppDbContext` is registered with `AddDbContext`, i.e. scoped)?\n\n```csharp\npublic sealed class AuditMiddleware(RequestDelegate next, AppDbContext db)\n{\n    public async Task InvokeAsync(HttpContext context)\n    {\n        await next(context);\n        db.AuditEntries.Add(new AuditEntry(context.Request.Path, context.Response.StatusCode));\n        await db.SaveChangesAsync();\n    }\n}\n```",
+              "options": [
+                {
+                  "text": "It works: middleware instances are created per request from the request scope, so each request gets its own `AppDbContext`.",
+                  "correct": false
+                },
+                {
+                  "text": "It works for the first request, then throws `ObjectDisposedException`, because the request scope that created the `DbContext` is disposed at the end of the first request.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws `InvalidOperationException` when the pipeline is built: the middleware is constructed once from the root provider and scope validation refuses to resolve a scoped service there. Move `AppDbContext` to an `InvokeAsync` parameter.",
+                  "correct": true
+                },
+                {
+                  "text": "It does not compile: convention-based middleware may only take `RequestDelegate` in its constructor.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Convention-based middleware is instantiated once, when the pipeline is built, using the application's root service provider; it therefore behaves as a singleton. In Development the default host enables `ValidateScopes`, so resolving a scoped `AppDbContext` from the root provider throws `InvalidOperationException` ('Cannot resolve scoped service ... from root provider'). The fix is to declare it as an `InvokeAsync(HttpContext context, AppDbContext db)` parameter (resolved from the request scope per call) or to implement `IMiddleware` and register the middleware as scoped/transient. The 'created per request' option describes `IMiddleware`, not convention-based middleware. The '`ObjectDisposedException` after the first request' option misdescribes the failure: the context would come from the root provider, never be disposed, and be shared by all concurrent requests (a captive dependency causing threading errors) — but only when scope validation is off, as in Production by default. The 'does not compile' option is wrong: constructors may take any singleton-safe services and extra arguments passed via `UseMiddleware<T>(args)`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "imiddleware",
+            "di"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about factory-based middleware (`IMiddleware`) compared with convention-based middleware is true?",
+              "options": [
+                {
+                  "text": "`IMiddleware` must be registered in the DI container; `UseMiddleware<T>()` resolves it through `IMiddlewareFactory` from the request scope on each request, so it can take scoped services in its constructor.",
+                  "correct": true
+                },
+                {
+                  "text": "`IMiddleware` is discovered automatically by `UseMiddleware<T>()` without DI registration and is constructed once, like convention-based middleware.",
+                  "correct": false
+                },
+                {
+                  "text": "`IMiddleware` supports passing extra constructor arguments through `UseMiddleware<T>(args)`, which convention-based middleware does not.",
+                  "correct": false
+                },
+                {
+                  "text": "`IMiddleware` runs outside the pipeline on a background queue, which is why it is preferred for slow tasks such as audit logging.",
+                  "correct": false
+                }
+              ],
+              "explanation": "For a type implementing `IMiddleware`, `UseMiddleware<T>()` registers a small shim that, per request, calls `IMiddlewareFactory.Create(typeof(T))` — the default factory resolves it from `context.RequestServices` (the request scope) — and `Release` afterwards. The type must be registered (`AddScoped<T>()`/`AddTransient<T>()`); otherwise the factory fails with an `InvalidOperationException` on the first request. The 'discovered automatically / constructed once' option describes convention-based middleware, minus the DI part. The 'extra arguments' option is inverted: passing arguments to `UseMiddleware<T>(args)` is supported only for convention-based middleware; for `IMiddleware` it throws `NotSupportedException`. The 'background queue' option is invented: `IMiddleware` runs inline in the pipeline like any other middleware; background work needs a `Channel<T>`/hosted service."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "correlation-id",
+            "logging"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A correlation-id middleware must make the id appear on **every log line** written while the request is processed, including logs from application services that never see `HttpContext`. Which implementation achieves that (with a logging provider that includes scopes, e.g. Serilog or the JSON console formatter with `IncludeScopes`)?",
+              "options": [
+                {
+                  "text": "`context.Items[\"CorrelationId\"] = id; await next(context);` — services read `HttpContext.Items` and the logging infrastructure picks it up automatically.",
+                  "correct": false
+                },
+                {
+                  "text": "`context.Response.Headers[\"X-Correlation-ID\"] = id; await next(context);` — loggers include response headers in their state.",
+                  "correct": false
+                },
+                {
+                  "text": "`await next(context); logger.LogInformation(\"CorrelationId {Id}\", id);` — a single log line at the end is joined to the others by the log backend.",
+                  "correct": false
+                },
+                {
+                  "text": "`using (logger.BeginScope(new Dictionary<string, object> { [\"CorrelationId\"] = id })) { await next(context); }` — the scope flows with the async execution context, so every logger used inside `next` attaches the property.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`ILogger.BeginScope` pushes state onto an `AsyncLocal`-based scope stack shared by all loggers from the same `LoggerFactory`; every log event created while the scope is active (including in awaited continuations on other threads) carries the scope's properties, and Serilog/JSON console turn the dictionary into structured fields. The `HttpContext.Items` option only stores the value; nothing in logging reads `Items` unless you write an enricher. The response-header option is wrong: headers are not part of log state (and setting them before `next` is lost if the exception handler clears the response). The 'one line at the end' option leaves every other log line without the id; log backends do not join by proximity."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "request-body",
+            "logging"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A request-logging middleware reads the body to log it. After it was added, `POST` endpoints receive an empty body and fail model binding. Which change fixes it?\n\n```csharp\nusing var reader = new StreamReader(context.Request.Body);\nvar body = await reader.ReadToEndAsync();\nlogger.LogInformation(\"Body: {Body}\", body);\nawait next(context);\n```",
+              "options": [
+                {
+                  "text": "Add `context.Request.Body.Seek(0, SeekOrigin.Begin)` after reading; request streams are seekable once fully read.",
+                  "correct": false
+                },
+                {
+                  "text": "Call `context.Request.EnableBuffering()` first, read with `new StreamReader(context.Request.Body, leaveOpen: true)`, then set `context.Request.Body.Position = 0` before calling `next`.",
+                  "correct": true
+                },
+                {
+                  "text": "Move the code after `await next(context)`, so the endpoint reads the body first and the middleware logs it afterwards.",
+                  "correct": false
+                },
+                {
+                  "text": "Copy the body into a `MemoryStream` and log it; the original `Request.Body` is unaffected because `CopyToAsync` does not advance the source stream.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The request body is a forward-only network stream; reading it consumes it, and disposing the `StreamReader` also disposes the stream. `EnableBuffering()` wraps it in a `FileBufferingReadStream` (memory up to 30 KB by default, then a temp file) that supports seeking, so the middleware can read it (keeping it open) and rewind to `Position = 0` for model binding. Bound the size and redact PII when logging bodies. The 'Seek without buffering' option fails: Kestrel's request stream is not seekable (`CanSeek` is false, `Seek` throws `NotSupportedException`). The 'read after `next`' option fails because the endpoint has already consumed the stream — the middleware would read nothing (or throw, depending on the stream state). The 'CopyTo does not advance' option is false: any read, including `CopyToAsync`, consumes the source stream."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "idempotency",
+            "concurrency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A payment API supports `Idempotency-Key`. The first version of the middleware does: look up the key in the cache → if found, replay the stored response → otherwise run the endpoint and store its response. A mobile client times out and retries immediately, so two requests with the same key arrive 5 ms apart. Which design is correct?",
+              "options": [
+                {
+                  "text": "Keep the lookup-then-execute flow but wrap it in a database transaction at the default Read Committed isolation level, which serialises the two requests.",
+                  "correct": false
+                },
+                {
+                  "text": "Atomically reserve the key (insert-if-absent, e.g. Redis `SET NX` with a TTL or a unique-key insert) together with a request fingerprint before executing; a concurrent duplicate gets 409 (or waits) while the first is in flight, a later duplicate gets the stored response replayed, and a reused key with a different payload gets 422.",
+                  "correct": true
+                },
+                {
+                  "text": "Keep the lookup-then-execute flow; the window is only a few milliseconds and the second request will usually find the stored response.",
+                  "correct": false
+                },
+                {
+                  "text": "Make the endpoint `GET` instead of `POST`, because HTTP guarantees that `GET` requests are executed at most once.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The naive design is check-then-act: both requests miss the cache before either stores a response, so both charge the card. The fix is an atomic reservation that only one request can win, plus a fingerprint (method, path, body hash) to detect key reuse with a different payload; the in-flight state answers concurrent duplicates with 409 (with `Retry-After`) or makes them wait, and completed state replays status, selected headers and body. Keys need a TTL and per-caller scoping, and 5xx outcomes typically release the key so a retry can succeed. The 'transaction at Read Committed' option does not help: two transactions can both read 'no row' and proceed; you need a unique constraint or a lock, not the default isolation level. The 'window is small' option is how duplicate payments happen in production — retries after timeouts arrive exactly while the first request is still running. The 'make it `GET`' option is wrong twice: HTTP defines `GET` as safe and idempotent in *semantics*, it does not guarantee at-most-once execution, and a state-changing payment must not be a `GET`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "correlation-id",
+            "logging",
+            "observability"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Implement (in words or code) a correlation-id middleware for an ASP.NET Core API: describe where it reads the id from, how it generates one, how the id reaches every log line and the response, how it propagates to downstream HTTP calls, where you register it in the pipeline, and how it relates to W3C trace context / OpenTelemetry.",
+              "rubric": [
+                "Reads an incoming header (e.g. `X-Correlation-ID`), validates it (length, allowed characters) to prevent log injection or abuse, and otherwise generates one (GUID or `Activity.Current.TraceId`).",
+                "Makes the id appear in all logs via `ILogger.BeginScope` (or a logging enricher) wrapping `await next(context)`, and stores it for application code (e.g. `HttpContext.Items` or a scoped accessor).",
+                "Adds the id to the response header in a way that survives errors (set before `next` or via `Response.OnStarting`, aware that headers cannot be changed after the response starts).",
+                "Propagates the id to outgoing calls through a `DelegatingHandler` registered on `IHttpClientFactory` clients (and to messages if queues are involved).",
+                "Places the middleware early in the pipeline (first, or right after `UseExceptionHandler` with `OnStarting` so error responses still carry the id) and explains that W3C `traceparent`/`Activity` already correlates distributed traces, so a correlation id either reuses the trace id or serves business-level correlation."
+              ],
+              "explanation": "Model answer: a convention-based middleware (singleton-safe; scoped services as `InvokeAsync` parameters) reads `X-Correlation-ID`, accepts it only if it is short and matches a safe character set, else uses `Activity.Current?.TraceId` or a new GUID. It stores the id in `HttpContext.Items` (or a scoped `ICorrelationContext`), registers `Response.OnStarting` to echo it in the response header (so it is present even when the exception handler rewrites the response), and wraps `await next(context)` in `logger.BeginScope(new Dictionary<string, object> { [\"CorrelationId\"] = id })`, which flows through the async execution context to every logger. Outgoing calls get it via a `DelegatingHandler` added with `AddHttpMessageHandler` that reads the current id and sets the header; messages carry it as a header/property. It is registered at the very beginning of the pipeline (or immediately after `UseExceptionHandler` with `OnStarting` covering error responses) so all subsequent logs are in scope. With OpenTelemetry, `traceparent` already propagates a trace id across HTTP and the trace id is a natural default; a separate correlation id matters when flows cross systems that do not propagate trace context or when the business wants a client-visible reference."
+            }
+          }
+        }
+      ],
+      "katas": [
+        {
+          "id": "aspnet-data.pipeline.custom-middleware.kata.1",
+          "title": "Idempotency-Key middleware",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 50,
+          "translations": {
+            "en": {
+              "task": "Implement an **idempotency-key middleware** for an ASP.NET Core minimal API (.NET 8 or later, no third-party packages) in a single `Program.cs`, plus a self-check that exercises it over real HTTP.\n\n**Contract**\n- Applies only to `POST` and `PATCH` requests that carry an `Idempotency-Key` header; every other request passes through untouched.\n- Key validation: exactly one header value, 1–255 characters, ASCII letters, digits, `-` and `_` only; otherwise respond `400` (ProblemDetails) without running the endpoint.\n- Keys are scoped per caller (`User.Identity.Name`, or `anonymous`).\n- Request fingerprint: method + path + query string + SHA-256 of the body. The endpoint must still be able to read the body.\n- First request with a key: reserve the key **atomically**, run the endpoint, capture status code, content type, `Location` and `ETag` headers and the body, then send the response to the client.\n  - Status `< 500`: store the captured response.\n  - Status `>= 500` or an exception: release the key so that a retry runs the endpoint again; exceptions must still propagate to the exception handler.\n- Same key, same fingerprint, response stored: replay the stored status, content type, captured headers and body without running the endpoint, and add `Idempotent-Replayed: true`.\n- Same key, same fingerprint, first request still running: `409` with `Retry-After: 1`.\n- Same key, different fingerprint: `422`.\n- Storage behind an `IIdempotencyStore` abstraction (so Redis/SQL can replace it); provide a thread-safe in-memory implementation with a TTL that uses `TimeProvider`.\n\n**Self-check** (in `Program.cs`): start the app on a dynamic port, call it with `HttpClient`, print `PASS`/`FAIL` per case, then stop:\n1. Two sequential `POST /payments` with the same key and body → both `201`, identical body and `Location`, second has `Idempotent-Replayed`, the payment counter increased once.\n2. Same key, different body → `422`.\n3. Two concurrent requests with a new key (endpoint takes ~200 ms) → status codes `{201, 409}`.\n4. `POST /payments` without a key twice → two payments.\n5. `POST /flaky` (returns `503` on the first call, `200` afterwards) twice with the same key → `503` then `200` (not replayed).\n6. A 300-character key → `400`.",
+              "rubric": [
+                "The reservation is atomic (e.g. `ConcurrentDictionary.GetOrAdd` with reference comparison or a compare-and-swap), so concurrent duplicates cannot both execute; in-flight duplicates get 409 with `Retry-After`, mismatched fingerprints get 422.",
+                "The fingerprint uses method, path, query and a body hash computed after `Request.EnableBuffering()`, and the body position is reset so the endpoint can still bind it.",
+                "The response is captured by temporarily replacing `Response.Body`, copied to the original stream, and the original stream is restored in `finally`; status, content type, `Location`/`ETag` and body are stored and replayed with `Idempotent-Replayed: true`.",
+                "5xx responses and exceptions release the reservation (exceptions still propagate), entries expire via `TimeProvider`-based TTL, keys are validated and scoped per caller, and the store sits behind an interface.",
+                "The middleware is convention-based with only singleton-safe constructor dependencies, the self-check covers all six cases over real HTTP without `.Result`/`.Wait()`, and the code compiles on .NET 8+."
+              ],
+              "referenceSolution": "using System.Collections.Concurrent;\nusing System.Net.Http.Json;\nusing System.Security.Cryptography;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton(TimeProvider.System);\nbuilder.Services.AddSingleton<IIdempotencyStore>(sp =>\n    new InMemoryIdempotencyStore(sp.GetRequiredService<TimeProvider>(), TimeSpan.FromHours(24)));\n\nvar app = builder.Build();\napp.Urls.Add(\"http://127.0.0.1:0\");\n\n// In a real app: after UseExceptionHandler and UseAuthentication (keys are scoped per user).\napp.UseMiddleware<IdempotencyMiddleware>();\n\nvar paymentsCreated = 0;\napp.MapPost(\"/payments\", async (PaymentRequest request) =>\n{\n    await Task.Delay(200);   // long enough for concurrent duplicates to overlap\n    var id = Interlocked.Increment(ref paymentsCreated);\n    return Results.Created($\"/payments/{id}\", new { id, request.Amount, request.Currency });\n});\n\nvar flakyCalls = 0;\napp.MapPost(\"/flaky\", () =>\n    Interlocked.Increment(ref flakyCalls) == 1 ? Results.StatusCode(503) : Results.Ok(new { ok = true }));\n\nawait app.StartAsync();\nusing var client = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };\nvar failures = 0;\nvar payment = new { amount = 10.5m, currency = \"EUR\" };\n\n// 1. Sequential duplicate is replayed, the endpoint runs once.\nvar first = await Post(\"/payments\", payment, \"key-1\");\nvar second = await Post(\"/payments\", payment, \"key-1\");\nCheck(\"replay\",\n    first.StatusCode == System.Net.HttpStatusCode.Created\n    && second.StatusCode == System.Net.HttpStatusCode.Created\n    && await first.Content.ReadAsStringAsync() == await second.Content.ReadAsStringAsync()\n    && first.Headers.Location == second.Headers.Location\n    && second.Headers.Contains(\"Idempotent-Replayed\")\n    && Volatile.Read(ref paymentsCreated) == 1);\n\n// 2. Same key, different payload.\nvar mismatch = await Post(\"/payments\", new { amount = 99m, currency = \"EUR\" }, \"key-1\");\nCheck(\"fingerprint mismatch -> 422\", (int)mismatch.StatusCode == 422);\n\n// 3. Concurrent duplicates: one runs, one is told to retry.\nvar concurrent = await Task.WhenAll(Post(\"/payments\", payment, \"key-2\"), Post(\"/payments\", payment, \"key-2\"));\nvar codes = concurrent.Select(r => (int)r.StatusCode).Order().ToArray();\nCheck(\"concurrent duplicate -> 409\", codes is [201, 409]);\n\n// 4. No key: no idempotency.\nvar before = Volatile.Read(ref paymentsCreated);\nawait Post(\"/payments\", payment, null);\nawait Post(\"/payments\", payment, null);\nCheck(\"no key -> both executed\", Volatile.Read(ref paymentsCreated) == before + 2);\n\n// 5. 5xx releases the key so the retry runs again.\nvar flaky1 = await Post(\"/flaky\", new { }, \"key-3\");\nvar flaky2 = await Post(\"/flaky\", new { }, \"key-3\");\nCheck(\"5xx not stored\", (int)flaky1.StatusCode == 503 && (int)flaky2.StatusCode == 200\n                        && !flaky2.Headers.Contains(\"Idempotent-Replayed\"));\n\n// 6. Invalid key.\nvar invalid = await Post(\"/payments\", payment, new string('k', 300));\nCheck(\"invalid key -> 400\", (int)invalid.StatusCode == 400);\n\nConsole.WriteLine(failures == 0 ? \"ALL PASSED\" : $\"{failures} FAILED\");\nawait app.StopAsync();\n\nasync Task<HttpResponseMessage> Post(string path, object body, string? key)\n{\n    using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };\n    if (key is not null) message.Headers.Add(IdempotencyMiddleware.HeaderName, key);\n    var response = await client.SendAsync(message);\n    await response.Content.LoadIntoBufferAsync();\n    return response;\n}\n\nvoid Check(string name, bool ok)\n{\n    if (!ok) failures++;\n    Console.WriteLine($\"{(ok ? \"PASS\" : \"FAIL\")} {name}\");\n}\n\n// ------------------------------------------------------------------ contracts\n\npublic sealed record PaymentRequest(decimal Amount, string Currency);\n\npublic sealed record CachedResponse(\n    int StatusCode, string? ContentType, IReadOnlyDictionary<string, string> Headers, byte[] Body);\n\npublic enum BeginOutcome { Acquired, InProgress, Completed, FingerprintMismatch }\n\npublic readonly record struct BeginResult(BeginOutcome Outcome, CachedResponse? Response = null);\n\npublic interface IIdempotencyStore\n{\n    /// Atomically reserves <paramref name=\"key\"/> or reports the state of an existing reservation.\n    ValueTask<BeginResult> TryBeginAsync(string key, string fingerprint, CancellationToken ct);\n\n    /// Stores the final response for a reservation owned by the caller.\n    ValueTask CompleteAsync(string key, CachedResponse response, CancellationToken ct);\n\n    /// Drops an in-flight reservation so a retry can execute again.\n    ValueTask ReleaseAsync(string key, CancellationToken ct);\n}\n\n// ------------------------------------------------------------------ in-memory store (single instance only)\n\npublic sealed class InMemoryIdempotencyStore(TimeProvider clock, TimeSpan ttl) : IIdempotencyStore\n{\n    private sealed record Entry(string Fingerprint, CachedResponse? Response, DateTimeOffset ExpiresAt);\n\n    private readonly ConcurrentDictionary<string, Entry> _entries = new();\n\n    public ValueTask<BeginResult> TryBeginAsync(string key, string fingerprint, CancellationToken ct)\n    {\n        var now = clock.GetUtcNow();\n        var fresh = new Entry(fingerprint, null, now + ttl);\n\n        while (true)\n        {\n            var current = _entries.GetOrAdd(key, fresh);\n            if (ReferenceEquals(current, fresh))\n                return ValueTask.FromResult(new BeginResult(BeginOutcome.Acquired));\n\n            if (current.ExpiresAt <= now)\n            {\n                // Expired: compare-and-swap; if another request replaced it first, re-evaluate.\n                if (_entries.TryUpdate(key, fresh, current))\n                    return ValueTask.FromResult(new BeginResult(BeginOutcome.Acquired));\n                continue;\n            }\n\n            if (!string.Equals(current.Fingerprint, fingerprint, StringComparison.Ordinal))\n                return ValueTask.FromResult(new BeginResult(BeginOutcome.FingerprintMismatch));\n\n            return ValueTask.FromResult(current.Response is null\n                ? new BeginResult(BeginOutcome.InProgress)\n                : new BeginResult(BeginOutcome.Completed, current.Response));\n        }\n    }\n\n    public ValueTask CompleteAsync(string key, CachedResponse response, CancellationToken ct)\n    {\n        if (_entries.TryGetValue(key, out var current) && current.Response is null)\n            _entries.TryUpdate(key, current with { Response = response, ExpiresAt = clock.GetUtcNow() + ttl }, current);\n        return ValueTask.CompletedTask;\n    }\n\n    public ValueTask ReleaseAsync(string key, CancellationToken ct)\n    {\n        // Remove only our in-flight entry, never a completed one written in the meantime.\n        if (_entries.TryGetValue(key, out var current) && current.Response is null)\n            _entries.TryRemove(KeyValuePair.Create(key, current));\n        return ValueTask.CompletedTask;\n    }\n}\n\n// ------------------------------------------------------------------ middleware\n\npublic sealed class IdempotencyMiddleware(\n    RequestDelegate next,\n    IIdempotencyStore store,\n    ILogger<IdempotencyMiddleware> logger)\n{\n    public const string HeaderName = \"Idempotency-Key\";\n    private const int MaxKeyLength = 255;\n    private static readonly string[] ReplayedHeaders = [\"Location\", \"ETag\"];\n\n    public async Task InvokeAsync(HttpContext context)\n    {\n        var request = context.Request;\n        if (!(HttpMethods.IsPost(request.Method) || HttpMethods.IsPatch(request.Method))\n            || !request.Headers.TryGetValue(HeaderName, out var values))\n        {\n            await next(context);\n            return;\n        }\n\n        var rawKey = values.ToString();\n        if (values.Count != 1 || !IsValidKey(rawKey))\n        {\n            await Results.Problem(statusCode: StatusCodes.Status400BadRequest,\n                title: $\"Invalid {HeaderName} header.\").ExecuteAsync(context);\n            return;\n        }\n\n        var ct = context.RequestAborted;\n        var key = $\"{context.User.Identity?.Name ?? \"anonymous\"}|{rawKey}\";\n        var fingerprint = await FingerprintAsync(request, ct);\n\n        var begin = await store.TryBeginAsync(key, fingerprint, ct);\n        switch (begin.Outcome)\n        {\n            case BeginOutcome.FingerprintMismatch:\n                await Results.Problem(statusCode: StatusCodes.Status422UnprocessableEntity,\n                    title: $\"{HeaderName} was already used with a different request.\").ExecuteAsync(context);\n                return;\n\n            case BeginOutcome.InProgress:\n                context.Response.Headers.RetryAfter = \"1\";\n                await Results.Problem(statusCode: StatusCodes.Status409Conflict,\n                    title: $\"A request with this {HeaderName} is still being processed.\").ExecuteAsync(context);\n                return;\n\n            case BeginOutcome.Completed:\n                logger.LogInformation(\"Replaying stored response for idempotency key {Key}\", rawKey);\n                await ReplayAsync(context, begin.Response!, ct);\n                return;\n        }\n\n        // Acquired: run the endpoint once, capturing the body so it can be stored.\n        var originalBody = context.Response.Body;\n        using var buffer = new MemoryStream();\n        context.Response.Body = buffer;\n        var stored = false;\n        try\n        {\n            await next(context);\n\n            var response = context.Response;\n            if (response.StatusCode < StatusCodes.Status500InternalServerError)\n            {\n                var headers = ReplayedHeaders\n                    .Where(h => response.Headers.ContainsKey(h))\n                    .ToDictionary(h => h, h => response.Headers[h].ToString());\n                await store.CompleteAsync(key,\n                    new CachedResponse(response.StatusCode, response.ContentType, headers, buffer.ToArray()),\n                    CancellationToken.None);\n                stored = true;\n            }\n\n            context.Response.Body = originalBody;\n            buffer.Position = 0;\n            await buffer.CopyToAsync(originalBody, ct);\n        }\n        finally\n        {\n            context.Response.Body = originalBody;\n            if (!stored)   // 5xx or exception: let the client retry for real\n                await store.ReleaseAsync(key, CancellationToken.None);\n        }\n    }\n\n    private static bool IsValidKey(string key) =>\n        key.Length is > 0 and <= MaxKeyLength\n        && key.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');\n\n    private static async Task<string> FingerprintAsync(HttpRequest request, CancellationToken ct)\n    {\n        request.EnableBuffering();   // seekable copy, so the endpoint can read the body again\n        var bodyHash = await SHA256.HashDataAsync(request.Body, ct);\n        request.Body.Position = 0;\n        return $\"{request.Method} {request.Path}{request.QueryString} {Convert.ToHexString(bodyHash)}\";\n    }\n\n    private static async Task ReplayAsync(HttpContext context, CachedResponse cached, CancellationToken ct)\n    {\n        context.Response.StatusCode = cached.StatusCode;\n        if (cached.ContentType is not null)\n            context.Response.ContentType = cached.ContentType;\n        foreach (var (name, value) in cached.Headers)\n            context.Response.Headers[name] = value;\n        context.Response.Headers[\"Idempotent-Replayed\"] = \"true\";\n        await context.Response.Body.WriteAsync(cached.Body, ct);\n    }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "filters-vs-middleware",
+      "title": "Filters vs Middleware",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Filters vs Middleware",
+          "note": "## What it is\n\nBoth middleware and filters implement cross-cutting behaviour around request handling. The difference is **where they sit and what they can see**:\n\n- **Middleware** runs in the application pipeline for every request that reaches its position — static files, health checks, 404s, every programming model. It sees `HttpContext` (and, after `UseRouting`, the selected endpoint and its metadata). It knows nothing about action arguments, model state or results.\n- **MVC filters** run *inside* endpoint execution, only for controller actions (and Razor Pages), within the action invocation. They see `ActionContext`: route data, the action descriptor, bound arguments, `ModelState`, the `IActionResult`.\n- **Endpoint filters** (`IEndpointFilter`, .NET 7+) are the minimal-API counterpart: they wrap a route handler after parameter binding and see the bound arguments and the handler's return value.\n\n## How filters work underneath\n\nThe MVC `ResourceInvoker`/`ControllerActionInvoker` runs a fixed sequence for the selected action:\n\n1. **Authorization filters** (`IAuthorizationFilter`) — can short-circuit before anything else. (`[Authorize]` itself is enforced by the authorization *middleware* under endpoint routing.)\n2. **Resource filters** — before model binding; good for short-circuiting caches or disabling form value providers.\n3. Model binding and validation.\n4. **Action filters** — around the action method; see and can change `ActionArguments`, inspect `ModelState`, replace the result. `[ApiController]`'s automatic 400 is an action filter.\n5. The action.\n6. **Exception filters** — handle exceptions from controller creation, model binding, action filters and the action. They do **not** catch exceptions from resource filters, result filters or result execution.\n7. **Result filters** — around execution of the `IActionResult`. They run only when the action or an action filter produced a result; a short-circuit from an authorization or resource filter, or a result set by an exception filter, skips them unless the filter implements `IAlwaysRunResultFilter`.\n\nScope order: global → controller → action on the way in, reverse on the way out; `IOrderedFilter.Order` overrides it. Filter attributes are metadata instances shared across requests — keep them stateless. For DI use `[ServiceFilter(typeof(T))]` (resolved from DI, `T` must be registered) or `[TypeFilter(typeof(T))]` (created via `ActivatorUtilities`).\n\n**Endpoint filters** form a chain in front of the handler: the first one added is the outermost, so execution is first-in on the way in and last-out on the way out; filters on a route group run before filters on the endpoint. `EndpointFilterInvocationContext.Arguments` holds the bound arguments (`GetArgument<T>(index)`); returning without calling `next` short-circuits. `AddEndpointFilterFactory` lets a filter inspect the handler's `MethodInfo` once at startup and skip itself where irrelevant — the way to keep per-request overhead near zero.\n\n## Choosing\n\n| Need | Put it in |\n|---|---|\n| Applies to all requests, including non-endpoint ones (security headers, compression, correlation id, exception handling) | Middleware |\n| Needs only HTTP data but should be opt-in per endpoint | Middleware reading endpoint metadata after `UseRouting` (how authorization, CORS, rate limiting and output caching work) |\n| Needs bound arguments, `ModelState` or the action result (validation, argument-level auditing, result wrapping) | Action / endpoint filter |\n| Must run before model binding for MVC (short-circuit caching, request size tweaks) | Resource filter |\n| Exception mapping | Global `IExceptionHandler` middleware; exception filters only if MVC-specific context is needed |\n\n```csharp\n// Endpoint filter: sees bound arguments — impossible in middleware without re-reading the body.\napp.MapPost(\"/orders\", (CreateOrder cmd, IOrderService svc) => svc.CreateAsync(cmd))\n   .AddEndpointFilter(async (ctx, next) =>\n   {\n       var cmd = ctx.GetArgument<CreateOrder>(0);\n       if (cmd.Lines.Count > 100)\n           return TypedResults.Problem(\"Too many lines.\", statusCode: StatusCodes.Status422UnprocessableEntity);\n       return await next(ctx);\n   });\n\n// Middleware: opt-in via endpoint metadata, works for controllers, minimal APIs and FastEndpoints alike.\napp.UseRouting();\napp.Use(async (HttpContext ctx, RequestDelegate next) =>\n{\n    if (ctx.GetEndpoint()?.Metadata.GetMetadata<RequireTenantAttribute>() is not null\n        && !ctx.Request.Headers.ContainsKey(\"X-Tenant\"))\n    {\n        ctx.Response.StatusCode = StatusCodes.Status400BadRequest;\n        return;\n    }\n    await next(ctx);\n});\n```\n\n## What an interviewer probes\n\n- The MVC filter order and what each stage can see.\n- Which exceptions an exception filter does not catch, and why global handling belongs in middleware.\n- Why result filters sometimes \"don't run\" (short-circuits) and `IAlwaysRunResultFilter`.\n- Endpoint filter ordering and how they get at bound arguments.\n\n## Common misconceptions\n\n- \"Filters are faster middleware\" — they are a different layer with more context, and they exist only inside MVC/minimal-API endpoint execution.\n- \"Middleware cannot be endpoint-specific\" — after `UseRouting` it can read endpoint metadata.\n- \"MVC action filters work on minimal APIs\" — minimal handlers ignore MVC filter attributes; use `IEndpointFilter`.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "mvc-filters",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the key difference between middleware and MVC filters in ASP.NET Core?",
+              "options": [
+                {
+                  "text": "Filters run before routing and can therefore pick the controller, whereas middleware runs only after the action has been selected.",
+                  "correct": false
+                },
+                {
+                  "text": "Middleware runs in the application pipeline for every request at its position and sees only `HttpContext` (plus endpoint metadata after routing); filters run inside MVC action execution for the selected action and can see bound arguments, `ModelState` and the `IActionResult`.",
+                  "correct": true
+                },
+                {
+                  "text": "Middleware cannot short-circuit a request, which is why authorization has to be implemented as a filter.",
+                  "correct": false
+                },
+                {
+                  "text": "They are interchangeable: every filter type is internally registered as a middleware, so the choice is stylistic.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Middleware is part of the application pipeline: it runs for every request reaching it (including static files, health checks and 404s) and works with raw `HttpContext`; after `UseRouting` it can also read the selected endpoint's metadata. MVC filters are part of the action invocation pipeline inside endpoint execution, so they run only for controller actions/Razor Pages and receive `ActionExecutingContext`/`ResultExecutingContext` with arguments, model state and results. The 'filters run before routing' option is inverted: routing selects the action before any filter runs. The 'middleware cannot short-circuit' option is wrong — any middleware can short-circuit by not calling `next`, and under endpoint routing `[Authorize]` is enforced by the authorization middleware. The 'interchangeable' option is wrong: filters are executed by the MVC invoker, not registered as middleware, and the context they get is fundamentally different."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "mvc-filters",
+            "exception-filters",
+            "exception-handling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A global MVC exception filter (`IExceptionFilter`) maps exceptions to `ProblemDetails`. Which exception will it **not** handle?",
+              "options": [
+                {
+                  "text": "An exception thrown inside the action method.",
+                  "correct": false
+                },
+                {
+                  "text": "An exception thrown in an action filter's `OnActionExecuting`.",
+                  "correct": false
+                },
+                {
+                  "text": "An exception thrown by a custom model binder while binding an action parameter.",
+                  "correct": false
+                },
+                {
+                  "text": "An exception thrown while the `IActionResult` executes, for example during JSON serialization of the returned object.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Exception filters handle unhandled exceptions from controller creation, model binding, action filters and the action method. They do not catch exceptions thrown in resource filters, result filters or during result execution — serialization happens when the `ObjectResult` executes, after the exception-filter stage. Such exceptions bubble up to middleware, which is why a global `IExceptionHandler`/`UseExceptionHandler` is the reliable catch-all and exception filters are only for MVC-specific handling. The action-method, action-filter and model-binding options all fall inside the exception filter's coverage, so they are handled; a common misconception is that model binding happens 'outside' the filter pipeline — it does run between resource and action filters, and its exceptions are covered."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "mvc-filters",
+            "result-filters",
+            "short-circuit"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A global result filter (`IResultFilter`) adds an `X-Api-Version` header. Responses produced by a resource filter that short-circuits with a cached result (`context.Result = cached`) are missing the header. Why, and what is the fix?",
+              "options": [
+                {
+                  "text": "Result filters run only when the action or an action filter produces the result; a short-circuit from a resource or authorization filter skips them. Implement `IAlwaysRunResultFilter` (or `IAsyncAlwaysRunResultFilter`) instead.",
+                  "correct": true
+                },
+                {
+                  "text": "Global filters never apply to resource filters' results; register the result filter as a controller-level attribute so it runs closer to the action.",
+                  "correct": false
+                },
+                {
+                  "text": "Headers cannot be added in result filters at all; the header must be added in `OnResultExecuted`, after the body is written.",
+                  "correct": false
+                },
+                {
+                  "text": "The resource filter's result is executed by middleware rather than MVC, so only middleware can add headers to it.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The MVC invoker executes result filters around results produced by the action or action filters. When an authorization or resource filter short-circuits by setting `Result`, or an exception filter handles an exception and sets a result, ordinary result filters are skipped. `IAlwaysRunResultFilter`/`IAsyncAlwaysRunResultFilter` exist exactly for this: they run for all action results, including those from short-circuits and exception filters. The 'controller-level attribute' option is wrong: scope (global/controller/action) affects ordering, not whether result filters run on short-circuits. The 'add the header in `OnResultExecuted`' option is backwards — by then the response has usually started and headers are read-only; `OnResultExecuting` is the right hook. The 'executed by middleware' option is wrong: the short-circuit result is still executed by the MVC invoker; only result filters are skipped."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "endpoint-filters",
+            "minimal-apis",
+            "ordering"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does this minimal API endpoint print for one request?\n\n```csharp\napp.MapPost(\"/orders\", (CreateOrder cmd) => { Console.Write(\"handler \"); return TypedResults.Ok(); })\n   .AddEndpointFilter(async (ctx, next) => { Console.Write(\"A-in \"); var r = await next(ctx); Console.Write(\"A-out \"); return r; })\n   .AddEndpointFilter(async (ctx, next) => { Console.Write(\"B-in \"); var r = await next(ctx); Console.Write(\"B-out \"); return r; });\n```",
+              "options": [
+                {
+                  "text": "`B-in A-in handler A-out B-out` — the filter added last wraps the others, like decorators applied in sequence.",
+                  "correct": false
+                },
+                {
+                  "text": "`A-in B-in handler B-out A-out` — the first filter added is the outermost.",
+                  "correct": true
+                },
+                {
+                  "text": "`A-in A-out B-in B-out handler` — endpoint filters run sequentially before the handler and never wrap it.",
+                  "correct": false
+                },
+                {
+                  "text": "`A-in B-in B-out A-out handler` — filters run before parameter binding, so the handler runs after the filter chain completes.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Endpoint filters execute in registration order on the way in and reverse order on the way out: the first `AddEndpointFilter` call produces the outermost filter, matching the documented FIFO/LIFO behaviour (and route-group filters run before the endpoint's own). The 'decorator' option assumes each `AddEndpointFilter` wraps the previous pipeline from outside, which is the intuition from manual decoration but not how the filter chain is built. The 'sequential, never wrap' option ignores that every filter receives `next` and awaits it; the handler runs inside the innermost filter. The 'before binding' option is wrong: filters run after parameter binding (that is why `ctx.Arguments` contains `cmd`), and the handler is invoked by the innermost `next`, not after the chain."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.mcq.5",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "endpoint-filters",
+            "design"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Two requirements: (1) add `Content-Security-Policy` and `X-Content-Type-Options` headers to **every** response, including static files and 404s; (2) reject `POST /orders` when the bound `CreateOrder.Lines.Count` exceeds the caller's plan limit. Which split is right?",
+              "options": [
+                {
+                  "text": "Both as endpoint filters on a root route group, because groups cover every request in the application.",
+                  "correct": false
+                },
+                {
+                  "text": "Both as middleware; for (2) the middleware should parse the JSON body again to read `Lines.Count`.",
+                  "correct": false
+                },
+                {
+                  "text": "(1) as middleware early in the pipeline (headers via `OnStarting` or before `next`); (2) as an endpoint filter or action filter, which receives the already-bound `CreateOrder`.",
+                  "correct": true
+                },
+                {
+                  "text": "(1) as a global MVC result filter; (2) as middleware reading `HttpContext.Items[\"CreateOrder\"]`, which model binding populates.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Headers that must apply to every response — static files, 404s, error pages — require middleware: filters only run for matched endpoints of their programming model. Argument-level business checks need the bound model; endpoint filters (minimal APIs) and action filters (MVC) receive it after binding, so no second parse of the body is needed. The 'root route group' option is wrong: groups only cover endpoints mapped in them; unmatched routes and static files served by middleware never reach endpoint filters. The 'parse JSON again in middleware' option works only with request buffering, duplicates binding logic and runs for every request. The 'global result filter' option misses non-MVC responses (static files, 404, minimal APIs, short-circuits unless `IAlwaysRunResultFilter`), and model binding does not store arguments in `HttpContext.Items`."
+            }
+          }
+        },
+        {
+          "id": "aspnet-data.pipeline.filters-vs-middleware.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "middleware",
+            "mvc-filters",
+            "endpoint-filters"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When would you implement a cross-cutting concern as middleware, and when as a filter (MVC filter or minimal-API endpoint filter)? Walk through what each can see, where each runs, and give concrete examples of concerns that belong in each — including one case where middleware can still be endpoint-specific.",
+              "rubric": [
+                "States that middleware runs in the application pipeline for every request at its position (including static files and unmatched routes) with access only to `HttpContext`, while filters run inside endpoint execution for MVC actions or minimal-API handlers.",
+                "Explains what filters can access that middleware cannot: bound action arguments, `ModelState`, the action descriptor, and the action/handler result — with the MVC filter order (authorization, resource, model binding, action, exception, result).",
+                "Gives correct middleware examples (exception handling, security headers, correlation id, compression, request logging) and filter examples (argument validation, auditing of bound commands, result wrapping, per-action caching via resource filters).",
+                "Explains that middleware placed after `UseRouting` can read endpoint metadata (`GetEndpoint()?.Metadata`) to be opt-in per endpoint, as authorization, CORS and rate limiting do.",
+                "Mentions at least one limitation: exception filters do not catch result-execution exceptions, result filters skip short-circuits unless `IAlwaysRunResultFilter`, or MVC filters do not apply to minimal APIs (which use `IEndpointFilter`)."
+              ],
+              "explanation": "Model answer: middleware is the outer, protocol-level layer: it runs for every request reaching its position, regardless of programming model, and sees only `HttpContext`. Use it for concerns that must cover everything — exception handling, security headers, HTTPS, compression, correlation ids, request logging. Filters are the inner, application-level layer: MVC filters run in the action invocation (authorization → resource → binding → action → exception → result), minimal-API endpoint filters wrap the handler after binding; they see bound arguments, `ModelState`, action metadata and results. Use them for argument validation, auditing of commands, result envelopes, per-action caching. Middleware can still be endpoint-specific when placed after `UseRouting`: it reads endpoint metadata and acts only on endpoints carrying a marker — exactly how `UseAuthorization`, `UseCors`, `UseRateLimiter` and output caching work, and it works across controllers, minimal APIs and FastEndpoints. Caveats: exception filters miss exceptions from result execution and resource/result filters, so global error handling belongs in middleware; result filters skip short-circuited results unless `IAlwaysRunResultFilter`; MVC filters do nothing for minimal APIs."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

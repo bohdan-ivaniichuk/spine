@@ -1,0 +1,1280 @@
+{
+  "domain": "architecture",
+  "topic": "principles",
+  "concepts": [
+    {
+      "slug": "solid-in-practice",
+      "title": "SOLID in Practice: Violations and Refactors",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "SOLID in Practice: Violations and Refactors",
+          "note": "## What it is\n\nSOLID is five design heuristics for keeping object-oriented code cheap to change. Interviewers do not want the acronym recited; they want each principle tied to a concrete violation you have seen and the refactor that fixed it.\n\n- **SRP, Single Responsibility.** Robert Martin's own clarification: a module should be responsible to *one actor*, so it has one *reason to change*. It is not \"a class does one thing\" or \"one public method\".\n- **OCP, Open/Closed.** You add behaviour by adding code (a new implementation, a new handler), not by editing a stable module that every case passes through.\n- **LSP, Liskov Substitution.** A subtype must honour the *behavioural contract* of its base type: no stronger preconditions, no weaker postconditions, invariants preserved, no new exceptions the caller cannot expect. Compiling is not enough.\n- **ISP, Interface Segregation.** Clients should not depend on members they do not use. Prefer narrow role interfaces owned by the consumer.\n- **DIP, Dependency Inversion.** High-level policy should not depend on low-level detail; both depend on an abstraction, and the abstraction is *owned by the policy side*.\n\n## How it shows up in real .NET code\n\n- **SRP violation:** an `InvoiceService` that calculates tax (finance rules), renders the PDF (design team) and emails it (ops). A tax change forces a redeploy of the rendering code and risks breaking it. Refactor: `TaxCalculator`, `InvoiceRenderer`, `InvoiceMailer`, composed by a thin use case.\n- **OCP violation:** a `switch (carrier)` in a shipping-cost method that grows with every new carrier and is edited by every team. Refactor: `IShippingRateProvider` per carrier, resolved by key (keyed services in .NET 8+, or a dictionary).\n- **LSP violation:** `ReadOnlyCollection<T>` implements `ICollection<T>` and throws `NotSupportedException` from `Add`. Any code taking `ICollection<T>` and calling `Add` breaks at runtime. The BCL papers over it with `IsReadOnly`, which is itself a smell: callers must check a flag to know if the contract holds. The modern fix is depending on `IReadOnlyCollection<T>` where you only read.\n- **ISP violation:** a 15-method `IRepository<T>` injected into a report that only reads. Every fake in tests must stub 15 methods, and a change to `BulkUpdate` recompiles the report. Refactor: `IOrderReader` with the two queries the report needs.\n- **DIP violation:** `OrderService` news up `SqlOrderRepository` or references `Microsoft.EntityFrameworkCore` directly. Refactor: the Application layer declares `IOrderRepository`; Infrastructure implements it; the composition root wires it.\n\n## What an interviewer probes\n\n- \"DIP and DI are the same thing, right?\" No. DI is a *technique* (pass dependencies in); DIP is about *which side owns the abstraction*. You can inject a concrete `SqlConnection` (DI without DIP) or apply DIP with a hand-written factory and no container.\n- \"Is a class with one method SRP-compliant by definition?\" No: one method can serve two actors (a `Calculate` that mixes pricing and tax policy).\n- \"Show me an LSP violation that compiles.\" Square/Rectangle is the textbook one; the `ReadOnlyCollection<T>` / `NotSupportedException` case is the one that bites in production.\n- \"When do you *not* apply OCP?\" When there is one implementation and no evidence of a second. Speculative extension points cost readability now for a benefit that may never arrive.\n\n## Common misconceptions\n\n- \"Every class needs an interface for SOLID.\" Interfaces exist to decouple a *volatile* dependency or a consumer-owned role. `IOrderMapper` with one implementation that never varies adds a file and a hop, nothing else.\n- \"SRP means tiny classes.\" Fragmenting cohesive logic over ten classes spreads one reason to change across ten files: the opposite of the goal.\n- \"OCP means never modify code.\" Bug fixes and refactors modify code. OCP is about not editing a stable dispatch point for every *new variant*.\n\n```csharp\n// DIP: the policy (Application) owns the abstraction; the detail (Infrastructure) implements it.\n// --- Shop.Application project (no reference to Infrastructure) ---\npublic interface IPaymentGateway            // owned by the consumer, shaped by its needs\n{\n    Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct);\n}\n\npublic sealed class PlaceOrder(IPaymentGateway payments, IOrderRepository orders)\n{\n    public async Task<OrderId> Handle(PlaceOrderCommand cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        var result = await payments.ChargeAsync(order.Total, cmd.CardToken, ct);\n        if (!result.Succeeded) throw new PaymentDeclinedException(result.Reason);\n        await orders.AddAsync(order, ct);\n        return order.Id;\n    }\n}\n\n// --- Shop.Infrastructure project (references Application) ---\npublic sealed class StripePaymentGateway(StripeClient client) : IPaymentGateway\n{\n    public Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct) =>\n        /* Stripe-specific mapping lives here and nowhere else */ throw new NotImplementedException();\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.solid-in-practice.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "solid",
+            "srp",
+            "design-principles"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement best captures the Single Responsibility Principle as Robert Martin defines it?",
+              "options": [
+                {
+                  "text": "A class should expose exactly one public method so that it can only be used in one way.",
+                  "correct": false
+                },
+                {
+                  "text": "A module should be responsible to one actor, so that it has only one reason to change.",
+                  "correct": true
+                },
+                {
+                  "text": "A class should do one thing, measured by keeping it under a fixed line or method count.",
+                  "correct": false
+                },
+                {
+                  "text": "Each layer of the application should handle exactly one technical concern, such as data access.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Martin restated SRP as 'a module should be responsible to one, and only one, actor': the test is who asks for changes, not how many things the code does. An `InvoiceService` touched by finance (tax rules), design (PDF layout) and ops (mail delivery) has three reasons to change, even if it is short. Option 1 confuses SRP with a method count; a single `Calculate` can still serve two actors and mix their rules. Option 3 is the popular 'do one thing' paraphrase, which is about function-level cohesion (from Clean Code), not SRP, and a size limit measures neither. Option 4 describes separation of concerns at the layer level; a data-access layer can still contain a class that changes for many unrelated business reasons."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.solid-in-practice.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "solid",
+            "lsp",
+            "collections"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A method accepts `ICollection<string> target` and calls `target.Add(item)`. A caller passes a `ReadOnlyCollection<string>`. What happens, and which principle does it illustrate?",
+              "options": [
+                {
+                  "text": "It throws `NotSupportedException` at runtime: the type compiles as a subtype but breaks the contract callers rely on, an LSP violation.",
+                  "correct": true
+                },
+                {
+                  "text": "It does not compile, because the compiler rejects passing a read-only collection where a mutable `ICollection<T>` is expected (ISP).",
+                  "correct": false
+                },
+                {
+                  "text": "The item is added to a hidden copy and silently discarded, which violates the Open/Closed Principle because the base behaviour was modified.",
+                  "correct": false
+                },
+                {
+                  "text": "It works: `ReadOnlyCollection<T>` only blocks mutation through its own public API, not through the `ICollection<T>` interface, so DIP is respected.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ReadOnlyCollection<T>` implements `ICollection<T>` (and `IList<T>`) and throws `NotSupportedException` from the explicitly implemented `Add`, `Remove` and `Clear`. The code type-checks, but a caller written against the `ICollection<T>` contract fails at runtime: the textbook Liskov violation in the BCL. The `IsReadOnly` flag is the workaround that proves the point, since callers must check it to know whether the contract holds. Option 2 is wrong: it compiles fine because the type does implement the interface, which is exactly why LSP is a behavioural rule and not a type-system rule. Option 3 invents behaviour; nothing is copied or discarded, the call throws. Option 4 is wrong because the explicit interface implementation is precisely the member that throws; there is no back door. The fix is to depend on `IReadOnlyCollection<T>` when you only read and on `ICollection<T>` only when you genuinely mutate."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.solid-in-practice.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "solid",
+            "dip",
+            "dependency-injection"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A colleague says: \"We use the ASP.NET Core DI container everywhere, so we already follow the Dependency Inversion Principle.\" Which response is accurate?",
+              "options": [
+                {
+                  "text": "Correct: registering services in the container is what DIP means, because the container inverts who creates and owns the objects.",
+                  "correct": false
+                },
+                {
+                  "text": "Correct, but only if every class is registered against an interface rather than its concrete type.",
+                  "correct": false
+                },
+                {
+                  "text": "Not necessarily: DIP means the high-level module owns the abstraction; injecting concrete EF Core or HTTP types is DI without DIP.",
+                  "correct": true
+                },
+                {
+                  "text": "Not necessarily: DIP requires a service locator so that high-level modules can resolve abstractions on demand at runtime.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Dependency Inversion says high-level policy must not depend on low-level detail; both depend on an abstraction that the policy side defines. Dependency injection is only a delivery mechanism. Injecting `AppDbContext` or `StripeClient` straight into a use case is DI, yet the policy now compiles against infrastructure, so DIP is not met. Option 1 conflates inversion of *control* (who constructs objects) with inversion of *dependency direction*. Option 2 is closer but still wrong: an interface defined in the Infrastructure project (`Infrastructure.ISqlOrderStore`) and consumed by Application keeps the arrow pointing outward; ownership matters, not the keyword `interface`. Option 4 is backwards: a service locator hides dependencies and is generally treated as an anti-pattern; DIP needs no container at all, and a hand-wired composition root satisfies it."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.solid-in-practice.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "solid",
+            "isp",
+            "repository"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A reporting class depends on a generic `IRepository<Order>` with 15 members (CRUD, bulk update, paging, soft delete), but only calls two read queries. Tests must stub the whole interface. Which refactor best applies the Interface Segregation Principle?",
+              "options": [
+                {
+                  "text": "Keep `IRepository<Order>` and give the unused members default interface implementations, so fakes only override the two queries.",
+                  "correct": false
+                },
+                {
+                  "text": "Introduce a narrow `IOrderReader` owned by the reporting code with just the two queries, implemented by the existing repository class.",
+                  "correct": true
+                },
+                {
+                  "text": "Make the report depend on an abstract `RepositoryBase<Order>` class instead, so tests can inherit it and override only what they need.",
+                  "correct": false
+                },
+                {
+                  "text": "Have the report's test fake throw `NotImplementedException` from the 13 unused members; that keeps the interface stable for other consumers.",
+                  "correct": false
+                }
+              ],
+              "explanation": "ISP says clients should not be forced to depend on members they do not use. A role interface declared from the consumer's point of view (`IOrderReader`) shrinks the coupling surface: changes to bulk update no longer affect the report, fakes are two methods, and one concrete repository can implement several role interfaces. Option 1 only hides the problem in tests; the report still compiles against 15 members and is still recompiled and versioned with them, and default interface methods were designed for API evolution, not for segregation. Option 3 swaps an interface for a fat base class, which couples even harder (inherited state, constructor, virtual call rules). Option 4 is the classic workaround that creates an LSP violation in test code: a substitute that throws on part of its contract, so a later change in the report's calls fails at runtime instead of compile time."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.solid-in-practice.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "solid",
+            "design-principles",
+            "refactoring"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Walk me through the SOLID principles. For each one, give a concrete violation you would expect to find in a typical .NET codebase and describe the refactor that fixes it. Finish with one situation where applying a SOLID principle mechanically made the code worse.",
+              "explanation": "Model answer: SRP is about one actor and one reason to change (an `InvoiceService` mixing tax rules, PDF rendering and email; split into collaborators composed by a use case). OCP means adding variants by adding code (a growing `switch` on carrier replaced with an `IShippingRateProvider` per carrier). LSP is a behavioural contract (`ReadOnlyCollection<T>` throwing `NotSupportedException` from `ICollection<T>.Add`; depend on `IReadOnlyCollection<T>`). ISP is about consumers depending only on what they use (a fat `IRepository<T>` replaced with a role interface like `IOrderReader`). DIP is about the policy owning the abstraction (Application declares `IPaymentGateway`, Infrastructure implements it), which is different from merely using a DI container. Over-application: interfaces for every class with a single, non-volatile implementation, or OCP extension points with no second variant, which add indirection without decoupling anything.",
+              "rubric": [
+                "States SRP in terms of one actor or one reason to change (not 'one method' or 'does one thing') and gives a concrete multi-actor class with a split refactor.",
+                "Gives an OCP example where a new variant forces edits to a central conditional, and a refactor that adds variants by adding new types (strategy, keyed services or similar).",
+                "Explains LSP as a behavioural contract (preconditions, postconditions, invariants, unexpected exceptions) with a violation that still compiles, such as `NotSupportedException` from a collection interface or Square/Rectangle.",
+                "Explains ISP with a fat interface and a consumer-owned narrow interface, and DIP as the high-level module owning the abstraction, explicitly distinguishing DIP from using a DI container.",
+                "Names a real over-engineering case (an interface per class with one implementation, speculative extension points, over-fragmented classes) and explains why it increased cost without reducing coupling."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "gof-patterns-that-matter",
+      "title": "GoF Patterns That Matter: Strategy, Decorator, Factory, Builder, Observer, Mediator, Specification",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "GoF Patterns That Matter: Strategy, Decorator, Factory, Builder, Observer, Mediator, Specification",
+          "note": "## What it is\n\nOf the 23 Gang of Four patterns, a handful show up weekly in a modern .NET + Angular codebase. Interviewers care less about UML and more about: can you recognise the pattern in the framework you already use, can you say what problem it solves, and do you know when it is over-engineering.\n\n## The ones that matter, and where .NET already uses them\n\n- **Strategy:** interchangeable algorithms behind one interface, chosen by the context. `IComparer<T>`, a per-carrier `IShippingRateProvider`, `IPasswordHasher<T>`. In C# a `Func<T, TResult>` is often a perfectly good strategy.\n- **Decorator:** wraps an object implementing the *same* interface, adds behaviour, delegates to the inner instance; decorators stack. `GZipStream` over `FileStream`, `BufferedStream`, `DelegatingHandler` chains on `HttpClient`, a caching `IProductRepository` around the EF one. The built-in container has no `Decorate` helper; Scrutor adds one, or you register a factory by hand.\n- **Factory (Method / Abstract Factory):** centralise creation when the concrete type or its lifetime is decided at runtime. `IHttpClientFactory` exists because creating `HttpClient` naively causes socket exhaustion or stale DNS; `ILoggerFactory`; `IDbContextFactory<T>` for Blazor and background work.\n- **Builder:** step-by-step construction of a complex, often immutable object, with validation at `Build()`. `WebApplication.CreateBuilder`, `StringBuilder`, `HostBuilder`, test-data builders (`new OrderBuilder().WithLines(3).Paid().Build()`).\n- **Observer:** subjects notify subscribers. C# `event`s, `IObservable<T>`/Rx, Angular signals and RxJS. The production pitfall: the publisher's delegate list holds a *strong* reference to the subscriber.\n- **Mediator:** objects talk through a hub instead of to each other. MediatR, the Angular router outlet, a chat-room hub. Reduces N-to-N coupling at the price of an extra indirection that hides the call graph.\n- **Specification** (Evans/Fowler, not GoF, but asked alongside): a business rule as a combinable object, `IsSatisfiedBy(T)`, often exposed as an `Expression<Func<T, bool>>` so EF Core can translate it to SQL.\n\n## What an interviewer probes\n\n- \"Strategy vs Decorator?\" Strategy *replaces* the algorithm the context delegates to; Decorator *wraps* the same abstraction to add behaviour around it, and several can stack.\n- \"Where is Decorator in ASP.NET Core?\" `DelegatingHandler` pipelines for `HttpClient` (retry, auth header, logging). Middleware is closer to Chain of Responsibility: each component may short-circuit.\n- \"Why `Expression<Func<T,bool>>` and not `Func<T,bool>` in a specification?\" Passing a `Func` to `Where` on an `IQueryable` binds to `Enumerable.Where`: EF loads the whole table and filters in memory, silently.\n- \"Singleton?\" As a *lifetime* (DI `AddSingleton`) it is fine. As the GoF pattern with a static `Instance`, it is global mutable state that hides dependencies and blocks testing.\n\n## Anti-patterns to name\n\n- **Service Locator:** `serviceProvider.GetService<T>()` inside business code hides dependencies; legitimate only in framework plumbing and factories.\n- **God object / God service:** one `Manager` everything calls; usually an SRP failure dressed as a Facade.\n- **Pattern-first design:** a `IStrategyFactoryProvider` for a branch that has had one case for three years. Introduce a pattern when the second variant appears.\n- **Leaking events:** subscribing a short-lived object to a long-lived event without unsubscribing.\n\n```csharp\n// Decorator: caching around the real repository, same interface, stackable.\npublic sealed class CachedProductRepository(IProductRepository inner, IMemoryCache cache)\n    : IProductRepository\n{\n    public Task<Product?> GetAsync(int id, CancellationToken ct) =>\n        cache.GetOrCreateAsync($\"product:{id}\", entry =>\n        {\n            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n            return inner.GetAsync(id, ct);\n        });\n}\n\n// Wiring without Scrutor: register the concrete inner type, expose the decorator.\nservices.AddScoped<EfProductRepository>();\nservices.AddScoped<IProductRepository>(sp =>\n    new CachedProductRepository(sp.GetRequiredService<EfProductRepository>(),\n                                sp.GetRequiredService<IMemoryCache>()));\n\n// Specification that EF Core can translate.\npublic sealed class ActiveCustomerSpec\n{\n    public Expression<Func<Customer, bool>> Criteria { get; } =\n        c => c.IsActive && c.LastOrderAt > DateTime.UtcNow.AddMonths(-12);\n}\nvar active = await db.Customers.Where(new ActiveCustomerSpec().Criteria).ToListAsync(ct);\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.gof-patterns-that-matter.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "design-patterns",
+            "strategy",
+            "decorator"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the essential difference between the Strategy and the Decorator pattern?",
+              "options": [
+                {
+                  "text": "Strategy is selected at compile time through generics, while Decorator is applied at runtime through reflection or proxies.",
+                  "correct": false
+                },
+                {
+                  "text": "Decorator requires inheriting from the concrete class being extended, whereas Strategy is the only one of the two built on interfaces.",
+                  "correct": false
+                },
+                {
+                  "text": "They are structurally identical; the names describe intent only, so either label is correct for any class that implements an interface.",
+                  "correct": false
+                },
+                {
+                  "text": "Strategy swaps the algorithm the context delegates to; Decorator wraps the same abstraction to add behaviour, and decorators stack.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Strategy answers 'which algorithm?': the context holds one interchangeable implementation (`IComparer<T>`, a per-carrier rate provider) and the choice replaces behaviour. Decorator answers 'what extra behaviour around this?': it implements the same interface as the object it wraps, delegates to it and adds work before or after (`GZipStream` over `FileStream`, a caching repository over the EF one), and several decorators compose into a chain. Option 1 is wrong on both counts: strategies are usually chosen at runtime (by configuration, by key), and decorators are normally plain composition, no reflection required. Option 2 inverts the GoF intent: Decorator exists precisely to avoid subclass explosion and works through the shared abstraction, not by inheriting the concrete type. Option 3 has a grain of truth (both use composition and an interface) but the relationship differs: a decorator *is-a* and *has-a* the same abstraction, a strategy is a collaborator of a different type than its context."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.gof-patterns-that-matter.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "design-patterns",
+            "observer",
+            "memory-leak"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A scoped ViewModel-like service subscribes to `AppEvents.SettingsChanged`, a `static event EventHandler`, in its constructor and never unsubscribes. What happens over time?",
+              "options": [
+                {
+                  "text": "Nothing harmful: .NET events hold weak references to subscribers, so instances are collected when the scope is disposed.",
+                  "correct": false
+                },
+                {
+                  "text": "Each instance stays reachable from the static event's delegate list: none is collected, and each keeps running its handler.",
+                  "correct": true
+                },
+                {
+                  "text": "The DI container unsubscribes the handler when it disposes the scope, because it tracks event subscriptions made by scoped services.",
+                  "correct": false
+                },
+                {
+                  "text": "Only lambda subscriptions leak; a method-group subscription such as `+= OnChanged` is stored without a reference to the instance.",
+                  "correct": false
+                }
+              ],
+              "explanation": "An event is a multicast delegate field on the publisher, and each delegate holds a strong reference to its target object. A static event is a GC root for as long as the AppDomain lives, so every subscriber it references stays alive: memory grows with every scope, and disposed instances keep executing their handlers (often throwing `ObjectDisposedException`). That is the classic Observer leak. Option 1 is the misconception: CLR events are not weak; WPF's `WeakEventManager` exists precisely because they are not. Option 3 is wrong: the container disposes `IDisposable` instances it created, it knows nothing about event subscriptions, so you must unsubscribe in `Dispose`. Option 4 is wrong: a method-group subscription to an instance method creates a delegate whose `Target` is the instance, exactly like a lambda that captures `this`."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.gof-patterns-that-matter.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "design-patterns",
+            "specification",
+            "ef-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A specification exposes `Func<Order, bool> Predicate { get; }` and a handler runs `var due = db.Orders.Where(spec.Predicate).ToList();`. What does EF Core do?",
+              "options": [
+                {
+                  "text": "It translates the delegate to SQL, because EF Core decompiles the IL of compiled delegates into an expression tree at runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "It throws an `InvalidOperationException` saying the LINQ expression could not be translated, so the bug is caught in the first test run.",
+                  "correct": false
+                },
+                {
+                  "text": "It compiles and runs, but `Where` binds to `Enumerable.Where`: every `Orders` row is loaded and the predicate runs in memory.",
+                  "correct": true
+                },
+                {
+                  "text": "It fails to compile, because `Queryable.Where` only accepts an `Expression<Func<T, bool>>` and there is no other applicable overload.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`DbSet<T>` implements both `IQueryable<T>` and `IEnumerable<T>`. Overload resolution cannot convert a `Func<T,bool>` to `Expression<Func<T,bool>>`, so `Queryable.Where` is not applicable and the compiler silently picks `Enumerable.Where`. From that point the query is LINQ to Objects: EF issues `SELECT ... FROM Orders` with no filter, materialises (and by default tracks) every row, and the delegate runs in memory. It works in a dev database and falls over in production. That is why a specification exposes `Expression<Func<T,bool>>`. Option 1 is wrong: EF never decompiles delegates. Option 2 describes what happens when an *expression tree* contains something untranslatable; here EF never sees the predicate. Option 4 overlooks the `IEnumerable<T>` overload, which is exactly what makes this bug silent."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.gof-patterns-that-matter.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "design-patterns",
+            "builder",
+            "factory"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In which situation is introducing a Builder (rather than a constructor or object initializer) most clearly justified?",
+              "options": [
+                {
+                  "text": "Building an immutable object takes several optional steps plus cross-field validation that should run once, at the end.",
+                  "correct": true
+                },
+                {
+                  "text": "The class has more than three constructor parameters, which by itself means callers need a fluent API to set them reliably.",
+                  "correct": false
+                },
+                {
+                  "text": "The concrete type to create depends on runtime configuration, so callers should not know which implementation they receive.",
+                  "correct": false
+                },
+                {
+                  "text": "The object must be shared as a single instance across the application, and the builder guarantees it is only created once.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Builder earns its place when construction is a multi-step process with optional parts and invariants that span fields: `WebApplication.CreateBuilder` collects services, configuration and logging before `Build()` freezes them into an immutable host, and test-data builders hide twenty irrelevant fields behind defaults. Option 2 is a heuristic, not a justification: C# named arguments, `required` init-only properties and records solve 'many parameters' without a second type. Option 3 describes a Factory (or Abstract Factory): the problem is *which* type, not *how* to assemble it. Option 4 describes a Singleton concern, which in modern .NET belongs to the DI lifetime (`AddSingleton`), not to a construction pattern."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.gof-patterns-that-matter.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "design-patterns",
+            "dotnet",
+            "anti-patterns"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which GoF patterns do you actually use in day-to-day .NET work? Pick at least four, show where ASP.NET Core or the BCL already uses each one, and explain when applying a pattern becomes an anti-pattern.",
+              "explanation": "Model answer: Strategy (`IComparer<T>`, per-carrier rate providers, keyed services) for interchangeable algorithms; Decorator (`GZipStream` over `FileStream`, `DelegatingHandler` chains, a caching repository wrapping an EF one) to add behaviour around the same abstraction; Factory (`IHttpClientFactory` to manage handler lifetimes and avoid socket exhaustion or stale DNS, `IDbContextFactory<T>`) when type or lifetime is decided at runtime; Builder (`WebApplication.CreateBuilder`, test-data builders) for multi-step construction of immutable objects; Observer (events, `IObservable<T>`, RxJS) with the strong-reference leak pitfall; Mediator (MediatR) to decouple senders from handlers at the cost of a hidden call graph. Anti-patterns: GoF Singleton with static state rather than a DI lifetime, Service Locator in business code, pattern-first design with one implementation and no second variant in sight, and God services hiding behind a Facade.",
+              "rubric": [
+                "Names at least four patterns from strategy, decorator, factory, builder, observer, mediator, specification and states the problem each solves in one sentence.",
+                "Gives correct framework examples, for instance `DelegatingHandler` or `Stream` wrappers for Decorator, `IHttpClientFactory` for Factory, `WebApplication.CreateBuilder` for Builder, events or `IObservable<T>` for Observer.",
+                "Distinguishes at least one commonly confused pair correctly (Strategy vs Decorator, Decorator vs Chain of Responsibility/middleware, Factory vs Builder).",
+                "Names concrete anti-patterns (Service Locator, static Singleton as global state, God object, speculative pattern use) and why they hurt (hidden dependencies, testability, indirection without a second variant).",
+                "States a decision rule such as introducing a pattern when a second variant or a real cross-cutting concern appears, rather than up front."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "clean-hexagonal-onion",
+      "title": "Clean, Hexagonal and Onion Architecture",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Clean, Hexagonal and Onion Architecture",
+          "note": "## What it is\n\nClean Architecture (Martin), Onion Architecture (Palermo) and Hexagonal Architecture / Ports and Adapters (Cockburn) are three framings of one idea: **put business rules at the centre and make every framework, database and transport a replaceable detail at the edge**. They differ in vocabulary and in how many rings they draw, not in substance.\n\n- **Hexagonal:** the application exposes *ports* (interfaces). *Driving* (primary) adapters call into it: HTTP endpoints, message consumers, CLI verbs, tests. *Driven* (secondary) adapters are called by it: EF Core repositories, SMTP senders, payment gateways, the system clock.\n- **Onion:** concentric rings: domain model, domain services, application services, then infrastructure/UI/tests in the outer ring.\n- **Clean:** Entities, Use Cases, Interface Adapters, Frameworks & Drivers, with *the Dependency Rule* as the one non-negotiable.\n\n## How it works underneath: the dependency rule\n\nSource-code dependencies point **only inward**. An inner ring never names a type from an outer ring: Domain does not reference EF Core, Application does not reference ASP.NET Core. Control flow still goes outward at runtime (a use case calls the repository to save), so the inner ring *declares an interface* (a port) and the outer ring implements it. That is Dependency Inversion applied at the project level, and in .NET you enforce it with project references: `Domain` → nothing; `Application` → `Domain`; `Infrastructure` → `Application`; `Api` → everything, as the composition root. Architecture tests (NetArchTest, ArchUnitNET) catch the violations project references cannot, such as a `using Microsoft.EntityFrameworkCore` in `Application` when the package flows transitively.\n\n## Where DTOs live\n\n- **HTTP contracts** (`CreateOrderRequest`, `OrderResponse`): at the edge, in the API project or a slice next to its endpoint. They are shaped by clients and versioned with the API.\n- **Use-case input/output** (`PlaceOrderCommand`, `OrderSummary`): in Application. They can coincide with the HTTP contract in small systems; that is a pragmatic shortcut, not a rule violation, as long as Domain does not see them.\n- **Persistence models**: in Infrastructure. With EF Core you usually map domain entities directly through configuration (`IEntityTypeConfiguration<T>`), which keeps one model; a separate persistence model is worth it only when the domain and the schema diverge strongly.\n- **Domain entities are never serialised as API responses**: that couples the wire format to invariants and leaks fields.\n\n## What an interviewer probes\n\n- \"State the dependency rule\" and \"how do you make a use case save to the database without referencing EF?\" (port in Application, adapter in Infrastructure, wired in the composition root).\n- \"Is a controller a driving or driven adapter? A test?\" Both are driving.\n- \"Do you wrap `DbContext` in a repository?\" `DbContext` already is a unit of work and `DbSet<T>` already a repository. A per-aggregate repository that expresses domain queries is defensible; a generic `IRepository<T>` that re-exposes `IQueryable<T>` mostly re-leaks EF while adding a layer.\n- \"When is this over-engineering?\" See below.\n\n## Over-engineering signals\n\n- Four projects and four mappings for a CRUD service with no business rules.\n- Interfaces with a single implementation that is not volatile and not an I/O boundary (`IOrderMapper`, `IOrderValidatorFactory`).\n- Use cases that only forward to a repository.\n- The same shape copied through `Request` → `Command` → `Entity` → `DbModel` → `Dto` → `Response` with AutoMapper hiding that nothing changes.\n- Domain \"entities\" with public setters and no behaviour: the rings exist but there is nothing at the centre to protect.\n\n## Common misconceptions\n\n- \"Layered (N-tier) is the same thing.\" Classic UI → BLL → DAL makes business logic depend on data access; Clean inverts that arrow.\n- \"The goal is swapping the database.\" Rarely happens. The real payoff is testable, framework-free business rules and isolating volatile integrations.\n- \"Every call must go through every layer.\" Queries can bypass the domain and project straight from the read side.\n\n```csharp\n// Application: the port, owned by the core.\npublic interface IOrderRepository\n{\n    Task<Order?> GetAsync(OrderId id, CancellationToken ct);\n    void Add(Order order);\n}\n\n// Infrastructure: the driven adapter.\ninternal sealed class EfOrderRepository(ShopDbContext db) : IOrderRepository\n{\n    public Task<Order?> GetAsync(OrderId id, CancellationToken ct) =>\n        db.Orders.Include(o => o.Lines).SingleOrDefaultAsync(o => o.Id == id, ct);\n    public void Add(Order order) => db.Orders.Add(order);\n}\n\n// Api: composition root and driving adapter.\nbuilder.Services.AddScoped<IOrderRepository, EfOrderRepository>();\napp.MapPost(\"/orders\", async (CreateOrderRequest req, PlaceOrder useCase, CancellationToken ct) =>\n    TypedResults.Created($\"/orders/{await useCase.Handle(req.ToCommand(), ct)}\"));\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.clean-hexagonal-onion.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clean-architecture",
+            "dependency-rule",
+            "layering"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the Dependency Rule in Clean Architecture?",
+              "options": [
+                {
+                  "text": "Each layer may reference only the layer directly beneath it, so the UI calls business logic and business logic calls data access.",
+                  "correct": false
+                },
+                {
+                  "text": "Runtime calls may only flow inward, so the domain never invokes infrastructure code such as a repository, even through an interface.",
+                  "correct": false
+                },
+                {
+                  "text": "Source dependencies point only inward: inner layers never reference outer ones, and outer layers implement ports declared inside.",
+                  "correct": true
+                },
+                {
+                  "text": "Infrastructure sits at the centre because every other layer needs persistence, so all projects reference it and it references none of them.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The Dependency Rule constrains *compile-time* dependencies: nothing in an inner circle may name anything in an outer circle. When a use case needs to persist, it declares a port (`IOrderRepository`) and Infrastructure implements it, so the source-code arrow points inward while the runtime call goes outward. Option 1 describes classic N-tier layering, where business logic depends on the data-access layer; Clean Architecture exists to invert exactly that arrow. Option 2 confuses control flow with source dependencies; a use case calls a repository at runtime all the time, it just does so through an abstraction it owns. Option 4 is the database-centric design the rule was written against: putting infrastructure at the centre makes business rules untestable without it."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.clean-hexagonal-onion.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "hexagonal",
+            "ports-and-adapters",
+            "testing"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In a Ports and Adapters (hexagonal) application, which of these is a driven (secondary) adapter?",
+              "options": [
+                {
+                  "text": "A FastEndpoints endpoint that maps an incoming HTTP request to a use-case command and invokes it.",
+                  "correct": false
+                },
+                {
+                  "text": "An EF Core implementation of the `IOrderRepository` port declared by the application core.",
+                  "correct": true
+                },
+                {
+                  "text": "An xUnit test that constructs the use case with fakes and asserts on its result.",
+                  "correct": false
+                },
+                {
+                  "text": "A RabbitMQ consumer that receives an `OrderPaid` message and calls the shipping use case.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Driven (secondary) adapters are the ones the application calls out to through ports it declares: persistence, email, payment providers, clocks. The EF Core repository implements a port owned by the core and is invoked by it, so it is driven. The HTTP endpoint (option 1) and the message consumer (option 4) are driving adapters: external stimuli that call *into* the application; the transport differs but the direction is the same. Option 3 is the one people miss: Cockburn explicitly lists tests as a driving adapter, which is the whole point of the pattern, because the core can be exercised without any UI or transport."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.clean-hexagonal-onion.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clean-architecture",
+            "dto",
+            "mapping"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Where should HTTP request/response contracts such as `CreateOrderRequest` and `OrderResponse` live in a Clean Architecture .NET solution?",
+              "options": [
+                {
+                  "text": "In the Domain project, so every layer shares one model and no mapping code is needed between layers.",
+                  "correct": false
+                },
+                {
+                  "text": "In a shared `Contracts` project referenced by Domain, Application and Api, so the domain model can validate incoming requests directly.",
+                  "correct": false
+                },
+                {
+                  "text": "In Infrastructure, next to the EF Core configurations, because response shapes usually mirror database tables.",
+                  "correct": false
+                },
+                {
+                  "text": "At the edge, in the Api project (or Application-level use-case models), mapped to domain types; Domain never references them.",
+                  "correct": true
+                }
+              ],
+              "explanation": "HTTP contracts change for client reasons (versioning, field naming, pagination) and must not drag the domain along. They belong to the outermost driving adapter, and the use case accepts either its own command/result types defined in Application or, in small systems, the same shape. The invariant is that Domain does not reference them. Option 1 couples wire format to invariants: renaming a JSON field becomes a domain change, and serialising entities leaks internal state and breaks encapsulation (public setters for the deserialiser). Option 2 is the same coupling with an extra project, and makes Domain depend on something outer. Option 3 ties the API to the schema, which is the dependency direction the architecture exists to prevent; Infrastructure is also an outer ring the Api should not need for its contracts."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.clean-hexagonal-onion.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clean-architecture",
+            "over-engineering",
+            "repository"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An internal admin service has five CRUD endpoints and no business rules. It has Domain, Application, Infrastructure and Api projects, a generic `IRepository<T>` over EF Core, and AutoMapper copying the same fields through four models. Which assessment is most accurate?",
+              "options": [
+                {
+                  "text": "The layers add indirection but isolate no business rule and no volatile dependency; a thin design over `DbContext` fits better.",
+                  "correct": true
+                },
+                {
+                  "text": "The generic repository is still required, because without it EF Core code cannot be unit-tested or integration-tested in isolation.",
+                  "correct": false
+                },
+                {
+                  "text": "The design is correct but EF Core is the problem: Clean Architecture requires replacing it with Dapper so persistence stays a pure detail.",
+                  "correct": false
+                },
+                {
+                  "text": "The design should stay because consistency with the other services always outweighs the local cost of extra layers and mappings.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Clean/Onion/Hexagonal pay off when there are business rules worth protecting or volatile integrations worth isolating. Here there are neither: the centre is empty, `IRepository<T>` re-wraps what `DbContext` (unit of work) and `DbSet<T>` (repository) already provide, and four identical models multiply change cost. A vertical slice or a minimal API with EF Core directly is honest about the problem's size. Option 2 is a common myth: EF Core can be tested against SQLite in-memory or a real database via Testcontainers, and a generic repository that exposes `IQueryable<T>` does not make queries more testable anyway. Option 3 misreads the architecture: EF Core in Infrastructure is a perfectly legal detail; swapping ORMs changes nothing about the over-layering. Option 4 can be a factor in a large organisation, but 'always' is the tell: cargo-culted structure for a trivial service is exactly the over-engineering signal interviewers look for."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.clean-hexagonal-onion.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "clean-architecture",
+            "hexagonal",
+            "onion"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain Clean, Onion and Hexagonal Architecture. What do they have in common, how do they differ, how do you enforce them in a .NET solution, and when would you deliberately not use them?",
+              "explanation": "Model answer: all three put business rules at the centre and treat UI, database and messaging as replaceable details. The shared invariant is the dependency rule: source dependencies point inward and the core declares ports that outer adapters implement. Hexagonal frames it as ports with driving adapters (HTTP, consumers, tests) and driven adapters (database, email, payment); Onion as concentric rings (domain model, domain services, application services, outer infrastructure); Clean as Entities, Use Cases, Interface Adapters, Frameworks. In .NET it is enforced with project references (Domain references nothing, Application references Domain, Infrastructure references Application, Api is the composition root) plus architecture tests for transitive leaks. DTOs live at the edge, entities are not serialised. Skip it for CRUD services with no rules, prototypes or small teams where a vertical-slice design with EF Core directly is cheaper; warning signs are single-implementation interfaces, pass-through use cases and repeated identical mappings.",
+              "rubric": [
+                "States the dependency rule correctly (source-code dependencies point inward; inner layers declare interfaces that outer layers implement) and distinguishes it from runtime control flow.",
+                "Explains ports and adapters including the driving vs driven distinction, with correct examples of each (HTTP endpoint or test as driving; repository, email or payment gateway as driven).",
+                "Identifies that the three are variations of the same idea and names a real difference in framing (rings and vocabulary) rather than claiming they are unrelated.",
+                "Describes concrete enforcement in .NET: project reference direction, composition root in the host project, and/or architecture tests (NetArchTest, ArchUnitNET).",
+                "Gives concrete over-engineering signals or contexts where it should not be used (CRUD with no rules, pass-through layers, single-implementation interfaces, duplicated mappings)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "ddd-lite",
+      "title": "DDD-lite: Entities, Value Objects, Aggregates, Domain Events, Bounded Contexts",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "DDD-lite: Entities, Value Objects, Aggregates, Domain Events, Bounded Contexts",
+          "note": "## What it is\n\n\"DDD-lite\" is the tactical half of Domain-Driven Design used without the full strategic process: entities, value objects, aggregates and domain events inside a codebase, plus enough strategic thinking (bounded contexts, ubiquitous language) to keep models from sprawling. Interviewers use it to check whether you can put business rules *in the model* and draw consistency boundaries deliberately.\n\n## The building blocks\n\n- **Entity:** has an identity that survives state changes. Two `Order`s with the same lines are different orders; equality is by id.\n- **Value object:** defined entirely by its attributes, immutable, compared by value, replaced rather than mutated: `Money`, `Address`, `DateRange`, `EmailAddress`. It is the cheapest place to enforce invariants: an `EmailAddress` that exists is valid. In C# a `record` (or `readonly record struct`) gives value equality for free; EF Core maps them as owned types or, from EF Core 8, as complex types.\n- **Aggregate:** a cluster of entities and value objects treated as one consistency boundary, reached only through its **root**. All invariants inside the boundary hold after every transaction (`Order` total never exceeds the credit limit snapshot; no duplicate product lines). Vaughn Vernon's rules of thumb: design small aggregates, reference other aggregates *by id*, modify one aggregate per transaction, and use eventual consistency between aggregates.\n- **Domain event:** a fact that happened in the domain, named in the past tense (`OrderPlaced`). The aggregate records it; a dispatcher runs in-process handlers. An **integration event** is a different thing: a published contract for other services, usually delivered via an outbox.\n- **Domain service:** a stateless operation that does not naturally belong to one entity (a pricing policy spanning several aggregates).\n- **Bounded context:** the boundary within which one model and its language are consistent. \"Customer\" in Billing (payment terms, VAT id) and in Support (tickets, SLA tier) are *different models* sharing an id. Context maps describe how they integrate (anti-corruption layer, shared kernel, customer/supplier).\n\n## Anemic domain model\n\nFowler's anti-pattern: entities are property bags with public setters and every rule lives in services (`OrderService.Approve(order)` sets `order.Status`). Invariants are enforced nowhere central, so any caller can put an `Order` in an invalid state. It is not automatically wrong: for CRUD with no invariants, an anemic model plus transaction scripts is the honest choice. It becomes a problem when there are real rules and they are duplicated across services.\n\n## What an interviewer probes\n\n- \"Entity vs value object?\" Identity vs attribute equality, mutability, lifecycle.\n- \"How do you choose aggregate boundaries?\" By *true invariants* that must hold transactionally, not by navigation convenience or by the table diagram.\n- \"Order needs to check the Customer's credit. Same aggregate?\" No: reference by id, check via a domain service or snapshot, and handle the rest with eventual consistency.\n- \"When do domain events dispatch?\" Before `SaveChanges` (handlers' changes commit atomically; external side effects must not happen there) or after commit (side effects are safe but need an outbox for reliability).\n\n## Common misconceptions\n\n- \"Aggregate = table\" or \"aggregate = everything reachable from the root.\" Large aggregates cause lock contention and load storms.\n- \"Value objects must be structs.\" The semantics matter, not the CLR kind; a `record class` is fine.\n- \"DDD means one shared enterprise model.\" DDD argues the opposite: multiple bounded models, each consistent internally.\n\n```csharp\npublic sealed record Money(decimal Amount, string Currency)\n{\n    public static Money operator +(Money a, Money b) =>\n        a.Currency == b.Currency ? a with { Amount = a.Amount + b.Amount }\n                                 : throw new InvalidOperationException(\"Currency mismatch\");\n}\n\npublic sealed class Order                                // aggregate root\n{\n    private readonly List<OrderLine> _lines = [];\n    private readonly List<IDomainEvent> _events = [];\n    public OrderId Id { get; }\n    public CustomerId CustomerId { get; }                // reference by id, not navigation\n    public OrderStatus Status { get; private set; }\n    public IReadOnlyList<OrderLine> Lines => _lines;\n    public IReadOnlyList<IDomainEvent> Events => _events;\n\n    public void AddLine(ProductId product, int qty, Money unitPrice)\n    {\n        if (Status != OrderStatus.Draft) throw new DomainException(\"Order is not editable.\");\n        if (_lines.Any(l => l.ProductId == product)) throw new DomainException(\"Duplicate line.\");\n        _lines.Add(new OrderLine(product, qty, unitPrice));\n    }\n\n    public void Place()\n    {\n        if (_lines.Count == 0) throw new DomainException(\"Empty order.\");\n        Status = OrderStatus.Placed;\n        _events.Add(new OrderPlaced(Id, CustomerId));\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.ddd-lite.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "entity",
+            "value-object"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the fundamental difference between an entity and a value object in DDD?",
+              "options": [
+                {
+                  "text": "An entity has its own database table while a value object is stored inline, so the distinction is decided by the persistence mapping.",
+                  "correct": false
+                },
+                {
+                  "text": "An entity is a mutable class and a value object is a struct, so the distinction is decided by the CLR type kind.",
+                  "correct": false
+                },
+                {
+                  "text": "An entity has an identity that survives state changes; a value object is defined by its attributes, compared by value, immutable.",
+                  "correct": true
+                },
+                {
+                  "text": "An entity contains behaviour while a value object is a passive data holder that must not contain any methods or validation logic.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The distinction is conceptual: an entity is tracked by identity over its lifecycle (an `Order` stays the same order when lines change), while a value object is interchangeable with any other instance with the same attributes (`Money(10, \"EUR\")`) and is replaced, not mutated. Option 1 confuses the model with its mapping: value objects can be stored in their own table (EF Core owned collections) and entities can share a table (table splitting). Option 2 confuses semantics with implementation: a `record class` is a fine value object, and structs are only a performance choice. Option 4 is backwards: value objects are the best place for behaviour and validation (`Money.Add` enforcing currency, `EmailAddress` validating its format on construction)."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.ddd-lite.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "aggregate",
+            "consistency"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Placing an `Order` must respect the customer's credit limit, which lives on the `Customer` aggregate. A developer proposes giving `Order` a `Customer` navigation property and updating `Customer.AvailableCredit` and the order in the same `SaveChanges`. Which guideline from aggregate design applies?",
+              "options": [
+                {
+                  "text": "Merge them: make `Customer` the aggregate root that owns all its orders, so the credit invariant is enforced inside one boundary.",
+                  "correct": false
+                },
+                {
+                  "text": "Accept the proposal: aggregates are a read-side concept, and writing several of them in one transaction is the normal way to keep invariants.",
+                  "correct": false
+                },
+                {
+                  "text": "Split by table instead: each table is its own aggregate, so `OrderLine` and `Order` should also be saved in separate transactions.",
+                  "correct": false
+                },
+                {
+                  "text": "Reference other aggregates by id and change one aggregate per transaction; check credit via a domain service, reconcile eventually.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Aggregates are consistency boundaries sized around invariants that must hold transactionally. Vernon's rules: keep aggregates small, reference other aggregates by identity, modify one per transaction, and use eventual consistency (domain events) across them. The order can check a credit snapshot or call a domain service; reserving credit then happens as a reaction to `OrderPlaced`, with compensation if it fails. Option 1 creates a giant aggregate: loading a customer means loading every order, and every order placement contends on the same root, so concurrency conflicts explode. Option 2 is the convenience path that makes boundaries meaningless: two roots changed together means two consistency boundaries pretending to be one, and locking/contention follows. Option 3 confuses aggregates with tables; `OrderLine` is inside the `Order` boundary precisely so that order-level invariants (no duplicate lines, total limits) are enforced atomically."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.ddd-lite.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "anemic-model",
+            "encapsulation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which of these is the clearest symptom of an anemic domain model?",
+              "options": [
+                {
+                  "text": "Entities have public setters, and rules like 'only drafts are editable' are re-checked in several services that set `order.Status`.",
+                  "correct": true
+                },
+                {
+                  "text": "Entities do not inherit from a common `Entity<TId>` base class providing shared identity equality and domain-event plumbing.",
+                  "correct": false
+                },
+                {
+                  "text": "The API layer returns DTOs instead of serialising the domain entities directly, which forces a separate mapping step in every endpoint.",
+                  "correct": false
+                },
+                {
+                  "text": "The model includes a stateless domain service for a pricing calculation that spans several aggregates and belongs to none.",
+                  "correct": false
+                }
+              ],
+              "explanation": "An anemic model has the shape of a domain model but none of its behaviour: entities are property bags and the rules live in procedural services, so nothing stops a caller from putting an object in an invalid state, and the same rule is re-implemented (and drifts) in several places. Option 2 is a stylistic choice; plenty of rich models use no base class. Option 3 is good practice in any architecture, not a symptom of anything. Option 4 is legitimate DDD: domain services exist for behaviour that does not belong to one entity. Note that an anemic model is a deliberate, valid choice for CRUD with no invariants; it becomes an anti-pattern when real rules exist and are scattered."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.ddd-lite.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "bounded-context",
+            "integration"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Billing and Support both have a `Customer`. Billing needs VAT id and payment terms; Support needs SLA tier and open tickets. Which approach is consistent with DDD's bounded contexts?",
+              "options": [
+                {
+                  "text": "Create one canonical `Customer` class in a shared library that both teams reference, so the definition cannot drift.",
+                  "correct": false
+                },
+                {
+                  "text": "Give each context its own `Customer` model and language, sharing only an id and integrating through events or a translation layer.",
+                  "correct": true
+                },
+                {
+                  "text": "Let Support query Billing's database tables directly, since the customer data already exists there and duplicating it violates DRY.",
+                  "correct": false
+                },
+                {
+                  "text": "Merge Billing and Support into one bounded context, because two models for the same real-world concept is a modelling error.",
+                  "correct": false
+                }
+              ],
+              "explanation": "A bounded context is the boundary within which one model and one ubiquitous language are consistent. The same real-world person legitimately has different models in different contexts; they share an id and integrate through published events, an API, or an anti-corruption layer that translates. Option 1 is the 'enterprise canonical model' DDD argues against: every change negotiates with every team, and the class accumulates fields nobody else needs. A *shared kernel* is a deliberate, small exception, not the default. Option 3 couples Support to Billing's storage schema, so any Billing refactor breaks Support; DRY applies to knowledge, not to data copies across contexts. Option 4 treats a feature of the domain as a bug and produces a model that is consistent for nobody."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.ddd-lite.mcq.5",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "domain-events",
+            "ef-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team dispatches domain events from an overridden `SaveChangesAsync`, *before* calling `base.SaveChangesAsync`. One handler updates another entity; another sends a welcome email via SMTP. The final save then fails on a concurrency conflict. What is the outcome?",
+              "options": [
+                {
+                  "text": "Both handlers' effects are rolled back, because domain events participate in the EF Core transaction automatically.",
+                  "correct": false
+                },
+                {
+                  "text": "Neither handler ran yet, because EF Core defers domain-event handlers until after the transaction commits.",
+                  "correct": false
+                },
+                {
+                  "text": "The entity update is lost with the failed save, but the email has already gone out for a change that never happened.",
+                  "correct": true
+                },
+                {
+                  "text": "The email is queued by EF Core's change tracker and discarded, while the entity update is retried automatically by the execution strategy.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Dispatching before `base.SaveChangesAsync` means handler changes to tracked entities join the same unit of work and commit or fail atomically with the aggregate. That is the reason to dispatch there. But anything a handler does *outside* the database (email, HTTP, message publish) is not transactional, so a failed save leaves a side effect for a state that was never committed. The rule: pre-commit handlers only touch the same unit of work; external side effects run after commit, reliably via an outbox. Option 1 overstates it: only database changes tracked by the context are rolled back; SMTP is not enlisted. Option 2 is wrong because EF Core has no concept of domain events; dispatch timing is whatever your override does. Option 4 invents behaviour: the change tracker knows nothing about email, and `EnableRetryOnFailure` retries transient failures, not concurrency conflicts."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.ddd-lite.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "ddd",
+            "aggregate",
+            "domain-events"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is an aggregate and an aggregate root? How do you decide aggregate boundaries, how are invariants enforced, and how do you keep two aggregates consistent with each other?",
+              "explanation": "Model answer: an aggregate is a cluster of entities and value objects that forms one consistency boundary; the root is the only entry point, so all changes go through methods that enforce invariants (no public setters, private collections). Boundaries follow true invariants that must hold at the end of every transaction, not navigation or table structure; keep them small to reduce contention and load cost. Other aggregates are referenced by id, and one aggregate is modified per transaction. Cross-aggregate consistency is eventual: the root records domain events (`OrderPlaced`) that in-process handlers or, across services, integration events via an outbox react to, with compensating actions when a later step fails. Optimistic concurrency (a version or `xmin` row version) protects the root from lost updates.",
+              "rubric": [
+                "Defines an aggregate as a consistency boundary with a single root as the only entry point, and explains that invariants are enforced by root methods (encapsulated state, no public setters).",
+                "Explains that boundaries are chosen around invariants that must be transactionally consistent, not by table structure or object navigation, and argues for small aggregates (contention, load size).",
+                "States the rules of referencing other aggregates by id and modifying one aggregate per transaction.",
+                "Describes cross-aggregate consistency via domain events and eventual consistency, including what happens on failure (compensation or retry), and distinguishes in-process domain events from integration events.",
+                "Mentions concurrency control on the aggregate root (optimistic concurrency token/row version) to prevent lost updates."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "cqrs-and-mediator",
+      "title": "CQRS and the Mediator Pattern",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "CQRS and the Mediator Pattern",
+          "note": "## What it is\n\n**CQS** (Bertrand Meyer) is a method-level rule: a method either changes state (command) or returns data (query), not both. **CQRS** (Greg Young) lifts that split to the architecture: separate models, and possibly separate stores, for writes and reads. The **Mediator** pattern (and the MediatR library) is an in-process dispatch mechanism often used to implement it. The three are independent: you can do CQRS without MediatR, and MediatR without CQRS.\n\n## The spectrum of CQRS\n\n1. **Same database, separate code paths.** Commands load aggregates through the domain model and save; queries skip the domain and project straight to DTOs (`AsNoTracking().Select(...)`, Dapper, a SQL view). This is where most of the value is, at almost no cost.\n2. **Separate read models in the same database.** Denormalised tables or materialised views updated in the same transaction, or by triggers/handlers.\n3. **Separate read store.** Projections built asynchronously from domain events into a search index, a document store or a cache. Now reads are *eventually consistent*, and you must design for it (read-your-own-writes, version checks, UI that tolerates lag).\n4. **With Event Sourcing.** The write model *is* an event stream; read models are projections. CQRS does not require Event Sourcing, but Event Sourcing practically requires CQRS.\n\n## When CQRS helps\n\n- The write side has real invariants (aggregates) while reads need a very different shape (dashboards joining six tables, search, aggregates by period).\n- Reads vastly outnumber writes and need independent scaling or caching.\n- Different teams or performance profiles for each side.\n\n## When it is ceremony\n\n- CRUD where the read shape equals the write shape. A `GetOrderQuery` + handler + validator + DTO + mapping profile per endpoint, all forwarding to the same `DbSet`, is four files of indirection for zero decoupling.\n- Separate stores introduced before any read-performance problem exists: you pay for eventual consistency, projection rebuilds and monitoring forever.\n\n## Mediator and MediatR\n\nThe mediator decouples a sender from the handler type: an endpoint calls `mediator.Send(new PlaceOrder(...))` and never names the handler. The real feature is the **pipeline behaviour**: cross-cutting logic (validation, logging, transactions, caching) wrapped around every handler in one place. Costs: the call graph is no longer navigable with \"go to definition\", handlers calling `Send` inside other handlers create hidden coupling and re-run the pipeline (nested transactions), and request objects become a second contract next to the HTTP one. Note: MediatR moved to a commercial licence from version 13 (2025); earlier versions remain open source. Alternatives are direct handler injection, source-generated mediators, or the endpoint framework's own pre/post processors (FastEndpoints).\n\n## What an interviewer probes\n\n- \"CQS vs CQRS?\" Method-level vs architecture-level.\n- \"Does CQRS mean two databases?\" No; that is one end of a spectrum.\n- \"User creates an item and the list does not show it. Why, and what do you do?\" Eventual consistency of the read model; return the created resource, read from the write side for the author, or wait for a projection version.\n- \"What do you lose with MediatR?\" Navigability, explicit dependencies; and it is not a message bus: nothing is persisted or retried.\n\n## Common misconceptions\n\n- \"MediatR is CQRS.\" It is a dispatcher; the split is a modelling decision.\n- \"Queries must go through repositories and the domain model.\" Read paths should be as direct as possible.\n- \"Commands must return void.\" Returning the new id or a version is pragmatic and supports read-your-own-writes.\n\n```csharp\n// Write side: aggregate, invariants, one transaction.\npublic sealed class PlaceOrderHandler(ShopDbContext db)\n{\n    public async Task<Guid> Handle(PlaceOrder cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        return order.Id.Value;\n    }\n}\n\n// Read side: no domain model, no tracking, shaped for the screen.\npublic sealed class OrderListQuery(ShopDbContext db)\n{\n    public Task<List<OrderRow>> Handle(Guid customerId, CancellationToken ct) =>\n        db.Orders.AsNoTracking()\n          .Where(o => o.CustomerId == new CustomerId(customerId))\n          .OrderByDescending(o => o.PlacedAt)\n          .Select(o => new OrderRow(o.Id.Value, o.PlacedAt, o.Lines.Sum(l => l.Quantity)))\n          .ToListAsync(ct);\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.cqrs-and-mediator.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "cqrs",
+            "cqs",
+            "architecture"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the difference between CQS and CQRS?",
+              "options": [
+                {
+                  "text": "They are the same principle; CQRS is just the newer name Greg Young gave to Meyer's CQS when it became popular in .NET.",
+                  "correct": false
+                },
+                {
+                  "text": "CQS applies to queries only, while CQRS extends the same idea to commands by routing them through a message bus.",
+                  "correct": false
+                },
+                {
+                  "text": "CQS splits commands from queries at the method level; CQRS applies that split architecturally, as separate read and write models.",
+                  "correct": true
+                },
+                {
+                  "text": "CQS is the in-process version of the idea, whereas CQRS by definition requires Event Sourcing plus a separate read database to hold projections.",
+                  "correct": false
+                }
+              ],
+              "explanation": "CQS (Meyer) is a method-level rule: a method either mutates state or returns a value, so asking a question never changes the answer. CQRS (Young) applies the same separation to the system's models: commands go through a write model that enforces invariants, queries go through a read model shaped for consumers, possibly but not necessarily in a different store. Option 1 erases the scope difference that is the whole point. Option 2 is wrong on both halves: CQS covers both commands and queries, and CQRS needs no message bus. Option 4 is the most common misconception: CQRS works in one database with two code paths, and Event Sourcing is an optional companion, not part of the definition."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.cqrs-and-mediator.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "cqrs",
+            "read-model",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In which situation does CQRS (separate read and write models) bring the clearest benefit?",
+              "options": [
+                {
+                  "text": "A settings screen where users edit and view the same five fields, and the team wants every endpoint to look exactly uniform.",
+                  "correct": false
+                },
+                {
+                  "text": "An order system with rich write-side invariants, while reads are high-volume dashboards and searches of a different shape.",
+                  "correct": true
+                },
+                {
+                  "text": "Any system that needs ACID transactions, because separating models is how relational databases guarantee atomicity.",
+                  "correct": false
+                },
+                {
+                  "text": "A new service with no traffic yet, so that it is ready for scale before the first performance problem appears.",
+                  "correct": false
+                }
+              ],
+              "explanation": "CQRS pays off when the two sides genuinely differ: the write side needs an aggregate model with invariants, the read side needs denormalised, join-heavy or search-shaped data and different scaling. Separating them lets each be optimised without compromising the other. Option 1 is the ceremony case: identical read and write shapes gain nothing from two models, and uniformity is not a benefit by itself. Option 3 is unrelated: ACID comes from the database transaction, and a separate read store actually *loses* immediate consistency for reads. Option 4 is speculative architecture: you pay for eventual consistency, projections and extra code from day one for a scaling problem you may never have."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.cqrs-and-mediator.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "mediatr",
+            "mediator",
+            "pipeline"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A team introduces MediatR so controllers call `mediator.Send(command)` instead of services. Which statement about this change is accurate?",
+              "options": [
+                {
+                  "text": "It implements CQRS by itself, because every request is now classified as a command or a query object.",
+                  "correct": false
+                },
+                {
+                  "text": "It makes command handling durable: requests are queued in-process, so a crash mid-handler means the command is retried on restart.",
+                  "correct": false
+                },
+                {
+                  "text": "It removes the need for DI registration, since the mediator discovers and constructs handlers without a container.",
+                  "correct": false
+                },
+                {
+                  "text": "It decouples callers from handler types and enables pipeline behaviours for cross-cutting concerns, but hides the call graph.",
+                  "correct": true
+                }
+              ],
+              "explanation": "MediatR is an in-process mediator: `Send` resolves the handler for the request type from the DI container and invokes it synchronously within the same call, wrapped by any registered `IPipelineBehavior<,>` (validation, logging, transactions). The win is decoupling plus one place for cross-cutting concerns; the cost is indirection (no 'go to definition' from caller to handler) and a second contract next to the HTTP one. Option 1 confuses a dispatch mechanism with a modelling decision; you can send a request that both mutates and returns everything, which is not CQRS. Option 2 confuses a mediator with a message broker: nothing is persisted, and a crash loses the in-flight request. Option 4 is wrong because MediatR resolves handlers *from* the container (`AddMediatR` scans and registers them)."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.cqrs-and-mediator.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "cqrs",
+            "eventual-consistency",
+            "read-your-writes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Read models are projected asynchronously from domain events into a separate store. Users complain that after creating a project they are redirected to the list and the new project is missing for a second or two. Which fix fits the architecture?",
+              "options": [
+                {
+                  "text": "Read-your-own-writes: the command returns the new item and its version; the UI shows it or waits until the projection catches up.",
+                  "correct": true
+                },
+                {
+                  "text": "Update the write database and the read store inside a single distributed transaction, so both commit atomically on every command.",
+                  "correct": false
+                },
+                {
+                  "text": "Disable HTTP caching on the list endpoint, because the stale result most likely comes from a response cached by the browser.",
+                  "correct": false
+                },
+                {
+                  "text": "Make the projection handler run before the command handler, so the read model is always updated ahead of the write model.",
+                  "correct": false
+                }
+              ],
+              "explanation": "With an asynchronous projection, the read side lags the write side by design. The fix is to handle the author's own write explicitly: the command returns the id and a version, and the client either renders the created item from the command response or polls/waits until the read model's checkpoint has passed that version (some systems route the author's next read to the write side). Option 2 brings back two-phase commit across stores, giving up the availability and scaling CQRS was introduced for; most document stores and brokers do not support it anyway. Option 3 misdiagnoses: the data is not in the read store yet, so cache headers change nothing. Option 4 is impossible: the projection consumes events the write side produces, so it cannot run before them."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.cqrs-and-mediator.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "cqrs",
+            "mediatr",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "When would you introduce CQRS in a .NET service, and when is it just ceremony? Cover the different levels of CQRS, the role (if any) of MediatR, and the consequences of a separate read store.",
+              "explanation": "Model answer: CQRS separates the write model (aggregates, invariants, one transaction) from the read model (projections shaped for screens). It exists on a spectrum: separate code paths on one database (queries use `AsNoTracking` projections, Dapper or views), denormalised read tables in the same database, an asynchronously projected separate store, and Event Sourcing at the far end. Introduce it when write invariants and read shapes genuinely diverge or reads need independent scaling; it is ceremony for CRUD where both shapes match, especially as a query/handler/validator/mapper per endpoint. MediatR is optional: it is an in-process dispatcher whose real value is pipeline behaviours; it is not a bus, does not persist anything, hides the call graph, and is commercially licensed from v13. A separate read store means eventual consistency: design read-your-own-writes, projection rebuilds, idempotent projection handlers and lag monitoring.",
+              "rubric": [
+                "Defines CQRS as separate write and read models and distinguishes it from CQS (method-level) and from Event Sourcing (optional, not required).",
+                "Describes at least two levels of the spectrum, including the cheap one (same database, queries bypass the domain model with no-tracking projections or raw SQL).",
+                "Gives concrete criteria for when it helps (divergent read/write shapes, rich write invariants, read scaling) and when it is ceremony (CRUD with matching shapes, per-endpoint boilerplate).",
+                "Positions MediatR correctly: optional in-process dispatcher with pipeline behaviours, not a durable message bus, with costs such as indirection or hidden coupling.",
+                "Explains consequences of an asynchronous read store: eventual consistency, read-your-own-writes handling, projection rebuild and idempotency, lag monitoring."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "vertical-slice",
+      "title": "Vertical Slice Architecture and REPR",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Vertical Slice Architecture and REPR",
+          "note": "## What it is\n\nVertical Slice Architecture (popularised by Jimmy Bogard) organises code **by feature / use case** instead of by technical layer. A slice contains everything one request needs: the request and response types, validation, the handler, data access and mapping. The guiding rule: *minimise coupling between slices, maximise coupling within a slice*. Each slice may choose its own implementation: one uses EF Core with the domain model, another uses raw SQL for a report.\n\n**REPR** (Request-Endpoint-Response, coined by Steve Smith) is the endpoint-level counterpart: one class per operation with its own request and response types, instead of a controller with twelve actions sharing constructor dependencies. FastEndpoints and minimal APIs grouped by feature are the usual .NET implementations.\n\n## How it works in practice\n\n```\nFeatures/\n  Orders/\n    PlaceOrder/        PlaceOrderEndpoint.cs, PlaceOrderRequest.cs, PlaceOrderValidator.cs\n    GetOrderById/      GetOrderByIdEndpoint.cs, OrderDetailsResponse.cs\n  Invoices/\n    ExportInvoices/    ...\nDomain/                Order.cs, Money.cs     (shared rules, when they really are shared)\nInfrastructure/        ShopDbContext.cs       (shared technical plumbing)\n```\n\nA change to \"place order\" touches one folder. Deleting a feature deletes a folder. Code review sees the whole use case in one diff.\n\n## Trade-offs against Clean Architecture\n\n- **Clean / layered** optimises for *protecting a shared domain model* and keeping infrastructure out of it; a feature change touches Api, Application, Domain and Infrastructure.\n- **Vertical slice** optimises for *change locality*; abstractions are introduced per slice only when needed, so simple slices stay simple.\n- They are not mutually exclusive. A common mature shape: slices for the application layer, a real domain model in the centre for the rules that span features, infrastructure shared underneath. This repository's API (FastEndpoints feature folders over Domain/Application/Infrastructure projects) is a hybrid of exactly that kind.\n\n## What goes wrong\n\n- **Transaction-script sprawl.** Without a domain model, the same rule (\"a cancelled order cannot be shipped\") is re-implemented in five handlers and drifts. The remedy is to push the rule *down* into the domain when the second slice needs it, not to create a shared service layer.\n- **Cross-slice calls.** Slice A invoking slice B's handler (often via `mediator.Send`) re-creates hidden coupling. Share the domain model or a small query, not handlers.\n- **Inconsistency.** Every slice \"chooses its own implementation\" can become every slice looks different. Conventions, templates and architecture tests keep slices recognisable.\n- **Premature de-duplication.** Two similar queries in two slices are fine; they may diverge tomorrow. Extract when the *knowledge* is the same, not when the *code* looks the same.\n\n## What an interviewer probes\n\n- \"Vertical slice vs Clean Architecture: which and why?\"\n- \"What is REPR, and what is wrong with fat controllers?\" (Shared constructor dependencies, unrelated actions coupled, huge files.)\n- \"Where do business rules live in a slice-based app?\" (In the handler for simple ones; in the domain model once shared.)\n- \"How do you stop slices calling each other?\"\n\n## Common misconceptions\n\n- \"VSA means no shared code.\" Shared domain and infrastructure are normal; shared *application flow* is what VSA avoids.\n- \"VSA requires MediatR.\" Endpoints can contain or directly call their handler.\n- \"VSA means microservices per feature.\" It is a code-organisation style inside one deployable.\n\n```csharp\n// Features/Orders/PlaceOrder/PlaceOrderEndpoint.cs: one REPR slice in FastEndpoints.\npublic sealed record PlaceOrderRequest(Guid CustomerId, List<LineDto> Lines);\npublic sealed record PlaceOrderResponse(Guid OrderId);\n\npublic sealed class PlaceOrderEndpoint(ShopDbContext db)\n    : Endpoint<PlaceOrderRequest, PlaceOrderResponse>\n{\n    public override void Configure() => Post(\"/orders\");\n\n    public override async Task HandleAsync(PlaceOrderRequest req, CancellationToken ct)\n    {\n        var order = Order.Create(new CustomerId(req.CustomerId),\n                                 req.Lines.Select(l => l.ToDomain()));   // rules in the domain\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        await Send.OkAsync(new PlaceOrderResponse(order.Id.Value), ct);\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.vertical-slice.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "vertical-slice",
+            "clean-architecture",
+            "code-organisation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the core difference between Vertical Slice Architecture and a layered Clean Architecture?",
+              "options": [
+                {
+                  "text": "Vertical slices forbid a shared domain model, so every business rule must be implemented inside the specific handler that uses it.",
+                  "correct": false
+                },
+                {
+                  "text": "Vertical slices split the system into one microservice per feature, while Clean Architecture keeps a single deployable.",
+                  "correct": false
+                },
+                {
+                  "text": "Slices organise code by feature, so a use case changes in one place; layers organise it by technical concern across projects.",
+                  "correct": true
+                },
+                {
+                  "text": "Vertical slices remove all abstractions inside a feature, while Clean Architecture is the only style that allows interfaces.",
+                  "correct": false
+                }
+              ],
+              "explanation": "VSA's organising axis is the use case: request, validation, handler, data access and response live together, coupling between slices is minimised, and each slice uses whatever implementation its complexity warrants. Layered/Clean organises by technical concern and protects a central domain model, so one feature change spreads across several projects. Option 1 is a common over-reading: shared domain models are normal in VSA; what it avoids is shared *application flow* (generic service layers). Option 2 confuses code organisation with deployment; slices live in one deployable. Option 4 is wrong: slices introduce abstractions when needed, they just do not mandate them up front."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.vertical-slice.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "repr",
+            "endpoints",
+            "fastendpoints"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What does the REPR pattern describe?",
+              "options": [
+                {
+                  "text": "Request-Endpoint-Response: one endpoint class per operation with its own request and response types, instead of a multi-action controller.",
+                  "correct": true
+                },
+                {
+                  "text": "Repository-Entity-Presenter-Router: the four layers every endpoint must pass through before the response is serialised.",
+                  "correct": false
+                },
+                {
+                  "text": "Representation-Endpoint-Pipeline-Resource: a REST maturity level where every resource exposes its own hypermedia representation.",
+                  "correct": false
+                },
+                {
+                  "text": "Request-Entity-Persist-Return: an endpoint binds the request straight to the domain entity, saves it and returns the entity as the response.",
+                  "correct": false
+                }
+              ],
+              "explanation": "REPR (Steve Smith) stands for Request-Endpoint-Response. Each API operation is a small class with a dedicated request type, a single handler method and a dedicated response type. It fixes the fat-controller problem: twelve unrelated actions sharing a constructor with every dependency any of them needs, and DTOs reused across actions until they serve none well. FastEndpoints and feature-grouped minimal APIs implement it. Option 2 invents a mandatory layering that REPR does not prescribe. Option 3 mixes in REST/HATEOAS vocabulary; REPR is about code structure, not hypermedia. Option 4 describes binding to entities, which is an anti-pattern (over-posting, leaking internal state) and the opposite of REPR's dedicated request/response types."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.vertical-slice.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "vertical-slice",
+            "duplication",
+            "coupling"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Two slices, `ShipOrder` and `CancelOrder`, both need the rule \"an order that is already shipped cannot be cancelled or re-shipped\". Which approach is idiomatic for a vertical-slice codebase?",
+              "options": [
+                {
+                  "text": "Have `CancelOrder` call the `ShipOrder` handler through the mediator to reuse its status checks.",
+                  "correct": false
+                },
+                {
+                  "text": "Create a shared `OrderService` that both handlers call for every status-related operation from now on.",
+                  "correct": false
+                },
+                {
+                  "text": "Keep the check duplicated in both handlers, because slices must never share any code under any circumstances, even domain logic.",
+                  "correct": false
+                },
+                {
+                  "text": "Move the rule into the `Order` domain model, such as a method guarding the status transition, and have both slices call it.",
+                  "correct": true
+                }
+              ],
+              "explanation": "VSA tolerates duplicated *code* but not duplicated *knowledge*. Once a business rule is needed by a second slice, the idiomatic move is to push it down into the domain model, where it is enforced for every caller, rather than up into a shared application layer. Option 1 creates hidden cross-slice coupling: `CancelOrder` now depends on `ShipOrder`'s request shape and pipeline, and changes to one break the other. Option 2 rebuilds a horizontal service layer that tends to accumulate every operation, which is exactly what VSA moves away from. Option 3 over-applies the 'slices are independent' rule; duplicating a real invariant is how rules drift apart."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.vertical-slice.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "vertical-slice",
+            "trade-offs",
+            "team-scale"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which risk is a genuine weakness of Vertical Slice Architecture in a large team?",
+              "options": [
+                {
+                  "text": "Handlers cannot be unit tested in isolation, because each slice contains its own data access code instead of going through a mockable repository.",
+                  "correct": false
+                },
+                {
+                  "text": "Slices drift into inconsistent styles and rules duplicated across handlers unless conventions and a shared domain model rein them in.",
+                  "correct": true
+                },
+                {
+                  "text": "It is incompatible with dependency injection, because each slice must construct its own dependencies to stay fully independent.",
+                  "correct": false
+                },
+                {
+                  "text": "It requires MediatR or a similar library, and the dispatch indirection makes every request measurably slower than a direct call.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The freedom that makes VSA fast for one feature ('each slice chooses its own implementation') becomes inconsistency at scale: five ways to validate, three ways to page, and invariants re-implemented in handlers. Teams counter it with slice templates, architecture tests and a domain model for shared rules. Option 1 is false: slices can be tested through their endpoint with a real database (Testcontainers) or with the domain logic unit-tested separately. Option 3 is false: endpoints and handlers receive dependencies via DI like anything else. Option 4 is false: VSA needs no mediator, and the dispatch overhead of MediatR would be negligible next to I/O anyway."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.vertical-slice.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "vertical-slice",
+            "clean-architecture",
+            "repr"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Compare Vertical Slice Architecture with Clean Architecture. When would you choose each, what goes wrong with each at scale, and can they coexist in one .NET solution?",
+              "explanation": "Model answer: Clean Architecture organises by technical layer around a protected domain model, enforcing the dependency rule; a feature change touches several projects, and at scale it suffers from pass-through layers, mapping chains and generic abstractions. Vertical Slice organises by feature (often REPR endpoints such as FastEndpoints), maximising cohesion inside a slice and minimising coupling between slices, so a change is local and simple slices stay simple; at scale it suffers from inconsistency, cross-slice calls and business rules duplicated across transaction-script handlers. Choose Clean when a rich, shared domain dominates and must be isolated from infrastructure; choose slices when features are mostly independent and change locality matters. They coexist: slices for the application layer over a shared domain model and shared infrastructure, with the rule that shared rules go down into the domain, never into a shared service layer, and slices never call each other's handlers.",
+              "rubric": [
+                "Explains the organising axis of each correctly: technical layers with an inward dependency rule vs features/use cases with low inter-slice coupling and high intra-slice cohesion.",
+                "Gives concrete selection criteria for each (rich shared domain and isolation needs vs independent features and change locality).",
+                "Names at least one realistic failure mode at scale for each style (over-layering/pass-through/mapping chains vs inconsistency/duplicated rules/cross-slice coupling).",
+                "Describes a hybrid in which slices sit over a shared domain model and infrastructure, and states where shared business rules should go (into the domain, not a shared service layer).",
+                "Mentions REPR or endpoint-per-operation as the API-level expression of slices and why it improves on fat controllers."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "error-handling-strategy",
+      "title": "Error Handling Strategy: Result Types vs Exceptions, Domain Errors to HTTP",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Error Handling Strategy: Result Types vs Exceptions, Domain Errors to HTTP",
+          "note": "## What it is\n\nAn error-handling strategy answers three questions consistently across a codebase: **which failures are expected and which are exceptional**, **how each kind travels from the domain to the edge**, and **how it becomes an HTTP response** without leaking internals.\n\n## Result types vs exceptions\n\n- **Expected outcomes** are part of the use case's contract: validation failed, order not found, insufficient stock, state transition not allowed. The caller is supposed to handle them, so model them as values: a `Result<T>`/`ErrorOr<T>`/`OneOf<...>` carrying a typed error (code, message, kind).\n- **Exceptional failures** are things the current code cannot reasonably handle: a bug (`NullReferenceException`), a violated programming contract (`ArgumentException`), infrastructure faults (database down, timeout). Let them propagate to one global handler; only catch where you can add context, retry, or translate.\n- **Cost** is a secondary argument. A throw captures a stack trace and unwinds frames; it costs microseconds, not nanoseconds (.NET 9 made throw/catch substantially faster by moving CoreCLR to the managed exception-handling model from NativeAOT). That matters for hot paths and for using exceptions as control flow in loops, much less for a 404 per request. The primary argument is *explicitness*: a `Result` in the signature tells the caller what can go wrong.\n- **Downsides of results in C#:** no native discriminated unions (as of C# 14) and no compiler enforcement, so a caller can ignore an error silently; propagation adds `if (result.IsFailure) return result.Error;` boilerplate through every layer. Exceptions propagate for free but are invisible in signatures.\n\nA defensible rule: *results for expected business outcomes at use-case boundaries, exceptions for bugs and infrastructure, and never both for the same failure.*\n\n## Mapping domain errors to HTTP\n\nThe domain knows *kinds* of failure, never status codes. The edge owns the mapping, in one place:\n\n| Error kind | HTTP |\n|---|---|\n| Validation (malformed or invalid input) | 400 (with `errors` dictionary via `ValidationProblem`) |\n| Not found | 404 |\n| Conflict with current state / concurrency | 409 (412 for failed `If-Match`) |\n| Not permitted for this user | 403 (401 if not authenticated) |\n| Unexpected | 500, generic message, correlation id, no stack trace |\n\nSome teams use 422 for semantically invalid but well-formed input; pick one and apply it everywhere. Responses use **Problem Details** (RFC 9457, which obsoletes RFC 7807): `type`, `title`, `status`, `detail`, `instance`, plus extensions such as `traceId` or an application error code.\n\nIn ASP.NET Core: `builder.Services.AddProblemDetails()`; `IExceptionHandler` (.NET 8+) implementations registered with `AddExceptionHandler<T>()` and run by `app.UseExceptionHandler()` in registration order until one returns `true`; `TypedResults.Problem(...)` / `TypedResults.ValidationProblem(...)` for result-based errors. Exception details belong in logs, never in `detail` in production.\n\n## What an interviewer probes\n\n- \"Exceptions or result objects?\" They want a rule, not a religion.\n- \"How does a `NotFound` in the domain become a 404 without the domain knowing HTTP?\"\n- \"What does your API return for an unhandled exception?\" (ProblemDetails 500 + trace id; details only in logs.)\n- \"`throw;` vs `throw ex;`\" and \"where do you catch?\" (Only where you can handle or add context.)\n\n## Common misconceptions\n\n- \"Never throw, exceptions are slow.\" Results everywhere turn infrastructure failures into boilerplate and get ignored.\n- \"Catch everything at every layer and log it.\" Produces duplicate logs and swallowed errors; log once, at the boundary.\n- \"Validation errors are 500s because the code threw.\" The status reflects *who* is at fault, not *how* the failure travelled.\n\n```csharp\npublic enum ErrorKind { Validation, NotFound, Conflict, Forbidden }\npublic sealed record Error(ErrorKind Kind, string Code, string Message);\n\npublic static class ErrorMapping\n{\n    public static IResult ToProblem(this Error e) => TypedResults.Problem(\n        statusCode: e.Kind switch\n        {\n            ErrorKind.Validation => StatusCodes.Status400BadRequest,\n            ErrorKind.NotFound   => StatusCodes.Status404NotFound,\n            ErrorKind.Conflict   => StatusCodes.Status409Conflict,\n            ErrorKind.Forbidden  => StatusCodes.Status403Forbidden,\n            _                    => StatusCodes.Status500InternalServerError\n        },\n        title: e.Code, detail: e.Message);\n}\n\n// Unexpected exceptions: one global handler, no internals in the response.\ninternal sealed class UnhandledExceptionHandler(IProblemDetailsService problems,\n    ILogger<UnhandledExceptionHandler> log) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct)\n    {\n        log.LogError(ex, \"Unhandled exception\");\n        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;\n        return await problems.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = ctx,\n            ProblemDetails = { Title = \"An unexpected error occurred.\" }\n        });\n    }\n}\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "architecture.principles.error-handling-strategy.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "error-handling",
+            "result-pattern",
+            "exceptions"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "What is the most defensible rule for choosing between result types and exceptions in a .NET service?",
+              "options": [
+                {
+                  "text": "Use exceptions for validation and business-rule failures, and result types for infrastructure faults such as a database timeout or outage.",
+                  "correct": false
+                },
+                {
+                  "text": "Always use result types; exceptions are too slow for production code and should be caught and converted at every call site.",
+                  "correct": false
+                },
+                {
+                  "text": "Results for expected business outcomes the caller must handle; exceptions for bugs and infrastructure failures it cannot handle locally.",
+                  "correct": true
+                },
+                {
+                  "text": "Always use exceptions; result types are a functional-programming import that adds boilerplate without any benefit in C#.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Expected outcomes (validation failed, not found, transition not allowed) are part of the use case's contract, so modelling them as values makes them visible in the signature and forces a decision at the boundary. Bugs and infrastructure faults are not something the immediate caller can fix, so they propagate to a global handler (or a retry policy) as exceptions. Option 1 inverts the rule: a database timeout is exactly the failure you cannot handle locally, and a rejected business rule is exactly the one you expect. Option 2 overstates cost (a throw costs microseconds, and .NET 9 made it considerably cheaper) and turns every infrastructure failure into hand-written plumbing that is easy to ignore. Option 4 ignores the real benefit: explicit, typed, cheap-to-check expected failures instead of hidden control flow through `catch` blocks."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.error-handling-strategy.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "error-handling",
+            "http",
+            "problem-details"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which mapping from domain error kinds to HTTP responses is the most defensible for a public JSON API?",
+              "options": [
+                {
+                  "text": "Validation 400 with field errors, not found 404, state conflict 409, unexpected 500 as Problem Details with a trace id and no internals.",
+                  "correct": true
+                },
+                {
+                  "text": "Validation 400, not found 404, conflict 400, and unexpected 500 with the exception message and stack trace in `detail` so clients can report bugs precisely.",
+                  "correct": false
+                },
+                {
+                  "text": "Validation 422, not found 204 No Content, conflict 409, unexpected 503 so clients always retry server-side failures automatically.",
+                  "correct": false
+                },
+                {
+                  "text": "Every domain error as 200 with an `{ success: false, error }` envelope, and only infrastructure failures as 500, to keep client parsing uniform.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Status codes tell clients *who* must act and *whether to retry*: 400 for bad input (with a `ValidationProblem` errors dictionary), 404 for a missing resource, 409 when the request conflicts with current state (e.g. shipping a cancelled order, or an optimistic-concurrency clash), and 500 for anything unexpected, returned as RFC 9457 Problem Details with a correlation id while details go to logs. Option 2 collapses conflicts into 400, hiding a distinct, often retry-after-refresh case, and leaks stack traces, which is an information-disclosure issue. Option 3 has two errors: 204 means success with no body, so a missing resource looks like success, and 503 signals temporary unavailability, inviting retries of deterministic bugs. (422 for semantic validation is a legitimate alternative; that part alone is not the problem.) Option 4 defeats HTTP semantics: caches, proxies, monitoring, retries and generated clients all key on the status code."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.error-handling-strategy.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "aspnet-core",
+            "iexceptionhandler",
+            "middleware"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core 8+ app registers `AddExceptionHandler<ValidationExceptionHandler>()` and then `AddExceptionHandler<GlobalExceptionHandler>()`, and calls `app.UseExceptionHandler()`. A `DbUpdateConcurrencyException` is thrown; `ValidationExceptionHandler.TryHandleAsync` returns `false` for it. What happens?",
+              "options": [
+                {
+                  "text": "The exception is rethrown immediately, because a handler returning `false` signals that the middleware should stop processing.",
+                  "correct": false
+                },
+                {
+                  "text": "Both handlers always run for every exception, and the response is written by whichever handler ran last.",
+                  "correct": false
+                },
+                {
+                  "text": "Handlers run in reverse registration order, so `GlobalExceptionHandler` had already handled it before `ValidationExceptionHandler` was called.",
+                  "correct": false
+                },
+                {
+                  "text": "The middleware calls `GlobalExceptionHandler.TryHandleAsync` next; the first handler returning `true` ends the chain.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`ExceptionHandlerMiddleware` resolves all registered `IExceptionHandler` services and calls them in registration order. Returning `false` means 'not mine', so the next one is tried; the first `true` stops the chain and its response is used. Only if none returns `true` does the middleware fall back to its other options (an exception-handling path or delegate, or the `IProblemDetailsService` default). Option 1 misreads `false`: it is a pass, not an abort. Option 2 is wrong because the chain short-circuits on the first `true`; a later handler never sees an exception that was already handled. Option 3 inverts the order; the specific handler should be registered first precisely because order is registration order."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.error-handling-strategy.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "result-pattern",
+            "csharp",
+            "trade-offs"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement describes a genuine drawback of using a hand-rolled `Result<T>` type for domain errors in C# 14?",
+              "options": [
+                {
+                  "text": "A `Result<T>` can only carry a single error, so validation failures with several field errors must still be thrown as exceptions.",
+                  "correct": false
+                },
+                {
+                  "text": "Nothing forces callers to inspect it: C# has no native discriminated unions or must-use checks, so an error can be silently ignored.",
+                  "correct": true
+                },
+                {
+                  "text": "A `Result<T>` cannot be returned from an `async` method, because `Task<T>` only supports result types that carry no error state.",
+                  "correct": false
+                },
+                {
+                  "text": "Minimal APIs and FastEndpoints cannot produce a response from a `Result<T>`, so handlers must convert it into an exception for middleware first.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Languages with built-in sum types (Rust's `Result`, F# unions with exhaustive matching) make an unhandled error a compile-time warning or error. C# as of version 14 has neither native discriminated unions nor a built-in 'must use' check, so `var _ = DoThing();` or a forgotten `if (result.IsFailure)` compiles cleanly and the failure disappears. Analyzers and library conventions mitigate, but do not enforce, handling. Option 1 is false: a result can carry a list of errors, which is exactly how validation results are usually modelled. Option 3 is false: `Task<Result<T>>` is an ordinary generic instantiation. Option 4 is false: the edge maps a result to `TypedResults.Problem`/`ValidationProblem` or `Send.ResultAsync(...)` directly; throwing just to be caught by middleware is the anti-pattern."
+            }
+          }
+        },
+        {
+          "id": "architecture.principles.error-handling-strategy.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "error-handling",
+            "problem-details",
+            "aspnet-core"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Describe the error-handling strategy you would set up for an ASP.NET Core API with a domain layer: how errors are represented in the domain, how they travel through the application layer, how they are turned into HTTP responses, and what the client sees for an unexpected failure.",
+              "explanation": "Model answer: split failures into expected outcomes and exceptional ones. Expected outcomes (validation, not found, conflict with current state, forbidden) are modelled as typed errors returned via a `Result<T>`-style type (or domain exceptions of a closed set if the team prefers, but not both for the same case); they carry a kind and a stable code, never an HTTP status. Bugs and infrastructure faults are exceptions that propagate untouched, caught only where code can retry, add context or translate. The edge maps kinds to status codes in one place (400 with a validation errors dictionary, 404, 409, 403/401, 500) and always responds with RFC 9457 Problem Details via `AddProblemDetails`, `TypedResults.Problem/ValidationProblem` and an `IExceptionHandler` chain (.NET 8+) for exceptions. Unexpected failures return a generic 500 Problem Details with a trace/correlation id; the exception and stack trace are logged once at the boundary, never returned to the client.",
+              "rubric": [
+                "Separates expected business failures from unexpected ones and assigns a mechanism to each (results or a closed set of domain errors vs propagating exceptions), with a reason beyond 'performance'.",
+                "Keeps HTTP knowledge out of the domain: errors carry a kind/code, and the mapping to status codes lives in one place at the edge.",
+                "Gives a correct mapping for at least validation (400 or a consistent 422), not found (404) and conflict (409), plus 500 for unexpected failures.",
+                "Uses Problem Details (RFC 9457/7807) and names concrete ASP.NET Core mechanisms such as `AddProblemDetails`, `IExceptionHandler`/`UseExceptionHandler` or `TypedResults.Problem`/`ValidationProblem`.",
+                "States that unexpected errors return a generic message with a correlation/trace id, are logged once at the boundary, and never expose exception messages or stack traces to clients."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

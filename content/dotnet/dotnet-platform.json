@@ -1,0 +1,1118 @@
+{
+  "domain": "dotnet",
+  "topic": "dotnet-platform",
+  "concepts": [
+    {
+      "slug": "di-container",
+      "title": "Dependency Injection: Lifetimes, Captive Dependencies, Keyed Services, Scopes and Disposal",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Dependency Injection: Lifetimes, Captive Dependencies, Keyed Services, Scopes and Disposal",
+          "note": "## What it is\n\n`Microsoft.Extensions.DependencyInjection` (MEDI) is the container behind every generic-host app. It is deliberately small: constructor injection only, three lifetimes, open generics, `IEnumerable<T>` for multiple registrations, and — since .NET 8 — keyed services. Senior interviews rarely ask \"what is DI\"; they ask what happens when lifetimes interact badly and who disposes what.\n\n## How it works underneath\n\n- **Lifetimes.** `Transient` creates a new instance per resolution. `Scoped` creates one instance per `IServiceScope` (ASP.NET Core opens one scope per request and exposes it as `HttpContext.RequestServices`). `Singleton` creates one instance for the root provider, lazily on first resolution (or eagerly if you registered an instance).\n- **Call-site resolution.** On first request for a service the provider builds a *call site* (a tree of constructor calls), then compiles it (expression trees or IL emit; reflection-based under Native AOT). Later resolutions reuse it, so resolution is cheap but not free.\n- **Multiple registrations.** `GetService<IFoo>()` returns the **last** registration; `IEnumerable<IFoo>` returns all of them in registration order. `TryAdd*` skips if the service type is already registered; `TryAddEnumerable` skips only if the same service/implementation pair exists.\n- **Registration identity.** Each registration owns its own instance. `AddSingleton<IReader, FileStore>()` plus `AddSingleton<IWriter, FileStore>()` yields **two** `FileStore` singletons. To share one, register the concrete type and forward: `AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>())`.\n- **Keyed services (.NET 8+).** `AddKeyedSingleton<ICache, RedisCache>(\"redis\")`, resolved via `[FromKeyedServices(\"redis\")]` or `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"redis\")`. Keyed registrations are invisible to un-keyed resolution; `KeyedService.AnyKey` registers a fallback for any key.\n- **Disposal.** The container disposes every `IDisposable`/`IAsyncDisposable` **it created**, when the owning scope (or the root, at shutdown) is disposed, in **reverse order of creation**. It does not dispose instances you passed in (`AddSingleton(myInstance)`). Disposing a scope synchronously when a scoped service implements only `IAsyncDisposable` throws `InvalidOperationException`; use `CreateAsyncScope()` + `await using`.\n\n## Captive dependency\n\nA longer-lived service holding a shorter-lived one: a singleton that takes a scoped `DbContext` in its constructor captures the first instance forever, shares it across concurrent requests, and leaks its change tracker. The host enables `ValidateScopes` and `ValidateOnBuild` **only in the Development environment**; there you get \"Cannot consume scoped service ... from singleton ...\" at `Build()`. In Production the same code starts fine and fails later under concurrency. A transient injected into a singleton is also captive, just less visibly.\n\nThe fix is never \"make it singleton too\". In singletons and `BackgroundService`s, inject `IServiceScopeFactory` and create a scope per unit of work:\n\n```csharp\npublic sealed class OutboxPublisher(IServiceScopeFactory scopes, ILogger<OutboxPublisher> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken ct)\n    {\n        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n        while (await timer.WaitForNextTickAsync(ct))\n        {\n            await using var scope = scopes.CreateAsyncScope();   // one scope per batch\n            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();\n            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();\n            await PublishPendingAsync(db, bus, ct);\n        }                                                       // scope disposed: DbContext released\n    }\n}\n```\n\n## What an interviewer probes\n\n- The three lifetimes and *where* a scope comes from outside HTTP (you create it).\n- Captive dependencies, why Development catches them and Production doesn't.\n- Transient `IDisposable` resolved from the **root** provider: the root tracks it until shutdown — a memory leak in a loop. Resolve from a scope or don't make it container-owned.\n- Why the service-locator style (`IServiceProvider` injected everywhere) is a smell, and where it is legitimate (factories, hosted services, middleware with scoped deps via `InvokeAsync` parameters).\n- Disposal order and `IAsyncDisposable` handling.\n\n## Common misconceptions\n\n- \"Transient objects are garbage-collected, so disposal does not matter\" — container-created disposables are tracked by their scope.\n- \"Scoped means per-thread\" — it means per `IServiceScope`; `async` code hops threads freely within one scope.\n- \"One implementation type = one singleton\" — one registration = one singleton.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.di-container.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "dependency-injection",
+            "lifetimes",
+            "captive-dependency",
+            "efcore"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core 10 app registers `AddDbContext<AppDbContext>()` (scoped by default) and `AddSingleton<PriceCache>()`, where `PriceCache`'s constructor takes `AppDbContext`. The app is deployed with `ASPNETCORE_ENVIRONMENT=Production` and default host settings. What happens?",
+              "options": [
+                {
+                  "text": "The app fails at `builder.Build()` with \"Cannot consume scoped service 'AppDbContext' from singleton 'PriceCache'\", because scope validation is always on.",
+                  "correct": false
+                },
+                {
+                  "text": "The container promotes `AppDbContext` to transient for that consumer, so each method call on `PriceCache` gets a fresh context.",
+                  "correct": false
+                },
+                {
+                  "text": "The container detects the mismatch and silently creates a new `AppDbContext` for each request that touches `PriceCache`, so behaviour is correct.",
+                  "correct": false
+                },
+                {
+                  "text": "The app starts; the first `PriceCache` resolution captures one `AppDbContext` for the lifetime of the process, so every request shares it, leading to concurrency exceptions and an ever-growing change tracker.",
+                  "correct": true
+                }
+              ],
+              "explanation": "This is the classic captive dependency. The generic host turns on `ValidateScopes` and `ValidateOnBuild` only when the environment is Development, so in Production the singleton is built once with whatever `AppDbContext` was resolved at that moment (from the root provider) and holds it forever. `DbContext` is not thread-safe, so concurrent requests produce \"A second operation was started on this context\" errors, and tracked entities accumulate. Option 1 describes what happens in Development only — scope validation is not on by default elsewhere. Options 2 and 3 invent behaviour: MEDI never re-scopes or changes the lifetime of a dependency; a constructor parameter is resolved exactly once, when the singleton is created. The fix is to inject `IServiceScopeFactory` (or `IDbContextFactory<AppDbContext>`) and create a short-lived scope/context per operation."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.di-container.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "dependency-injection",
+            "disposal",
+            "memory-leak",
+            "lifetimes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A singleton `JobRunner` receives the root `IServiceProvider` in its constructor and, for each of millions of jobs, calls `_provider.GetRequiredService<ReportBuilder>()`, where `ReportBuilder` is registered as **transient** and implements `IDisposable`. The code never disposes the builders. What happens to them?",
+              "options": [
+                {
+                  "text": "The root provider keeps a reference to every disposable transient it creates so it can dispose them when the root is disposed at shutdown, so the builders accumulate and memory grows for the lifetime of the process.",
+                  "correct": true
+                },
+                {
+                  "text": "Nothing problematic: transients are not tracked by the container, so each builder becomes eligible for collection as soon as the job finishes.",
+                  "correct": false
+                },
+                {
+                  "text": "Each builder is disposed at the end of the current HTTP request, because transients resolved during a request belong to that request's scope.",
+                  "correct": false
+                },
+                {
+                  "text": "The container throws `InvalidOperationException` because transient `IDisposable` services cannot be resolved from the root provider.",
+                  "correct": false
+                }
+              ],
+              "explanation": "MEDI tracks every `IDisposable`/`IAsyncDisposable` it *creates* in the scope that resolved it, so it can dispose them when that scope ends. Resolving from the root means the owning scope is the application itself; the list only shrinks at shutdown, so this is a genuine leak. Option 2 is the common misconception — tracking applies to transients precisely because the container created them (non-disposable transients are indeed not tracked). Option 3 is wrong because the scope is determined by the provider you resolve from, not by whatever request happens to be running; a singleton holds the root provider. Option 4 is wrong: no exception is raised (scope validation only blocks *scoped* services from the root). Fixes: create a scope per job (`using var scope = _scopeFactory.CreateScope()`), or use a factory that returns objects the caller owns and disposes."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.di-container.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "dependency-injection",
+            "lifetimes",
+            "registration"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Consider this registration code in .NET 10:\n\n```csharp\nservices.AddSingleton<IReader, FileStore>();\nservices.AddSingleton<IWriter, FileStore>();\n```\n\n`FileStore` implements both interfaces and holds an in-memory buffer. A component writes through `IWriter`, another reads through `IReader`. Which statement is true?",
+              "options": [
+                {
+                  "text": "There is one `FileStore` instance, because a singleton is keyed by its implementation type.",
+                  "correct": false
+                },
+                {
+                  "text": "There are two `FileStore` instances, one per registration, so the reader never sees the writer's buffer; register `FileStore` once and forward both interfaces to it with factory registrations.",
+                  "correct": true
+                },
+                {
+                  "text": "The second registration replaces the first, so resolving `IReader` throws because it is no longer registered.",
+                  "correct": false
+                },
+                {
+                  "text": "The container detects the duplicate implementation type and throws at `Build()` when `ValidateOnBuild` is enabled.",
+                  "correct": false
+                }
+              ],
+              "explanation": "In MEDI the unit of identity is the `ServiceDescriptor` (registration), not the implementation type. Each singleton descriptor lazily creates and caches its own instance, so there are two `FileStore`s. The idiomatic fix is `services.AddSingleton<FileStore>(); services.AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>()); services.AddSingleton<IWriter>(sp => sp.GetRequiredService<FileStore>());`. Option 1 is the misconception being tested. Option 3 confuses two different service types with two registrations of the same service type (only the latter makes the last one win for `GetService`). Option 4 is wrong: two implementations of different service types are perfectly valid, so validation has nothing to flag."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.di-container.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "dependency-injection",
+            "keyed-services",
+            "dotnet-8"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In .NET 10 you register two caches and a consumer:\n\n```csharp\nservices.AddKeyedSingleton<ICache, RedisCache>(\"distributed\");\nservices.AddKeyedSingleton<ICache, MemoryCache>(\"local\");\nservices.AddScoped<CatalogService>();\n\npublic sealed class CatalogService(ICache cache) { /* ... */ }\n```\n\nNo un-keyed `ICache` is registered. What happens when `CatalogService` is resolved?",
+              "options": [
+                {
+                  "text": "It receives `MemoryCache`, because for un-keyed resolution the last registration of the service type wins.",
+                  "correct": false
+                },
+                {
+                  "text": "It receives `RedisCache`, because the first keyed registration acts as the default.",
+                  "correct": false
+                },
+                {
+                  "text": "Resolution fails with an `InvalidOperationException` (unable to resolve `ICache`): keyed registrations are not visible to un-keyed resolution, so the parameter needs `[FromKeyedServices(\"local\")]` or similar.",
+                  "correct": true
+                },
+                {
+                  "text": "It receives `null`, because MEDI passes `null` for constructor parameters it cannot resolve.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Keyed services are stored with their key as part of the identity; a plain `ICache` request looks only for registrations with a `null` key, finds none, and constructor activation fails with \"Unable to resolve service for type 'ICache'\". You select one with `[FromKeyedServices(\"local\")] ICache cache` or `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"local\")`; `KeyedService.AnyKey` registrations act as a catch-all only for keyed lookups. Option 1 applies the 'last registration wins' rule, which is real but only among registrations with the same (null) key. Option 2 invents a default. Option 4 is wrong: MEDI only passes defaults for optional parameters that declare a default value (`ICache? cache = null`); a required parameter that cannot be resolved makes activation throw."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.di-container.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "dependency-injection",
+            "captive-dependency",
+            "scopes",
+            "disposal"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain the three service lifetimes in ASP.NET Core and what a captive dependency is. Then: a `BackgroundService` needs to process messages using a scoped `DbContext` and a scoped repository. Show how you would structure it, explain why the naive approach fails (and why it may only fail in some environments), and describe who disposes the scoped services and in what order.",
+              "explanation": "Model answer: transient = new instance per resolution, scoped = one per `IServiceScope` (one per HTTP request in ASP.NET Core), singleton = one per root provider. A captive dependency is a longer-lived service holding a shorter-lived one, e.g. a singleton or hosted service taking `DbContext` in its constructor: the context is captured forever, shared across threads, and its change tracker grows. Hosted services are singletons, so the naive constructor injection fails; with `ValidateScopes`/`ValidateOnBuild` on (only in Development by default) it throws at `Build()`, otherwise it silently captures a root-resolved instance. Correct structure: inject `IServiceScopeFactory`, create a scope per message or batch (`await using var scope = factory.CreateAsyncScope()`), resolve the `DbContext` and repository from `scope.ServiceProvider`, pass the cancellation token. When the scope is disposed the container disposes everything it created in that scope in reverse creation order, calling `DisposeAsync` where available; instances not created by the container are not disposed, and a scope holding an `IAsyncDisposable`-only service must be disposed asynchronously.",
+              "rubric": [
+                "Correctly defines transient, scoped (per `IServiceScope`, per request in ASP.NET Core) and singleton lifetimes.",
+                "Defines a captive dependency (longer-lived service holding a shorter-lived one) and names a concrete consequence for `DbContext` (shared across concurrent operations / not thread-safe / growing change tracker).",
+                "Explains that scope validation (`ValidateScopes`/`ValidateOnBuild`) is enabled by default only in Development, so the bug throws there but silently captures an instance in Production.",
+                "Shows the fix: inject `IServiceScopeFactory` into the hosted service and create a scope per unit of work (message or batch), resolving scoped services from `scope.ServiceProvider`, preferably with `CreateAsyncScope` and `await using`.",
+                "States that disposing the scope disposes container-created disposables in reverse order of creation (async disposal where implemented), and that instances registered as pre-built objects are not disposed by the container."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "configuration-options",
+      "title": "Configuration & Options: Providers, IOptions/IOptionsSnapshot/IOptionsMonitor, Validation",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Configuration & Options: Providers, IOptions/IOptionsSnapshot/IOptionsMonitor, Validation",
+          "note": "## What it is\n\nTwo layers. **Configuration** (`IConfiguration`) is a flat, case-insensitive key/value view (`Payments:Stripe:ApiKey`) merged from ordered providers. **Options** (`IOptions<T>` and friends) bind a section to a strongly-typed class, add validation, named instances and change notifications. Application code should depend on options, not on `IConfiguration`.\n\n## How it works underneath\n\n**Provider order.** `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder` add, in order: `appsettings.json` → `appsettings.{Environment}.json` → user secrets (Development only) → environment variables → command-line arguments. Each provider overwrites keys from earlier ones, so **last wins**. Environment variables use `__` as the hierarchy separator (`ConnectionStrings__Default`). Key Vault, AWS Parameter Store, or Azure App Configuration are just more providers added after these, which is why they override files.\n\nArrays are not special: `Hosts:0`, `Hosts:1` are separate keys. An environment file with a one-element array therefore replaces element 0 and **keeps** the base file's elements 1 and 2 — a classic surprise.\n\n**Reload.** The JSON file providers are registered with `reloadOnChange: true`; environment variables and command-line arguments never change after start.\n\n**The three options interfaces.**\n\n| | Lifetime | Sees reloads | Named options | Typical use |\n|---|---|---|---|---|\n| `IOptions<T>` | singleton | no — computed once on first `.Value` | no (default name only) | static settings |\n| `IOptionsSnapshot<T>` | scoped | yes, recomputed once per scope (request) | `Get(name)` | per-request consistency in scoped/transient services |\n| `IOptionsMonitor<T>` | singleton | yes, `CurrentValue` + `OnChange` | `Get(name)` | singletons, hosted services |\n\n`IOptionsSnapshot<T>` cannot be injected into a singleton (scope validation throws in Development; elsewhere it becomes a captive snapshot). `OnChange` returns an `IDisposable`; dispose it or the callback (and whatever it captures) lives forever.\n\n**Validation.** `AddOptions<T>().Bind(section).ValidateDataAnnotations()` or `.Validate(predicate, message)` or an `IValidateOptions<T>` implementation. By default validation runs **lazily**, on the first access to `.Value`/`CurrentValue`, and throws `OptionsValidationException` — often on the first request in production. `.ValidateOnStart()` (or `AddOptionsWithValidateOnStart<T>()`, .NET 8) moves it to host start, so a broken deployment fails fast. .NET 8 also added a source-generated validator (`[OptionsValidator]`) and a configuration-binding source generator, both needed for trimming/Native AOT because the reflection-based binder is not trim-safe.\n\n```csharp\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(SmtpOptions.Section)        // \"Smtp\"\n    .ValidateDataAnnotations()\n    .Validate(o => o.Port is > 0 and < 65536, \"Smtp:Port out of range\")\n    .ValidateOnStart();\n\npublic sealed class SmtpOptions\n{\n    public const string Section = \"Smtp\";\n    [Required] public string Host { get; set; } = \"\";\n    public int Port { get; set; } = 587;\n    [Required] public string Password { get; set; } = \"\";   // from env var / secret store, never appsettings\n}\n```\n\n## What an interviewer probes\n\n- Which value wins when the same key is in several places.\n- `IOptions` vs `IOptionsSnapshot` vs `IOptionsMonitor` and which may be injected where.\n- When validation runs and how to fail fast.\n- Where secrets live: user secrets locally, environment variables or a vault provider in deployed environments; never committed JSON.\n- Named options (`Configure<HttpOptions>(\"github\", ...)`) for several instances of the same shape.\n\n## Common misconceptions\n\n- \"`IOptions<T>` reloads when the file changes\" — it is computed once.\n- \"The environment-specific file replaces the whole section / array\" — keys merge individually.\n- \"`ValidateDataAnnotations` validates at startup\" — not without `ValidateOnStart`.\n- \"User secrets are encrypted\" — they are a plain JSON file outside the repo, for development only.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.configuration-options.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "configuration",
+            "options",
+            "ioptionsmonitor",
+            "lifetimes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A singleton `RateLimiterService` must pick up changes to `RateLimits:PerMinute` in `appsettings.json` while the app is running, without a restart. Which injection is correct?",
+              "options": [
+                {
+                  "text": "`IOptions<RateLimitOptions>` — the JSON provider has `reloadOnChange: true`, so `.Value` reflects the new file content.",
+                  "correct": false
+                },
+                {
+                  "text": "`IOptionsSnapshot<RateLimitOptions>` — it is recomputed when configuration changes, so the singleton sees the new value.",
+                  "correct": false
+                },
+                {
+                  "text": "`IOptionsMonitor<RateLimitOptions>` — read `CurrentValue` on each use (or subscribe with `OnChange` and dispose the returned registration).",
+                  "correct": true
+                },
+                {
+                  "text": "None of them: configuration is read only at startup, so a restart is always required.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`IOptionsMonitor<T>` is a singleton whose cache is invalidated by the configuration reload token, so `CurrentValue` returns the rebound value after the file changes; `OnChange` lets you react, and its `IDisposable` must be disposed to avoid leaking the callback. Option 1 is the classic misconception: the provider reloads `IConfiguration`, but `IOptions<T>.Value` is computed once and cached forever. Option 2 is wrong because `IOptionsSnapshot<T>` is scoped — injecting it into a singleton throws under scope validation (Development) or captures a single snapshot that never refreshes. Option 4 is wrong: the default JSON providers reload on change, and the monitor exposes that."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.configuration-options.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "configuration",
+            "providers",
+            "environment-variables"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "An ASP.NET Core 10 app built with `WebApplication.CreateBuilder(args)` runs with `ASPNETCORE_ENVIRONMENT=Production` and no command-line arguments. `ConnectionStrings:Default` is defined in `appsettings.json`, in `appsettings.Production.json`, and in the environment variable `ConnectionStrings__Default`. Which value does `builder.Configuration.GetConnectionString(\"Default\")` return?",
+              "options": [
+                {
+                  "text": "The value from `appsettings.Production.json`, because the environment-specific file is the most specific source.",
+                  "correct": false
+                },
+                {
+                  "text": "The value from `appsettings.json`, because the first provider that defines a key wins.",
+                  "correct": false
+                },
+                {
+                  "text": "The value from the environment variable, because it is added after both JSON files and the last provider defining a key wins.",
+                  "correct": true
+                },
+                {
+                  "text": "An exception is thrown because the key is ambiguous across providers.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Configuration providers are layered in registration order and a later provider overwrites earlier values for the same key. The default order is `appsettings.json`, `appsettings.{Environment}.json`, user secrets (Development only), environment variables, command-line arguments, so the environment variable wins here (a command-line argument would win over it). The `__` separator maps to `:`. Option 1 is the intuitive but wrong 'most specific file' rule — files are earlier in the chain than environment variables. Option 2 reverses the precedence rule. Option 4 is wrong: overriding is the whole point of layered providers; there is no ambiguity check."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.configuration-options.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "options",
+            "validation",
+            "fail-fast"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Options are registered as follows, and the production environment forgot to set `Smtp:Host` (a `[Required]` property):\n\n```csharp\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(\"Smtp\")\n    .ValidateDataAnnotations();\n```\n\n`SmtpOptions` is consumed only by an `EmailSender` used by the password-reset endpoint. When does the problem surface?",
+              "options": [
+                {
+                  "text": "On the first access to `IOptions<SmtpOptions>.Value` — typically the first password-reset request — which throws `OptionsValidationException`; adding `.ValidateOnStart()` would make the host fail at startup instead.",
+                  "correct": true
+                },
+                {
+                  "text": "At host start: `ValidateDataAnnotations` registers validation that runs when the host builds the options.",
+                  "correct": false
+                },
+                {
+                  "text": "Never: data annotations are only evaluated by MVC model binding, so `Host` stays an empty string and sending fails later.",
+                  "correct": false
+                },
+                {
+                  "text": "At `builder.Build()`, because `ValidateOnBuild` checks all options in every environment.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Options validation is lazy by default: the options factory runs the registered `IValidateOptions<T>` the first time the value is created, and failures throw `OptionsValidationException`. With nothing touching `SmtpOptions` at startup, the deployment looks healthy until the first password reset. `.ValidateOnStart()` (or `AddOptionsWithValidateOnStart<T>()` in .NET 8+) registers a startup validation that the host runs before it starts serving, so it fails immediately. Option 2 is exactly the misconception `ValidateOnStart` exists to fix. Option 3 is wrong: `ValidateDataAnnotations` uses `System.ComponentModel.DataAnnotations.Validator` and works outside MVC. Option 4 confuses `ServiceProviderOptions.ValidateOnBuild`, which checks that services can be constructed (and is on only in Development), with options validation."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.configuration-options.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "configuration",
+            "arrays",
+            "providers"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "`appsettings.json` contains `\"Cors\": { \"Origins\": [\"https://a.example\", \"https://b.example\", \"https://c.example\"] }`. `appsettings.Production.json` contains `\"Cors\": { \"Origins\": [\"https://prod.example\"] }`. In Production, what does `builder.Configuration.GetSection(\"Cors:Origins\").Get<string[]>()` return?",
+              "options": [
+                {
+                  "text": "`[\"https://prod.example\"]` — the environment file replaces the whole array.",
+                  "correct": false
+                },
+                {
+                  "text": "A `FormatException`, because two providers define the same array with different lengths.",
+                  "correct": false
+                },
+                {
+                  "text": "`[\"https://a.example\", \"https://b.example\", \"https://c.example\", \"https://prod.example\"]` — arrays from later providers are appended.",
+                  "correct": false
+                },
+                {
+                  "text": "`[\"https://prod.example\", \"https://b.example\", \"https://c.example\"]` — arrays are flattened to `Origins:0..n` keys and merged key by key, so only index 0 is overridden.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Configuration has no array type: JSON arrays become keys `Cors:Origins:0`, `Cors:Origins:1`, ... and providers override individual keys. The production file overrides only `:0`, leaving `:1` and `:2` from the base file — a well-known source of production CORS or allow-list bugs. Fixes: do not put the list in the base file (keep it per-environment), use a delimited string, or override all indices explicitly. Option 1 is the intuitive expectation and is wrong. Option 3 imagines append semantics that do not exist. Option 2 is wrong: differing lengths are not an error, the merged key set just has three indices."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.configuration-options.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "configuration",
+            "options",
+            "secrets",
+            "validation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain the difference between `IOptions<T>`, `IOptionsSnapshot<T>` and `IOptionsMonitor<T>`, including their lifetimes and reload behaviour. Then describe how you would set up configuration for a service that needs a third-party API base URL, a timeout and an API key, across local development, CI and production containers: where each value lives, which provider wins, and how you make a misconfiguration fail fast.",
+              "explanation": "Model answer: `IOptions<T>` is a singleton computed once (no reload, default name only); `IOptionsSnapshot<T>` is scoped, recomputed per request/scope, supports named options, and must not be injected into singletons; `IOptionsMonitor<T>` is a singleton exposing `CurrentValue`, `Get(name)` and `OnChange` (dispose the registration) and is the right choice for singletons and hosted services that must see reloads. Setup: non-secret defaults (base URL, timeout) in `appsettings.json` with environment overrides in `appsettings.{Environment}.json`; the API key from user secrets locally, CI secrets exposed as environment variables, and environment variables or a vault/Key Vault provider in production containers — never committed JSON. Providers are layered and the last wins (JSON → env JSON → user secrets in Development → env vars with `__` → command line → anything added later such as a vault). Bind with `AddOptions<T>().BindConfiguration(...)`, validate with data annotations/`Validate`/`IValidateOptions<T>` or the .NET 8 source-generated validator, and call `ValidateOnStart()` so the host refuses to start rather than failing on the first call.",
+              "rubric": [
+                "Correctly states lifetimes and reload behaviour: `IOptions<T>` singleton and computed once; `IOptionsSnapshot<T>` scoped and recomputed per scope; `IOptionsMonitor<T>` singleton with `CurrentValue`/`OnChange`.",
+                "Notes that `IOptionsSnapshot<T>` must not be injected into singletons (and that `IOptionsMonitor<T>` is the choice there).",
+                "Keeps the API key out of committed files: user secrets for local development, environment variables or a secret store/vault provider for CI and production.",
+                "Describes provider precedence as 'last registered wins' with the default order (appsettings → environment-specific appsettings → user secrets in Development → environment variables → command line), including the `__` separator for environment variables.",
+                "Uses options validation with `ValidateOnStart()` (or `AddOptionsWithValidateOnStart`) so a missing or invalid value fails at startup rather than on first use."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "logging-observability",
+      "title": "Logging & Observability: Structured ILogger, Scopes, OpenTelemetry, ActivitySource, Metrics",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Logging & Observability: Structured ILogger, Scopes, OpenTelemetry, ActivitySource, Metrics",
+          "note": "## What it is\n\nObservability in .NET rests on three BCL primitives that OpenTelemetry (OTel) exports without wrapping them: **logs** via `Microsoft.Extensions.Logging.ILogger`, **traces** via `System.Diagnostics.ActivitySource`/`Activity`, and **metrics** via `System.Diagnostics.Metrics.Meter` (`Counter<T>`, `Histogram<T>`, `UpDownCounter<T>`, observable gauges). The OTel SDK subscribes to these APIs and ships the data over OTLP to a collector or backend. Your code depends only on the BCL types.\n\n## How it works underneath\n\n**Structured logging.** `logger.LogInformation(\"Order {OrderId} placed by {CustomerId}\", id, cust)` passes a *message template* plus arguments. Providers receive the template and the named values separately, so a backend can index `OrderId` and group all occurrences of one template. An interpolated string (`$\"Order {id} placed\"`) is formatted eagerly — even when the level is disabled — produces a distinct message per value, and loses the property names (analyzer CA2254 flags it). The extension methods also allocate a `params object[]` and box value types on every call. The `[LoggerMessage]` source generator removes that: it emits a strongly-typed method that checks `IsEnabled` first, uses a cached parsed template and avoids boxing.\n\n**Scopes.** `using (logger.BeginScope(new Dictionary<string, object> { [\"TenantId\"] = t }))` attaches properties to every log written inside the `using`, including across `await` (scopes flow through `AsyncLocal`). Whether they are *emitted* is the provider's choice: console formatters and the OTel logging provider have `IncludeScopes`, off by default.\n\n**Traces.** An `Activity` is a span. `ActivitySource.StartActivity(name)` returns **null** when no listener is sampling that source — the zero-cost path when tracing is off — so every use must be null-safe (`activity?.SetTag(...)`). `Activity.Current` flows through `ExecutionContext`, so child spans nest automatically across `await`. ASP.NET Core and `HttpClient` create activities and propagate W3C `traceparent` headers; the logging infrastructure stamps `TraceId`/`SpanId` on log records, which is what lets you jump from a log line to its trace.\n\n**Metrics.** Instruments are created from a `Meter` (via `IMeterFactory` in DI since .NET 8). Each unique combination of tag values is a separate time series, so tags must have **bounded cardinality** (route template, status code, region) — never user id, order id or raw URL. The OTel SDK caps series per metric and folds the excess into an overflow series, silently degrading your data. Since .NET 8 ASP.NET Core and `HttpClient` emit built-in metrics (`http.server.request.duration`, etc.) following OTel semantic conventions.\n\n```csharp\npublic sealed partial class PaymentService(ILogger<PaymentService> log, IMeterFactory meters)\n{\n    public static readonly ActivitySource Source = new(\"Shop.Payments\");\n    private readonly Histogram<double> _duration =\n        meters.Create(\"Shop.Payments\").CreateHistogram<double>(\"shop.payment.duration\", unit: \"s\");\n\n    public async Task ChargeAsync(Order order, CancellationToken ct)\n    {\n        using var activity = Source.StartActivity(\"Charge\");   // null if nobody listens\n        activity?.SetTag(\"payment.provider\", order.Provider);\n        var start = Stopwatch.GetTimestamp();\n        await _gateway.ChargeAsync(order, ct);\n        _duration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds,\n            new KeyValuePair<string, object?>(\"payment.provider\", order.Provider)); // bounded tag\n        LogCharged(log, order.Id, order.Total);\n    }\n\n    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = \"Charged order {OrderId} for {Amount}\")]\n    private static partial void LogCharged(ILogger logger, Guid orderId, decimal amount);\n}\n\n// Program.cs\nbuilder.Services.AddOpenTelemetry()\n    .WithTracing(t => t.AddSource(\"Shop.Payments\").AddAspNetCoreInstrumentation().AddHttpClientInstrumentation())\n    .WithMetrics(m => m.AddMeter(\"Shop.Payments\").AddAspNetCoreInstrumentation())\n    .UseOtlpExporter();\n```\n\n## What an interviewer probes\n\n- Template vs interpolation, and the cost of logging on hot paths.\n- Logs vs traces vs metrics: what question each answers (what happened / where time went across services / how much and how often).\n- How a trace id crosses process boundaries (W3C Trace Context) and how logs get correlated with it.\n- Sampling (head-based in the SDK vs tail-based in the collector) and its effect on what you can debug.\n- Metric cardinality and why the source name passed to `AddSource`/`AddMeter` must match exactly.\n\n## Common misconceptions\n\n- \"Interpolated strings are fine now that C# has interpolated string handlers\" — the `ILogger` extension methods do not take one.\n- \"`StartActivity` always returns an activity\" — not without a listener.\n- \"More tags on metrics = more insight\" — high-cardinality tags belong on spans and logs.\n- \"Scopes are lost after `await`\" — they flow; the provider may just not print them.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "logging",
+            "structured-logging",
+            "ilogger",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Compare these two calls in an ASP.NET Core 10 service that ships logs to a structured backend:\n\n```csharp\n_log.LogInformation($\"Order {order.Id} placed by {order.CustomerId}\");     // A\n_log.LogInformation(\"Order {OrderId} placed by {CustomerId}\", order.Id, order.CustomerId); // B\n```\n\nWhich statement is true?",
+              "options": [
+                {
+                  "text": "They are equivalent: since C# 10 the `ILogger` extension methods accept an interpolated string handler that defers formatting and keeps `OrderId` and `CustomerId` as named properties.",
+                  "correct": false
+                },
+                {
+                  "text": "B is preferable: the backend receives a constant template plus named properties it can index and group by, while A formats the string eagerly (even if Information is disabled) and produces a different message per order with no named properties.",
+                  "correct": true
+                },
+                {
+                  "text": "A is preferable because B boxes the arguments, while string interpolation of a `Guid` avoids allocations entirely.",
+                  "correct": false
+                },
+                {
+                  "text": "B only differs from A in console output; structured backends parse property names out of the rendered string either way.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Message templates are the basis of structured logging: providers get the template (`\"Order {OrderId} placed by {CustomerId}\"`) and the values as separate key/value pairs, so a backend can query `OrderId = ...` and count occurrences per template. Variant A builds the final string before `ILogger` sees it — paying the formatting cost even when the level is filtered out — and every log line becomes a unique message with only `{OriginalFormat}` as its template (CA2254 warns about this). Option 1 is a common misconception: `LoggerExtensions` methods take `string message, params object?[] args`; Microsoft.Extensions.Logging ships no interpolated-string-handler overloads. Option 3 has a true half (B allocates a `params` array and boxes value types; `[LoggerMessage]` fixes that) but A allocates the formatted string and its interpolation buffers, so it is not allocation-free. Option 4 is wrong: backends do not reverse-engineer properties from rendered text; they rely on the structured state."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "tracing",
+            "activitysource",
+            "opentelemetry"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A service contains:\n\n```csharp\nprivate static readonly ActivitySource Source = new(\"Shop.Checkout\");\n\npublic void Process(Cart cart)\n{\n    using var activity = Source.StartActivity(\"Process\");\n    activity.SetTag(\"cart.items\", cart.Items.Count);\n    // ...\n}\n```\n\nIt works in production, where OpenTelemetry is configured with `.AddSource(\"Shop.Checkout\")`, but throws `NullReferenceException` in unit tests and in a staging environment whose OpenTelemetry setup registers `.AddSource(\"Shop.Checkouts\")` by mistake. Why?",
+              "options": [
+                {
+                  "text": "`StartActivity` returns `null` when no `ActivityListener` is listening to (and sampling) that source, which is the case in tests and when the registered source name does not match; the code must use `activity?.SetTag(...)`.",
+                  "correct": true
+                },
+                {
+                  "text": "`ActivitySource` must be created through DI (`IActivitySourceFactory`); a static instance is never initialized outside ASP.NET Core.",
+                  "correct": false
+                },
+                {
+                  "text": "`StartActivity` returns `null` only when `Activity.Current` is null, i.e. when there is no incoming HTTP request to act as a parent.",
+                  "correct": false
+                },
+                {
+                  "text": "When no registered source name matches, the OpenTelemetry SDK falls back to listening to every source, so the staging failure must come from the sampler; the unit-test failure is a separate mocking issue.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ActivitySource.StartActivity` consults registered `ActivityListener`s; if none listens to that source name, or the sampler returns `ActivitySamplingResult.None`, it returns `null` without allocating anything — that is the zero-overhead path when tracing is off. Unit tests have no listener, and `AddSource(\"Shop.Checkouts\")` does not match `\"Shop.Checkout\"`, so both get `null`. Always use null-conditional access. Option 2 invents an API: there is `IMeterFactory` for meters, but `ActivitySource` is designed to be a static, long-lived instance. Option 3 is wrong: a root activity with no parent is created whenever a listener samples it; parentless activities are normal (background jobs, console apps). Option 4 is wrong: there is no fallback — the SDK listens only to sources whose names match what you passed to `AddSource` (wildcards such as `\"Shop.*\"` are supported); and a sampler dropping traces would also yield `null`, which is the same root cause, not a different one."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "logging",
+            "loggermessage",
+            "source-generators",
+            "performance"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A hot path logs at `Debug` level, which is disabled in production. Profiling still shows allocations from those calls. A teammate proposes replacing them with `[LoggerMessage]` source-generated methods. Which statement about the generated code is correct?",
+              "options": [
+                {
+                  "text": "It makes logging asynchronous by queuing entries to a background channel, so the calling thread never blocks on I/O.",
+                  "correct": false
+                },
+                {
+                  "text": "It removes the cost of evaluating the arguments themselves, so `LogDebug(ExpensiveDump())` becomes free when Debug is disabled.",
+                  "correct": false
+                },
+                {
+                  "text": "It is required for structured logging: without it, the provider only receives the rendered message.",
+                  "correct": false
+                },
+                {
+                  "text": "It checks `logger.IsEnabled(level)` before doing any work and passes the arguments as strongly-typed fields instead of a boxed `params object[]`, so a disabled call costs essentially a level check, and the template is parsed once rather than per call.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The generator emits a method whose body first calls `IsEnabled`, then logs through a generated struct that carries the typed values (no `object[]`, no boxing of `Guid`/`int`/`decimal`) and a template parsed at compile time, with a stable `EventId`. With the level disabled, the call reduces to the check. Option 1 is wrong: the generator does not change the provider pipeline; whether writes are buffered is a provider concern (the console logger already uses a background queue). Option 3 is wrong: the ordinary `LogInformation(template, args)` overloads are structured too; the generator is about performance and consistency. Option 2 is a subtle trap: C# evaluates arguments before the call, so `ExpensiveDump()` still runs — guard it with `if (logger.IsEnabled(LogLevel.Debug))` or pass the cheap input and format lazily."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "metrics",
+            "cardinality",
+            "opentelemetry"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "To find slow customers, a developer adds tags to a histogram:\n\n```csharp\n_latency.Record(elapsed, new(\"customer.id\", customerId), new(\"http.route\", routeTemplate));\n```\n\nThere are ~2 million customers. After deployment the dashboard shows gaps and an `otel.metric.overflow` series, and the collector's memory climbs. Which is the right fix?",
+              "options": [
+                {
+                  "text": "Switch from `Histogram<double>` to `Counter<long>`, because histograms are the instrument that creates per-tag series.",
+                  "correct": false
+                },
+                {
+                  "text": "Remove `customer.id` from the metric (keep bounded tags such as route, method and status code) and put the customer id on the trace span or log record, where per-request detail belongs.",
+                  "correct": true
+                },
+                {
+                  "text": "Increase the SDK's metric cardinality limit to a few million so every customer fits.",
+                  "correct": false
+                },
+                {
+                  "text": "Hash `customer.id` to a fixed-length string before recording to reduce memory usage per series.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Each distinct combination of tag values is its own time series, aggregated and kept in memory by the SDK and every downstream system. Unbounded tags explode that set; the OTel .NET SDK caps the number of series per metric and routes excess measurements into an overflow series, which is exactly the symptom described. Metrics should answer aggregate questions with bounded dimensions; per-customer drill-down is a job for traces (span attributes) and logs, possibly with exemplars linking the two. Option 1 is wrong: every instrument type creates one series per tag combination. Option 3 treats the symptom and moves the memory problem into the SDK, collector and backend (and their bills). Option 4 does not change cardinality at all — 2 million hashes are still 2 million series."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.mcq.5",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "logging",
+            "scopes",
+            "ilogger"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Middleware does `using (_log.BeginScope(new Dictionary<string, object> { [\"TenantId\"] = tenantId })) { await next(ctx); }`. Log lines written by a controller further down the pipeline (after several `await`s) do not show `TenantId`, neither in the console nor in the OpenTelemetry log exporter. What is the most likely cause?",
+              "options": [
+                {
+                  "text": "Scopes are stored in thread-local storage, so they are lost once an `await` resumes on a different thread.",
+                  "correct": false
+                },
+                {
+                  "text": "`BeginScope` only works with third-party providers such as Serilog; Microsoft.Extensions.Logging ignores the state object.",
+                  "correct": false
+                },
+                {
+                  "text": "The scope is captured, but both the console formatter and the OpenTelemetry logging provider have `IncludeScopes` set to `false` by default, so they do not emit scope state until you enable it.",
+                  "correct": true
+                },
+                {
+                  "text": "A dictionary state object is not supported; scope state must be a message template string such as `\"Tenant {TenantId}\"`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The logger factory keeps scopes in an `AsyncLocal`-based scope provider, so they flow with the `ExecutionContext` across `await` and are available to every logger in that async flow. Whether a provider renders them is configurable, and for `SimpleConsoleFormatterOptions`/`JsonConsoleFormatterOptions` and `OpenTelemetryLoggerOptions` the default is `false`. Option 1 is the misconception — the scope provider uses `AsyncLocal`, not `[ThreadStatic]`. Option 2 is wrong: `BeginScope` is part of `ILogger` and supported by the built-in providers. Option 4 is wrong: an `IEnumerable<KeyValuePair<string, object>>` (such as a dictionary) is the recommended state shape because providers can turn it into individual properties; a template string also works but is not required."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.logging-observability.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "observability",
+            "opentelemetry",
+            "tracing",
+            "metrics"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Explain the difference between logs, traces and metrics, and which .NET APIs produce each. Then describe how you would instrument an ASP.NET Core 10 API that calls two downstream services and a PostgreSQL database, so that an on-call engineer can go from an alert to the slow request, to the failing downstream call, to the relevant log lines. Cover propagation, correlation, sampling and cost.",
+              "explanation": "Model answer: metrics are cheap aggregated numbers (rate, error ratio, latency histograms) for alerting, produced by `System.Diagnostics.Metrics` (`Meter`, `Counter<T>`, `Histogram<T>`, via `IMeterFactory`); traces are trees of timed spans across services for 'where did the time go', produced by `ActivitySource`/`Activity`; logs are discrete structured events produced by `ILogger` with message templates. Instrument with the OpenTelemetry SDK: `AddOpenTelemetry().WithTracing(...AddAspNetCoreInstrumentation, AddHttpClientInstrumentation, Npgsql/EF Core instrumentation, AddSource for custom sources)` and `.WithMetrics(...)`, plus OTel logging, exporting OTLP to a collector. W3C `traceparent` headers propagate the trace across HTTP calls automatically; `Activity.Current` flows across `await`; logs carry `TraceId`/`SpanId` so the backend links logs to spans; exemplars can link a latency histogram bucket to a trace. Alert on built-in `http.server.request.duration` / error-rate metrics. Use head sampling (ratio-based, parent-based) to control volume, or tail sampling in the collector to keep slow/error traces; keep metric tags low-cardinality; use `[LoggerMessage]` and level filters on hot paths; null-check `StartActivity`.",
+              "rubric": [
+                "Distinguishes metrics (aggregated, cheap, for alerting), traces (spans across services, for latency attribution) and logs (discrete structured events), and names the .NET APIs: `Meter`/instruments, `ActivitySource`/`Activity`, `ILogger`.",
+                "Describes wiring OpenTelemetry with ASP.NET Core, `HttpClient` and database instrumentation plus custom `AddSource`/`AddMeter`, exported via OTLP (or an equivalent backend exporter).",
+                "Explains propagation with W3C Trace Context (`traceparent`) across HTTP calls and correlation of logs with traces via `TraceId`/`SpanId` on log records.",
+                "Discusses sampling (head-based ratio/parent-based in the SDK versus tail-based in a collector to keep errors and slow requests) and its effect on what can be debugged.",
+                "Addresses cost: bounded metric tag cardinality (no user/order ids), structured templates or `[LoggerMessage]` on hot paths, and level filtering."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "hosting-lifecycle",
+      "title": "Generic Host Lifecycle: IHostedService, BackgroundService, Graceful Shutdown",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Generic Host Lifecycle: IHostedService, BackgroundService, Graceful Shutdown",
+          "note": "## What it is\n\nThe **generic host** (`Host.CreateApplicationBuilder`, or `WebApplication.CreateBuilder` which builds on it) owns the application's DI container, configuration, logging and **lifetime**. Long-running work plugs in as `IHostedService`; `BackgroundService` is the abstract base class most code should use. The host is also what turns `SIGTERM`/Ctrl+C into an orderly shutdown.\n\n## How it works underneath\n\n**Startup.** `host.RunAsync()` builds nothing new — it calls `StartAsync` on every registered `IHostedService`, **sequentially in registration order**, awaiting each. In ASP.NET Core your hosted services start **before** Kestrel starts listening, so a slow `StartAsync` delays the whole app (and its readiness). .NET 8 added `HostOptions.ServicesStartConcurrently`/`ServicesStopConcurrently` (default `false`), `HostOptions.StartupTimeout` (default infinite), and `IHostedLifecycleService` with `StartingAsync`/`StartedAsync`/`StoppingAsync`/`StoppedAsync` hooks. After all services start, `IHostApplicationLifetime.ApplicationStarted` fires.\n\n**BackgroundService.** Its `StartAsync` kicks off `ExecuteAsync(stoppingToken)`, stores the task and returns without awaiting it. Historically the synchronous part of `ExecuteAsync` (everything before the first real `await`) ran inline on the startup path, so a blocking loop with no `await` hung startup; .NET 10 changed `BackgroundService` to run all of `ExecuteAsync` as a separate task. `StopAsync` cancels `stoppingToken` and waits for `ExecuteAsync` to finish **or** for the host's shutdown token to fire, whichever comes first.\n\n**Failures.** Since .NET 6, an unhandled exception escaping `ExecuteAsync` is logged and, under the default `BackgroundServiceExceptionBehavior.StopHost`, **stops the host**. Before .NET 6 it was swallowed silently and the worker simply died. `Ignore` restores the old behaviour — rarely what you want; catch and handle per-iteration exceptions inside the loop instead.\n\n**Graceful shutdown.** `SIGTERM` (Kubernetes, `docker stop`), `SIGINT` or `IHostApplicationLifetime.StopApplication()` trigger: `ApplicationStopping` fires → hosted services' `StopAsync` run in **reverse registration order** (Kestrel stops accepting connections and drains in-flight requests) → `ApplicationStopped` → the container is disposed. The whole stop phase is bounded by `HostOptions.ShutdownTimeout` — **30 seconds by default since .NET 6** (5 s before). Work still running when it elapses is abandoned when the process exits.\n\nIn containers, two things must line up: the app must actually receive the signal (exec-form `ENTRYPOINT [\"dotnet\", \"App.dll\"]`, not a shell wrapper that swallows `SIGTERM`), and `ShutdownTimeout` must be shorter than Kubernetes `terminationGracePeriodSeconds` (default 30 s), after which the kubelet sends `SIGKILL`. Readiness should flip to unhealthy as soon as stopping begins so the load balancer stops routing new traffic.\n\n```csharp\nbuilder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(25));\nbuilder.Services.AddHostedService<QueueWorker>();\n\npublic sealed class QueueWorker(IQueueClient queue, IServiceScopeFactory scopes, ILogger<QueueWorker> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        await foreach (var msg in queue.ReadAllAsync(stoppingToken))\n        {\n            try\n            {\n                await using var scope = scopes.CreateAsyncScope();\n                await scope.ServiceProvider.GetRequiredService<IHandler>().HandleAsync(msg, stoppingToken);\n                await queue.AckAsync(msg, CancellationToken.None);   // finish the ack even while stopping\n            }\n            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }\n            catch (Exception ex) { log.LogError(ex, \"Message {MessageId} failed\", msg.Id); }  // keep the worker alive\n        }\n    }\n}\n```\n\n## What an interviewer probes\n\n- `IHostedService` vs `BackgroundService`, and why `StartAsync` must not run long work.\n- What happens to an exception in `ExecuteAsync` (and the .NET 6 behaviour change).\n- The shutdown sequence and timeouts, end to end from `SIGTERM` to process exit.\n- Using scoped services from a hosted service (scope per unit of work).\n- At-least-once processing: what happens to an in-flight message when the process is killed.\n\n## Common misconceptions\n\n- \"Hosted services start after the server\" — in ASP.NET Core they start before it.\n- \"The host waits for my `ExecuteAsync` to finish\" — only up to `ShutdownTimeout`.\n- \"An exception in a `BackgroundService` crashes the process\" — it stops the host gracefully (by default) after logging; it does not tear the process down mid-flight.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.hosting-lifecycle.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "hosting",
+            "backgroundservice",
+            "ihostedservice"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement correctly describes the relationship between `IHostedService` and `BackgroundService`?",
+              "options": [
+                {
+                  "text": "`BackgroundService` is an abstract `IHostedService` whose `StartAsync` starts `ExecuteAsync` without awaiting it to completion, and whose `StopAsync` cancels the `stoppingToken` and waits for `ExecuteAsync` to finish or for the shutdown timeout.",
+                  "correct": true
+                },
+                {
+                  "text": "`BackgroundService` runs `ExecuteAsync` on a dedicated low-priority OS thread, whereas `IHostedService.StartAsync` runs on the thread pool.",
+                  "correct": false
+                },
+                {
+                  "text": "`IHostedService` instances are created per request scope, while `BackgroundService` instances are singletons.",
+                  "correct": false
+                },
+                {
+                  "text": "`BackgroundService` automatically restarts `ExecuteAsync` if it throws, while a plain `IHostedService` stops the host.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`BackgroundService` is a convenience base class implementing `IHostedService`: `StartAsync` launches `ExecuteAsync(stoppingToken)` and returns so host startup can continue; `StopAsync` signals the token and awaits either the execute task or the host's shutdown token. Implementing `IHostedService` directly is appropriate for short start/stop hooks (warm-up, registering with a discovery service), where `StartAsync` must complete before the app is considered started. Option 2 is wrong: nothing creates a dedicated or low-priority thread; `ExecuteAsync` runs on whatever thread runs it (the thread pool once it awaits). Option 3 is wrong: all hosted services are resolved from the root provider and are effectively singletons. Option 4 is wrong: there is no automatic restart; since .NET 6 an unhandled exception stops the host by default."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.hosting-lifecycle.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "hosting",
+            "backgroundservice",
+            "exceptions",
+            "dotnet-6"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "On .NET 10 with default `HostOptions`, a `BackgroundService` polling loop throws an unhandled `HttpRequestException` out of `ExecuteAsync` after running for an hour. What happens?",
+              "options": [
+                {
+                  "text": "Nothing visible: the exception is stored in the task returned by `ExecuteAsync`, which nobody observes, so the worker silently stops while the web app keeps serving.",
+                  "correct": false
+                },
+                {
+                  "text": "The exception is logged and, because `BackgroundServiceExceptionBehavior` defaults to `StopHost`, the host begins a graceful shutdown and the app stops.",
+                  "correct": true
+                },
+                {
+                  "text": "The runtime raises `AppDomain.UnhandledException` and the process crashes immediately without running `StopAsync` on other services.",
+                  "correct": false
+                },
+                {
+                  "text": "The host catches the exception and restarts `ExecuteAsync` after an exponential back-off.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Since .NET 6 the host observes the `ExecuteAsync` task: a fault is logged as an error and, with the default `HostOptions.BackgroundServiceExceptionBehavior = StopHost`, the host stops gracefully — other hosted services and Kestrel get their `StopAsync`. The intent is that an orchestrator restarts a broken process instead of leaving a zombie. Option 1 describes the pre-.NET 6 behaviour (still available with `BackgroundServiceExceptionBehavior.Ignore`) and is a classic outdated answer. Option 3 is wrong: the exception is captured in a task, not thrown on a raw thread, so it is not an unhandled-exception crash. Option 4 is wrong: there is no built-in restart; resilience has to be written inside the loop (catch per iteration, retry with back-off via Polly/`Microsoft.Extensions.Resilience`)."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.hosting-lifecycle.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "hosting",
+            "graceful-shutdown",
+            "kubernetes",
+            "cancellation"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A .NET 10 worker runs in Kubernetes with the default `terminationGracePeriodSeconds: 30` and default `HostOptions`. Its `BackgroundService` processes batches that take about 90 seconds and **does not** pass `stoppingToken` into the batch work. During a rolling deploy the pod receives `SIGTERM` 10 seconds into a batch. What happens?",
+              "options": [
+                {
+                  "text": "The host waits for `ExecuteAsync` to return no matter how long it takes, so the batch completes and the process exits cleanly at about 80 seconds.",
+                  "correct": false
+                },
+                {
+                  "text": "The host waits 5 seconds (the default `ShutdownTimeout`) and then calls `Thread.Abort` on the worker so `finally` blocks run.",
+                  "correct": false
+                },
+                {
+                  "text": "`stoppingToken` is cancelled immediately; the host waits for the worker up to `ShutdownTimeout` (30 s by default), then continues shutting down and the process exits, abandoning the batch — and the kubelet would `SIGKILL` at 30 s anyway, so the batch must be idempotent or cooperatively cancellable.",
+                  "correct": true
+                },
+                {
+                  "text": "`stoppingToken` is only cancelled after `ShutdownTimeout` expires, giving the batch 30 seconds of uninterrupted grace before cancellation is requested.",
+                  "correct": false
+                }
+              ],
+              "explanation": "On `SIGTERM` the host fires `ApplicationStopping` and calls `StopAsync` on hosted services; `BackgroundService.StopAsync` cancels `stoppingToken` right away and awaits the execute task or the shutdown token, whichever completes first. `HostOptions.ShutdownTimeout` is 30 s by default since .NET 6; when it elapses the host stops waiting, disposes services and `Main` returns, so the still-running work dies with the process. Kubernetes independently sends `SIGKILL` after the grace period. The robust design is to honour the token, make work idempotent or checkpointed, and set `ShutdownTimeout` below the grace period. Option 1 is wrong: the wait is bounded. Option 2 mixes the old 5 s default (.NET Core 3.x/5) with `Thread.Abort`, which is not supported on .NET Core at all. Option 4 inverts the order: cancellation is the first signal, the timeout is the deadline."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.hosting-lifecycle.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "hosting",
+            "ihostedservice",
+            "startup"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "In an ASP.NET Core 10 app a custom `IHostedService` loads a 2 GB reference dataset in `StartAsync` with `await _loader.LoadAsync(ct)`, which takes about 40 seconds. `HostOptions` is left at defaults. What is the observable behaviour?",
+              "options": [
+                {
+                  "text": "Kestrel starts immediately and serves requests while the dataset loads, because hosted services always start after the server.",
+                  "correct": false
+                },
+                {
+                  "text": "Startup aborts after 30 seconds because the default `HostOptions.StartupTimeout` is 30 seconds.",
+                  "correct": false
+                },
+                {
+                  "text": "Hosted services start in parallel by default, so only requests that depend on the dataset wait for it.",
+                  "correct": false
+                },
+                {
+                  "text": "Hosted services start sequentially and before the server begins listening, so the app accepts no requests (and `ApplicationStarted` does not fire) for about 40 seconds; long initialisation should move into a `BackgroundService` with a readiness check, or be bounded explicitly.",
+                  "correct": true
+                }
+              ],
+              "explanation": "The host awaits each hosted service's `StartAsync` in registration order, and in ASP.NET Core 6+ user hosted services are started before the server, so the slow `StartAsync` delays listening and `ApplicationStarted`. If the app must not serve traffic until the data is loaded, that may be intended, but it should be explicit and paired with a startup probe; otherwise run the load in `ExecuteAsync` and gate dependent endpoints with a readiness health check. Option 1 reverses the order. Option 2 is wrong: `StartupTimeout` (added in .NET 8) defaults to `Timeout.InfiniteTimeSpan`. Option 3 is wrong: concurrent start exists since .NET 8 (`ServicesStartConcurrently`) but defaults to `false`, and even then the server start waits for all of them."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.hosting-lifecycle.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "hosting",
+            "graceful-shutdown",
+            "backgroundservice",
+            "kubernetes"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are writing a .NET 10 worker that consumes messages from a queue and writes to a database, deployed on Kubernetes. Explain how you would implement it with the generic host, and walk through exactly what happens from the moment the pod receives `SIGTERM` until the process exits. What settings must line up, and how do you avoid losing or double-processing messages?",
+              "explanation": "Model answer: implement a `BackgroundService` whose `ExecuteAsync` loops over the queue with the `stoppingToken`, creating a DI scope per message (`IServiceScopeFactory.CreateAsyncScope`) for the scoped `DbContext`, catching and logging per-message exceptions so one bad message does not stop the host (an exception escaping `ExecuteAsync` stops the host by default since .NET 6). On `SIGTERM` the host's console lifetime triggers `StopApplication`: `ApplicationStopping` fires, hosted services' `StopAsync` run in reverse registration order, `BackgroundService` cancels `stoppingToken` and waits for `ExecuteAsync` up to `HostOptions.ShutdownTimeout` (30 s default since .NET 6), then `ApplicationStopped`, the container is disposed and the process exits. Settings: exec-form entrypoint so `dotnet` receives the signal; `ShutdownTimeout` shorter than `terminationGracePeriodSeconds` (default 30 s) after which `SIGKILL` arrives; readiness/health reflecting stopping. Delivery: stop pulling new messages on cancellation, finish or abandon the in-flight one, acknowledge only after the database commit (at-least-once), and make handlers idempotent (idempotency key / dedup table or outbox) because a kill between commit and ack causes redelivery.",
+              "rubric": [
+                "Uses a `BackgroundService` with `stoppingToken` honoured in the loop and a DI scope per message for scoped dependencies such as `DbContext`.",
+                "Handles per-message exceptions inside the loop, knowing that an exception escaping `ExecuteAsync` stops the host by default (since .NET 6).",
+                "Describes the shutdown sequence: `SIGTERM` → `ApplicationStopping` → `StopAsync` (reverse order) cancelling `stoppingToken` → wait bounded by `HostOptions.ShutdownTimeout` (30 s default) → `ApplicationStopped`/disposal → process exit.",
+                "Aligns `ShutdownTimeout` below Kubernetes `terminationGracePeriodSeconds` (after which `SIGKILL` is sent) and ensures the process receives the signal (exec-form entrypoint, not a shell wrapper).",
+                "Avoids loss and duplicates with ack-after-commit (at-least-once) plus idempotent handling (dedup/idempotency key or outbox)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "performance-diagnostics",
+      "title": "Performance Diagnostics: BenchmarkDotNet, dotnet-counters, dotnet-trace, Allocation Profiling, Hot Paths",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Performance Diagnostics: BenchmarkDotNet, dotnet-counters, dotnet-trace, Allocation Profiling, Hot Paths",
+          "note": "## What it is\n\nA senior engineer is expected to have a **method**, not a bag of tricks: measure at the system level, narrow down with a profiler, prove a fix with a micro-benchmark, then verify in the real system. .NET gives you a cross-platform toolbox for each step, all built on **EventPipe** (in-process event streaming, no kernel driver needed, works in Linux containers).\n\n## The tools, from coarse to fine\n\n- **`dotnet-counters`** — live, low-overhead metrics from a running process: CPU, working set, GC heap size, gen0/1/2 counts, `% time in GC`, allocation rate, thread-pool thread count and **queue length**, lock contention, exception rate; plus ASP.NET Core and Kestrel meters. `dotnet-counters monitor -p <pid> --counters System.Runtime,Microsoft.AspNetCore.Hosting`. It answers \"what kind of problem is this?\" (CPU-bound, GC-bound, starvation, exceptions) — not \"which method?\".\n- **`dotnet-trace`** — collects an EventPipe trace (`.nettrace`) with CPU sampling (periodic managed stack samples) and/or runtime events (GC, allocations, exceptions, contention). `--format speedscope` gives a flame graph; PerfView and Visual Studio open `.nettrace` directly. The `gc-verbose` profile includes `AllocationTick` events — one sampled event roughly every 100 KB allocated, with type and stack — which is the cheap way to find *who allocates* in production.\n- **`dotnet-gcdump`** — heap snapshot (types, counts, retention) for \"what is on the heap\"; **`dotnet-dump`** — full process dump for offline analysis (`clrstack`, `dumpheap`, `syncblk`), ideal for hangs and deadlocks. In Kubernetes run them from a sidecar or `kubectl debug` ephemeral container sharing the process namespace, or bake them into a diagnostics image.\n- **BenchmarkDotNet** — micro-benchmarks done correctly. It builds a Release copy of your benchmarks and runs them in **a separate process**, performs pilot and warm-up iterations so you measure steady-state code (after tiered compilation and Dynamic PGO have promoted it to tier 1), runs many iterations and reports mean, error, standard deviation and, with `[MemoryDiagnoser]`, **allocated bytes per operation** and GC counts per 1,000 operations. `[Baseline]` gives ratios; `[Params]` sweeps inputs; returning the result prevents the JIT from eliminating dead code.\n\n```csharp\n[MemoryDiagnoser]\npublic class ParseBench\n{\n    private const string Input = \"id=42;qty=7;price=1999\";\n\n    [Benchmark(Baseline = true)]\n    public int Split() => Input.Split(';').Sum(p => int.Parse(p.Split('=')[1]));\n\n    [Benchmark]\n    public int Span()\n    {\n        int sum = 0;\n        foreach (var range in Input.AsSpan().Split(';'))           // .NET 9+ MemoryExtensions.Split\n        {\n            var part = Input.AsSpan()[range];\n            sum += int.Parse(part[(part.IndexOf('=') + 1)..]);\n        }\n        return sum;                                                 // returned: no dead-code elimination\n    }\n}\n// dotnet run -c Release -- --filter *ParseBench*\n```\n\n## Common hot paths interviewers expect you to recognise\n\n- Allocation in loops: LINQ over small collections, closures capturing locals, `string` concatenation, `params` arrays, boxing (struct to interface, non-generic collections, `string.Format` with value types).\n- Exceptions as control flow (throwing is microseconds, not nanoseconds).\n- Rebuilding expensive objects per call: `new Regex(..., RegexOptions.Compiled)`, `HttpClient` per request (socket exhaustion), reflection-based lookups; cache them or use source generators (`[GeneratedRegex]`, System.Text.Json source generation).\n- Sync-over-async and thread-pool starvation — visible in counters as a growing queue length with low CPU.\n- Large or mid-lived allocations causing gen2/LOH collections (see the memory topic).\n\n## What an interviewer probes\n\n- Your sequence: symptom → counters → trace/dump → hypothesis → benchmark → fix → verify with the same counters under load.\n- Why a `Stopwatch` loop lies (JIT tiers, no warm-up, Debug builds, dead-code elimination, noise).\n- How to profile in production safely (sampling overhead, short collections, `--duration`).\n- How to read `[MemoryDiagnoser]` output.\n\n## Common misconceptions\n\n- \"Average latency is the metric\" — percentiles (p95/p99) and allocation rate tell the story.\n- \"Micro-benchmark wins translate linearly to the service\" — only if that path is actually hot in the profile.\n- \"Profilers must be attached at startup\" — EventPipe tools attach to a running process.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.performance-diagnostics.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "benchmarkdotnet",
+            "benchmarking",
+            "jit"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A developer times two implementations with `Stopwatch` around a 1,000-iteration loop in a Debug build launched from the IDE, and gets results that contradict a BenchmarkDotNet run of the same code. Which is the most accurate explanation of why the BenchmarkDotNet numbers should be trusted?",
+              "options": [
+                {
+                  "text": "`Stopwatch` has only millisecond resolution, so short operations round to zero.",
+                  "correct": false
+                },
+                {
+                  "text": "BenchmarkDotNet disables the GC during measurement, so its numbers exclude collection noise.",
+                  "correct": false
+                },
+                {
+                  "text": "BenchmarkDotNet builds Release, runs in a separate process without a debugger, performs pilot and warm-up iterations so tiered JIT/Dynamic PGO reach steady state, then runs many iterations and reports statistics (and allocations with `[MemoryDiagnoser]`).",
+                  "correct": true
+                },
+                {
+                  "text": "BenchmarkDotNet counts executed IL instructions instead of wall-clock time, which removes hardware noise.",
+                  "correct": false
+                }
+              ],
+              "explanation": "The naive loop measures tier-0 (unoptimised) and Debug code, includes JIT time in the first iterations, runs under a debugger, and gives one noisy sample. BenchmarkDotNet controls all of that: Release build, out-of-process runs, a pilot stage to pick iteration counts, warm-up so the measured code is the tier-1 code production would run, many iterations with mean/error/stddev, and outlier handling. Option 1 is wrong: `Stopwatch` uses the high-resolution performance counter (`Stopwatch.Frequency` is typically 10 MHz or more). Option 2 is wrong: GC runs normally, and its cost is part of what you want to measure; `[MemoryDiagnoser]` reports it. Option 4 is wrong: BenchmarkDotNet measures wall-clock time; instruction counts are a separate optional hardware-counter diagnoser."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.performance-diagnostics.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "diagnostics",
+            "dotnet-trace",
+            "dotnet-counters",
+            "cpu"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A production ASP.NET Core service on Linux shows sustained 90% CPU after a release; `dotnet-counters` shows a normal allocation rate, `% time in GC` under 3% and an empty thread-pool queue. You need to find which code is burning CPU without restarting the process. What should you do next?",
+              "options": [
+                {
+                  "text": "Run `dotnet-counters monitor` with the `--counters` argument listing the suspect method names to get per-method CPU usage.",
+                  "correct": false
+                },
+                {
+                  "text": "Take one `dotnet-dump` and run `clrstack` on all threads; the methods on top of the stacks in that single snapshot are the hot ones.",
+                  "correct": false
+                },
+                {
+                  "text": "Take a `dotnet-gcdump` and look for the types with the most instances, since they are what consumes CPU.",
+                  "correct": false
+                },
+                {
+                  "text": "Collect a short `dotnet-trace` CPU-sampling trace from the running process and inspect it as a flame graph (speedscope/PerfView) to find the hottest stacks.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Counters have already classified the problem as CPU-bound in managed code rather than GC or starvation, so the next step is a sampling profile. `dotnet-trace collect -p <pid> --duration 00:00:30` (with a CPU-sampling profile) attaches via EventPipe to the live process, and aggregated stacks show where time goes. Option 1 is wrong: counters are aggregate metrics; there is no per-method CPU counter. Option 3 is wrong: a gcdump shows heap contents, which is relevant to memory, not CPU; and GC is already ruled out. Option 2 is tempting but statistically weak: a single dump is one sample; it is the right tool for hangs/deadlocks, while finding hot code needs many samples over time (several dumps are a poor man's profiler at best)."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.performance-diagnostics.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "performance",
+            "regex",
+            "hot-path",
+            "source-generators"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "This validation runs for every request and shows up at the top of a CPU profile, with heavy time in `System.Reflection.Emit` and JIT:\n\n```csharp\npublic static bool IsValidSku(string s) =>\n    new Regex(@\"^[A-Z]{3}-\\d{4}$\", RegexOptions.Compiled).IsMatch(s);\n```\n\nWhich change fixes the root cause?",
+              "options": [
+                {
+                  "text": "Remove `RegexOptions.Compiled` but keep constructing the `Regex` per call, because interpretation is always faster than compiled code for short inputs.",
+                  "correct": false
+                },
+                {
+                  "text": "Construct the regex once — a `static readonly` field, or better a `[GeneratedRegex(@\"^[A-Z]{3}-\\d{4}$\")] private static partial Regex Sku();` source-generated method — and reuse it.",
+                  "correct": true
+                },
+                {
+                  "text": "Wrap the call in `Task.Run` so the regex compilation happens off the request thread.",
+                  "correct": false
+                },
+                {
+                  "text": "Add `RegexOptions.IgnoreCase` so the engine can skip the case-sensitivity check, reducing CPU.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`RegexOptions.Compiled` generates IL via Reflection.Emit and JIT-compiles it when the `Regex` is constructed — milliseconds of work that only pays off if the instance is reused. Constructing it per call does that work on every request. Hoisting it to a static field amortises the cost; the `[GeneratedRegex]` source generator (.NET 7+) emits the matcher at build time, so there is no runtime compilation at all and it works with trimming and Native AOT. Option 1 helps a little by avoiding the emit, but still parses the pattern and builds the interpreter per call, and its premise is false. Option 3 moves the waste to another thread-pool thread and adds scheduling overhead. Option 4 changes semantics and makes matching slightly more expensive, not cheaper."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.performance-diagnostics.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "benchmarkdotnet",
+            "memorydiagnoser",
+            "allocations"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A `[MemoryDiagnoser]` BenchmarkDotNet run prints the following row:\n\n```\n| Method | Mean     | Gen0   | Allocated |\n| Parse  | 182.4 ns | 0.0153 |      96 B |\n```\n\nWhat do the `Gen0` and `Allocated` columns mean?",
+              "options": [
+                {
+                  "text": "`Gen0` is the number of gen0 collections per 1,000 operations; `Allocated` is the managed memory allocated per single operation (96 bytes).",
+                  "correct": true
+                },
+                {
+                  "text": "`Gen0` is the megabytes allocated in generation 0 during the run; `Allocated` is the total bytes allocated across all iterations.",
+                  "correct": false
+                },
+                {
+                  "text": "`Gen0` is the percentage of time spent in gen0 garbage collections; `Allocated` is the peak working set per operation.",
+                  "correct": false
+                },
+                {
+                  "text": "`Gen0` is the number of objects promoted out of gen0 per operation; `Allocated` counts both managed and native (`stackalloc`/`NativeMemory`) bytes per operation.",
+                  "correct": false
+                }
+              ],
+              "explanation": "BenchmarkDotNet normalises GC counts to 'collections per 1,000 operations' (0.0153 means roughly one gen0 GC every 65,000 calls) and reports `Allocated` as managed bytes allocated per invoked operation, measured precisely via `GC.GetAllocatedBytesForCurrentThread`/`GC.GetTotalAllocatedBytes`. Driving `Allocated` to `-` (zero) is usually the goal for hot paths. Option 2 confuses both units. Option 3 is wrong: there is no time percentage in that column, and working set is not reported. Option 4 is wrong on both counts: promotions are not shown, and stack allocations and native memory are not managed heap allocations, so they are not included."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.performance-diagnostics.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "diagnostics",
+            "performance",
+            "methodology",
+            "dotnet-trace"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "After a release, the p99 latency of an ASP.NET Core 10 API running in Kubernetes doubled while p50 is unchanged. Walk me through how you would diagnose it, step by step, naming the tools you would use at each stage and what each tells you, and how you would prove that your fix worked.",
+              "explanation": "Model answer: first confirm and scope with metrics — which endpoints, since which deploy, correlated with load or not (`http.server.request.duration` histograms, traces of slow requests via OpenTelemetry). Then classify the problem in the live process with `dotnet-counters` (CPU, `% time in GC` and gen2 counts, allocation rate, thread-pool queue length and thread count, lock contention, exception rate): tail-only latency points to GC pauses, thread-pool starvation (queue length rising with low CPU, typical of sync-over-async), lock contention, or a slow dependency. Narrow down with `dotnet-trace` (CPU sampling for hot stacks; `gc-verbose` with `AllocationTick` for who allocates; contention events) viewed as a flame graph, `dotnet-dump` for stuck threads, `dotnet-gcdump` for heap composition; run the tools from an ephemeral debug container or sidecar. Compare against the previous release (diff the commits touching the hot path). Form a hypothesis, reproduce the hot path with BenchmarkDotNet (`[MemoryDiagnoser]`, baseline vs fix), apply the fix, then verify under realistic load in staging and production with the same counters and the p99 histogram, ideally with a canary.",
+              "rubric": [
+                "Starts from metrics/traces to scope the regression (which endpoints, since which deploy, tail vs median) before profiling.",
+                "Uses `dotnet-counters` on the live process to classify the issue (CPU, GC time/gen2 counts, allocation rate, thread-pool queue length, contention, exceptions), and links tail-only latency to plausible causes such as GC pauses, thread-pool starvation, contention or a slow dependency.",
+                "Uses `dotnet-trace` (CPU sampling and/or GC/allocation events) and, where appropriate, `dotnet-dump`/`dotnet-gcdump` to find the responsible code, and explains how to run them in a container (sidecar/ephemeral debug container or diagnostics image).",
+                "Proves the fix with a BenchmarkDotNet micro-benchmark (baseline vs fix, `[MemoryDiagnoser]`) and, crucially, re-measures p99 and the same counters under realistic load (staging/canary)."
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slug": "versioning-runtime",
+      "title": ".NET Versioning & Deployment: LTS/STS, TFMs, global.json, Trimming, ReadyToRun, Native AOT",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": ".NET Versioning & Deployment: LTS/STS, TFMs, global.json, Trimming, ReadyToRun, Native AOT",
+          "note": "## What it is\n\nQuestions here test whether you can make release and deployment decisions: which .NET version to standardise on, how SDK and runtime versions are selected, and which publish mode fits a workload.\n\n## Release cadence and support\n\nA new major version ships every **November**. **Even** numbers are **LTS** (3 years of support); **odd** numbers are **STS**. STS support was 18 months until Microsoft extended it to **24 months** in September 2025 (starting with .NET 9), so .NET 8 (LTS) and .NET 9 (STS) both reach end of support in November 2026, and .NET 10 (LTS, November 2025) is supported until November 2028. STS releases are production quality with the same monthly patches — the only difference is the support window. Monthly patch Tuesdays deliver security fixes as `x.y.z` patch versions; staying on the latest patch is not optional.\n\n## SDK vs runtime vs TFM\n\n- The **TFM** in the project (`net10.0`, `net10.0-windows`, `netstandard2.0`) decides which APIs you compile against and the minimum runtime. Multi-targeting: `<TargetFrameworks>net8.0;net10.0</TargetFrameworks>`. `netstandard2.0` remains the choice for libraries that must also load into .NET Framework 4.x.\n- The **SDK** (`dotnet --version`, e.g. `10.0.100`; the hundreds digit is the feature band) builds the project. An SDK can target its own and older TFMs, never newer ones.\n- **`global.json`** pins the **SDK** used by `dotnet` commands in that directory tree, with a `rollForward` policy (default `latestPatch` when a version is given; `latestFeature`, `latestMinor`, `latestMajor`, `disable`...). It does **not** choose the runtime the app runs on.\n- The **runtime** is chosen at startup from `<app>.runtimeconfig.json`. A framework-dependent app rolls forward by default with `RollForward=Minor`: latest patch of the requested major.minor, or a higher minor if missing — **never** a new major. Running a `net8.0` app on a machine with only .NET 10 fails unless you set `<RollForward>Major</RollForward>` (or `DOTNET_ROLL_FORWARD=Major`) — and then you are running untested on a different runtime.\n\n## Publish modes\n\n| Mode | What you get | Costs |\n|---|---|---|\n| Framework-dependent | small output, shared runtime patched by the host | runtime must be installed (base image) |\n| Self-contained | runtime bundled, per RID (`linux-x64`, `linux-musl-arm64`) | larger, you own patching by rebuilding |\n| Trimmed (`PublishTrimmed`) | self-contained with unreachable IL removed | reflection/dynamic code can break; warnings IL2026/IL2070... must be addressed |\n| ReadyToRun (`PublishReadyToRun`) | IL plus precompiled native code per RID → faster startup | bigger files; JIT still present and tiered compilation re-JITs hot methods to tier 1 |\n| Native AOT (`PublishAot`) | single native executable, no JIT, fastest startup, smallest memory | no `Reflection.Emit`/runtime codegen, must be trim-safe, per-OS build, limited framework support (minimal APIs, gRPC, workers — not MVC controllers or Razor), no Dynamic PGO so peak throughput can be lower |\n\n```xml\n<PropertyGroup>\n  <TargetFramework>net10.0</TargetFramework>\n  <PublishAot>true</PublishAot>              <!-- implies trimming; enables AOT analyzers at build -->\n  <InvariantGlobalization>true</InvariantGlobalization>\n</PropertyGroup>\n<!-- dotnet publish -c Release -r linux-x64 -->\n```\n\n```json\n{ \"sdk\": { \"version\": \"10.0.100\", \"rollForward\": \"latestFeature\" } }\n```\n\n## What an interviewer probes\n\n- LTS vs STS and an upgrade policy (e.g. \"LTS for products, move within months of each LTS; STS only with a plan to hop\").\n- The difference between SDK, runtime and TFM; what `global.json` really controls.\n- When Native AOT is worth it (serverless, CLIs, scale-to-zero, high-density containers) and when it is not (reflection-heavy apps, MVC, EF Core-heavy code, long-running throughput-bound services where JIT + Dynamic PGO wins).\n- Why trimming warnings matter and how source generators (System.Text.Json, configuration binding, `[LoggerMessage]`, `[GeneratedRegex]`) make code AOT-compatible.\n\n## Common misconceptions\n\n- \"STS is less stable\" — same quality bar, shorter support.\n- \"ReadyToRun removes the JIT\" — it only pre-populates code; JIT stays.\n- \"Native AOT is always faster\" — faster startup, not necessarily faster steady state.\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.dotnet-platform.versioning-runtime.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "dotnet-releases",
+            "lts",
+            "sts",
+            "support-policy"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Your team must choose between .NET LTS and STS releases for a product with a three-year roadmap. Which statement about the .NET support model is correct?",
+              "options": [
+                {
+                  "text": "Even-numbered releases are LTS with three years of support; odd-numbered releases are STS, which receive the same quality bar and monthly patches but a shorter support window (24 months since the September 2025 policy change, previously 18).",
+                  "correct": true
+                },
+                {
+                  "text": "STS releases are previews with lower quality guarantees; only LTS releases are recommended for production workloads.",
+                  "correct": false
+                },
+                {
+                  "text": "LTS releases receive new language and library features backported from later releases during their support window, while STS releases receive only security fixes.",
+                  "correct": false
+                },
+                {
+                  "text": "Odd-numbered releases are LTS because they consolidate the features previewed in the preceding even-numbered release.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Microsoft ships a major release each November; even-numbered versions (.NET 8, .NET 10) are LTS with 36 months of support, odd-numbered (.NET 9, .NET 11) are STS. Both are fully supported production releases with identical servicing — the difference is purely the length of support, which for STS was extended from 18 to 24 months in 2025, so .NET 9 now ends together with .NET 8 in November 2026. Option 2 is the most common misconception; STS releases are not previews. Option 3 is wrong: servicing releases contain security and reliability fixes, not new features, for both tracks. Option 4 reverses the parity rule."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.versioning-runtime.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "global-json",
+            "sdk",
+            "tfm"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A repository's root `global.json` contains `{ \"sdk\": { \"version\": \"8.0.400\", \"rollForward\": \"latestFeature\" } }`. A project in it targets `net10.0`. The build machine has SDKs 8.0.415 and 10.0.100 installed. What happens on `dotnet build`?",
+              "options": [
+                {
+                  "text": "The build succeeds with SDK 10.0.100, because `global.json` only selects the runtime the app will run on, not the SDK.",
+                  "correct": false
+                },
+                {
+                  "text": "The build succeeds with SDK 8.0.415, which compiles the project against the .NET 10 reference assemblies it downloads from NuGet.",
+                  "correct": false
+                },
+                {
+                  "text": "The CLI selects SDK 8.0.415 (latest feature band/patch within 8.0 allowed by `latestFeature`), and the build fails because an 8.0 SDK cannot target `net10.0` (NETSDK1045).",
+                  "correct": true
+                },
+                {
+                  "text": "The CLI ignores `global.json` because no 8.0.400 SDK is installed and falls back to the newest installed SDK.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`global.json` controls which SDK the `dotnet` host resolves for commands run under that directory. With `rollForward: latestFeature`, 8.0.400 may roll forward to the highest installed 8.0.x feature band and patch — 8.0.415 here — but not to another major. An SDK can only build TFMs up to its own version, so `net10.0` produces NETSDK1045 (\"The current .NET SDK does not support targeting .NET 10.0\"). Option 1 states the misconception the question targets: `global.json` selects the SDK; the runtime comes from the TFM and `runtimeconfig.json`. Option 2 is wrong: targeting packs alone do not let an old SDK understand a newer TFM. Option 4 is wrong: the CLI does not silently fall back to another major; when no SDK satisfies the policy it reports an error."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.versioning-runtime.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "runtime",
+            "roll-forward",
+            "deployment"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "A framework-dependent app built for `net8.0` (no `RollForward` setting) is copied to a server that has only the .NET 10 runtime installed. What happens when you run it?",
+              "options": [
+                {
+                  "text": "It runs on .NET 10, because the host always rolls forward to the newest installed runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "It starts, but any API whose implementation changed between versions throws `MissingMethodException` at first call.",
+                  "correct": false
+                },
+                {
+                  "text": "It runs on .NET 10 in a compatibility mode that emulates .NET 8 behaviour for breaking changes.",
+                  "correct": false
+                },
+                {
+                  "text": "It fails to start with a message that the required framework `Microsoft.NETCore.App` 8.0.x was not found; default `RollForward=Minor` never crosses a major version, so you must install .NET 8 or opt in with `RollForward=Major` (or `DOTNET_ROLL_FORWARD`).",
+                  "correct": true
+                }
+              ],
+              "explanation": "The host reads `runtimeconfig.json`, which records `Microsoft.NETCore.App` 8.0.0 and the default roll-forward policy `Minor`: use the latest installed patch of 8.0, or the lowest higher 8.x minor, but never 9 or 10. With none present, startup fails with the 'You must install or update .NET' message. `RollForward=Major` (project property, `runtimeconfig.json`, `--roll-forward` or `DOTNET_ROLL_FORWARD`) lets it run on 10 — technically possible but untested against .NET 10 breaking changes. Option 1 describes `LatestMajor`, which is not the default. Option 3 invents a compatibility mode; a few behaviours can be toggled with `AppContext` switches, but there is no version emulation. Option 2 is wrong because the app would not start in the first place."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.versioning-runtime.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "tags": [
+            "native-aot",
+            "trimming",
+            "readytorun",
+            "deployment"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "Which statement about Native AOT in .NET 10 is accurate?",
+              "options": [
+                {
+                  "text": "Native AOT produces the same code as ReadyToRun but packages it as a single file; the JIT is still shipped for hot-method re-optimisation.",
+                  "correct": false
+                },
+                {
+                  "text": "Native AOT gives much faster startup and a smaller memory footprint, but it has no JIT (so no `Reflection.Emit` and no Dynamic PGO, which can lower peak throughput), requires trim-compatible code, builds per target OS/architecture, and does not support everything (for example MVC controllers).",
+                  "correct": true
+                },
+                {
+                  "text": "Native AOT gives the best steady-state throughput in all cases because there is no JIT overhead at runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "Native AOT handles reflection-heavy libraries transparently because the trimmer analyses every `Type.GetType(string)` call and keeps the referenced types.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Native AOT compiles the whole app and the parts of the runtime it uses into one native executable ahead of time: excellent startup and working set, ideal for serverless, CLIs and dense container fleets. Without a JIT, `Reflection.Emit` is unavailable (compiled expression trees fall back to the interpreter), Dynamic PGO cannot specialise hot code, all code must survive trimming, and you publish per RID (cross-OS compilation is not supported). ASP.NET Core supports minimal APIs, gRPC and worker services under AOT, not MVC or Razor Pages. Option 1 describes ReadyToRun, which keeps IL and the JIT and is a different feature. Option 3 is a misconception: a JIT with tiered compilation and Dynamic PGO frequently matches or beats AOT on long-running, throughput-bound services. Option 4 is wrong: the trimmer can only follow statically analysable reflection; string-based `Type.GetType(variable)` and similar patterns produce trim/AOT warnings and break at runtime unless annotated or replaced by source generators."
+            }
+          }
+        },
+        {
+          "id": "dotnet.dotnet-platform.versioning-runtime.open.1",
+          "type": "open",
+          "level": "M",
+          "reviewed": false,
+          "tags": [
+            "deployment",
+            "native-aot",
+            "lts",
+            "tfm"
+          ],
+          "translations": {
+            "en": {
+              "prompt": "You are asked to define deployment choices for three artefacts: (1) a latency-sensitive AWS Lambda / Azure Functions handler that scales to zero, (2) a long-running, throughput-bound ASP.NET Core API on Kubernetes built with MVC controllers and EF Core, and (3) a shared NuGet library consumed by a .NET Framework 4.8 app and by .NET 10 services. For each, pick the target framework(s), the .NET release track, and the publish mode (framework-dependent, self-contained, trimmed, ReadyToRun or Native AOT), and justify the trade-offs.",
+              "explanation": "Model answer: (1) the serverless handler targets the current LTS (`net10.0`) and is published with Native AOT (or at least ReadyToRun + trimming if dependencies are not AOT-safe) to cut cold-start time and memory; this requires trim/AOT-compatible code — minimal API or raw handler, System.Text.Json source generation, no reflection-heavy libraries — and a per-RID build matching the platform (e.g. `linux-x64` or `linux-arm64`). (2) The API stays JIT-based because MVC controllers are not supported under Native AOT and EF Core AOT support is limited/experimental; publish framework-dependent on the official ASP.NET Core runtime image (or self-contained) optionally with ReadyToRun to improve startup/scale-out, and rely on tiered JIT + Dynamic PGO for steady-state throughput; standardise on LTS (.NET 10, supported to November 2028) and patch monthly. (3) The library multi-targets `netstandard2.0` (the only option .NET Framework 4.8 can consume) plus `net10.0` (or `net8.0`) to use modern APIs where available, with `#if` or polyfills; publish modes do not apply to libraries, but it should be annotated/analysed as trim- and AOT-compatible (`IsAotCompatible`) so consumers can use it. Mention `global.json` pinning the SDK for reproducible builds and that STS would only be chosen with a plan to move to the next LTS.",
+              "rubric": [
+                "For the serverless handler: chooses Native AOT (or justifies ReadyToRun/trimming as a fallback) for cold start and memory, and names its requirements (trim/AOT-safe code, source-generated serialization, per-RID build).",
+                "For the Kubernetes API: rejects Native AOT because MVC controllers are unsupported and EF Core/reflection-heavy code is not AOT-friendly, and explains that JIT with tiered compilation/Dynamic PGO gives good steady-state throughput (ReadyToRun optional for startup).",
+                "For the shared library: multi-targets `netstandard2.0` (required for .NET Framework 4.8) plus a modern TFM such as `net10.0`/`net8.0`, and notes that publish modes do not apply to libraries.",
+                "Chooses LTS (.NET 10) for the products with a concrete justification (3-year support window, monthly patches) and treats STS as an option only with a planned upgrade path."
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
