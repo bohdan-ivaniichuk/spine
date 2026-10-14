@@ -12,6 +12,8 @@
       SC-001…SC-006 measured in `specs/002-review-session/quickstart.md` (2026-10-14).
 - [x] 003 Atlas redesign, EN/UK UI, coverage endpoint, rename to Spine — 237 .NET + 80 web tests
       (2026-10-15, ADR 0006).
+- [x] `uk` domain/topic titles (manifest + importer + migration); `clr-memory`/`async` reviewed + `uk`;
+      content sprint 1 for domains 1, 2, 4 (409 questions, unreviewed); 267 .NET + 81 web tests (2026-10-15).
 
 ## In progress
 
@@ -20,7 +22,7 @@
 
 ## Planned (in order)
 
-- [ ] 004 Knowledge atlas & notes (was 003)
+- [ ] 004 Knowledge atlas & notes — spec clarified, awaiting approval
 - [ ] 005 LLM grading (open + kata) (was 004)
 - [ ] 006 Weak-spots & failed-question review (was 005)
 - [ ] Content sprint (user priority, 2026-09-06): after 002 integration, run the content workflow 2–3 topics

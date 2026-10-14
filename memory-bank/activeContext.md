@@ -19,12 +19,26 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
   `language`/`fallback` fields), new `GET /api/review/coverage` for the atlas tiles.
 - Overview: hero, ink Today card, atlas with per-topic coverage; the scope lives in the URL.
 
+**2026-10-15 (later) — after 003**
+- `dotnet/clr-memory` and `dotnet/async` reviewed by the user → `reviewed: true`, plus full `uk` pass.
+- Ukrainian domain/topic titles: manifest `titles.uk` (all 5 domains, 20 topics), nullable `title_uk`
+  columns (migration `AddDomainTopicUkTitles`), `LocalizedTitle.Pick` on every title read, tree carries
+  `titleFallback` (review refs/scopes carry no flag — deliberate).
+- Content sprint 1 (EN, `reviewed: false`): `csharp-lang`, `dotnet-platform`, all of `aspnet-data`, all of
+  `architecture` — 409 questions, 5 katas. Digest + author-flagged facts in
+  `working/content-review-digest-sprint1.md`.
+- Api.Tests import a frozen fixture (`tests/Fixtures/api-content`) with the real schemas, so content
+  growth no longer breaks them; `RepoContentValidatesTests` still guards the real content.
+- 004 spec written and clarified (`specs/004-knowledge-atlas-notes`): readiness = every question of the
+  concept has ease ≥ 2.5 and interval ≥ 7 days; new session scope `concept`.
+
 **Next**
-1. User: update protected files after the rename (see 003 tasks T021).
-2. Human review of the `clr-memory` and `async` digests → `reviewed: true` → re-import; then the
-   `uk` translation pass for reviewed items (content-author) so Ukrainian content appears.
-3. Ukrainian domain/topic titles: manifest `titles.uk` + importer + migration (deferred from 003).
-4. Content sprint (domains 1, 2, 4), then 004 Knowledge atlas & notes (the rail's "Atlas" item).
+1. User: `~/.lockflight/bin/lockflight approve spec` for 004 (`dotnet lockflight` fails — the pinned
+   `lockflight.cli` dev version is not on NuGet). Then plan → tasks → approve tasks → red/green.
+2. User: review sprint-1 content, flip `reviewed`; then `uk` pass for reviewed items.
+3. User: protected-file edits for the rename (003 T021), including the `RootNamespace` patch in the
+   scratchpad — until then fix the namespace of every new EF migration by hand.
+4. Content: Angular (3) and AI engineering (5) domains.
 
 **Waiting on the user**
-- Protected-file edits for the rename; content review of `clr-memory` and `async`.
+- 004 spec approval; sprint-1 content review; protected-file edits.
