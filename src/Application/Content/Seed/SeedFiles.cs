@@ -16,9 +16,12 @@ public static class SeedJson
 
 public sealed record ManifestFile(IReadOnlyList<ManifestDomain> Domains);
 
-public sealed record ManifestDomain(string Slug, string Title, IReadOnlyList<ManifestTopic> Topics);
+public sealed record ManifestDomain(string Slug, string Title, IReadOnlyList<ManifestTopic> Topics, ManifestTitles? Titles = null);
 
-public sealed record ManifestTopic(string Slug, string Title);
+public sealed record ManifestTopic(string Slug, string Title, ManifestTitles? Titles = null);
+
+/// <summary>Optional non-English titles of a manifest domain or topic (<c>titles</c>); English stays in <c>title</c>.</summary>
+public sealed record ManifestTitles(string? Uk);
 
 public sealed record TopicFile(string Domain, string Topic, IReadOnlyList<ConceptSeed> Concepts);
 

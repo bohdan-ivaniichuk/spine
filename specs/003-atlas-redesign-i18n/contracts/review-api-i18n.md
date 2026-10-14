@@ -11,12 +11,12 @@ body (`/sessions`, `/answers`) `lang` is a **query** parameter; the bodies are u
 
 | Endpoint | What `lang` changes |
 |---|---|
-| `GET /api/review/overview` | nothing today (see "Domain and topic titles"); validated for consistency |
-| `POST /api/review/sessions?lang=` | the returned `Session` (prompts, options, concept titles) |
+| `GET /api/review/overview` | `scope.domainTitle` / `scope.topicTitle` (see "Domain and topic titles") |
+| `POST /api/review/sessions?lang=` | the returned `Session` (prompts, options, concept, domain and topic titles) |
 | `GET /api/review/sessions/current?lang=` | same |
 | `GET /api/review/sessions/{id}?lang=` | same |
 | `POST /api/review/sessions/{id}/answers?lang=` | `explanation` |
-| `POST /api/review/sessions/{id}/finish?lang=` | `weakConcepts[].title` |
+| `POST /api/review/sessions/{id}/finish?lang=` | `weakConcepts[].title`, `scope` titles |
 | `GET /api/review/coverage?lang=` | nothing (no text in the payload); validated for consistency |
 
 Session membership, grading, scheduling and stored attempts are language-independent: a session started with
@@ -38,10 +38,11 @@ Fallback to English is decided **per item**, never per response:
 
 ### Domain and topic titles
 
-Domain and topic titles come from `content/manifest.json`, which is English-only today. `scope.domainTitle`,
-`scope.topicTitle`, `SessionQuestion.domain.title` and `SessionQuestion.topic.title` are therefore always English,
-whatever `lang` is. Translating them needs `uk` titles in the manifest (schema + import) and is deferred; the client
-may map slugs to its own UI strings meanwhile.
+Domain and topic titles come from `content/manifest.json`: `title` (English, required) and the optional
+`titles.uk` (stored as `domains.title_uk` / `topics.title_uk`). `scope.domainTitle`, `scope.topicTitle`,
+`SessionQuestion.domain.title` and `SessionQuestion.topic.title` are Ukrainian for `lang=uk` when that domain/topic
+has `titles.uk`, otherwise English — per item, no separate flag. (Added after 003; until then they were always
+English.)
 
 ## New DTO fields
 

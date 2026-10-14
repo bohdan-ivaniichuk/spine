@@ -59,7 +59,7 @@ public sealed class ReviewSessionsLanguageTests(PostgresFixture fixture) : IAsyn
         mcq1.Language.ShouldBe("uk");
         mcq1.Fallback.ShouldBeFalse();
         mcq1.Concept.ShouldBe(new RefDto(TopicTemplate.StackVsHeap, "Stack vs Heap (uk)"));
-        mcq1.Domain.ShouldBe(new RefDto("dotnet", "C# & .NET Runtime"), "domain titles come from the English-only manifest");
+        mcq1.Domain.ShouldBe(new RefDto("dotnet", "C# & .NET Runtime"), "the test manifest has no titles.uk, so domain titles fall back to English");
 
         var mcq2 = session.Questions.Single(q => q.Id == TopicTemplate.Mcq2);
         mcq2.Prompt.ShouldBe("Which statement boxes?");

@@ -133,12 +133,14 @@ export const TREE: KnowledgeTree = {
     {
       slug: 'dotnet',
       title: 'C# & .NET Runtime',
+      titleFallback: false,
       sortOrder: 1,
       deprecatedAt: null,
       topics: [
         {
           slug: 'clr-memory',
           title: 'Memory & GC',
+          titleFallback: false,
           sortOrder: 1,
           deprecatedAt: null,
           concepts: [],

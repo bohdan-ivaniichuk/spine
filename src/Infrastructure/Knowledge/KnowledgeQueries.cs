@@ -16,13 +16,13 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
         var domains = await db.Domains.AsNoTracking()
             .Where(d => includeDeprecated || d.DeprecatedAt == null)
             .OrderBy(d => d.SortOrder).ThenBy(d => d.Id)
-            .Select(d => new { d.Id, d.Slug, d.Title, d.SortOrder, d.DeprecatedAt })
+            .Select(d => new { d.Id, d.Slug, d.Title, d.TitleUk, d.SortOrder, d.DeprecatedAt })
             .ToListAsync(ct);
 
         var topics = await db.Topics.AsNoTracking()
             .Where(t => includeDeprecated || t.DeprecatedAt == null)
             .OrderBy(t => t.SortOrder).ThenBy(t => t.Id)
-            .Select(t => new { t.Id, t.DomainId, t.Slug, t.Title, t.SortOrder, t.DeprecatedAt })
+            .Select(t => new { t.Id, t.DomainId, t.Slug, t.Title, t.TitleUk, t.SortOrder, t.DeprecatedAt })
             .ToListAsync(ct);
 
         var concepts = await db.Concepts.AsNoTracking()
@@ -47,11 +47,19 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
         var conceptsByTopic = concepts.ToLookup(c => c.TopicId);
         var topicsByDomain = topics.ToLookup(t => t.DomainId);
 
-        var tree = domains.Select(d => new TreeDomainDto(
-            d.Slug, d.Title, d.SortOrder, d.DeprecatedAt,
-            topicsByDomain[d.Id].Select(t => new TreeTopicDto(
-                t.Slug, t.Title, t.SortOrder, t.DeprecatedAt,
-                conceptsByTopic[t.Id].Select(c => new TreeConceptDto(
+        var tree = domains.Select(d => (Domain: d, Title: LocalizedTitle.Pick(language, d.Title, d.TitleUk))).Select(x => new TreeDomainDto(
+            x.Domain.Slug,
+            x.Title.Title,
+            x.Title.Fallback,
+            x.Domain.SortOrder,
+            x.Domain.DeprecatedAt,
+            topicsByDomain[x.Domain.Id].Select(t => (Topic: t, Title: LocalizedTitle.Pick(language, t.Title, t.TitleUk))).Select(y => new TreeTopicDto(
+                y.Topic.Slug,
+                y.Title.Title,
+                y.Title.Fallback,
+                y.Topic.SortOrder,
+                y.Topic.DeprecatedAt,
+                conceptsByTopic[y.Topic.Id].Select(c => new TreeConceptDto(
                     c.Slug,
                     c.TitleRequested ?? c.TitleEn ?? c.Slug,
                     c.TitleRequested is null,
@@ -74,8 +82,10 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
             {
                 DomainSlug = c.Topic!.Domain!.Slug,
                 DomainTitle = c.Topic.Domain.Title,
+                DomainTitleUk = c.Topic.Domain.TitleUk,
                 TopicSlug = c.Topic.Slug,
                 TopicTitle = c.Topic.Title,
+                TopicTitleUk = c.Topic.TitleUk,
                 c.Slug,
                 c.Level,
                 c.Reviewed,
@@ -96,8 +106,8 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
         var fallback = row.Requested is null;
         var text = row.Requested ?? row.En;
         return new ConceptPageDto(
-            new ConceptRefDto(row.DomainSlug, row.DomainTitle),
-            new ConceptRefDto(row.TopicSlug, row.TopicTitle),
+            new ConceptRefDto(row.DomainSlug, LocalizedTitle.Of(language, row.DomainTitle, row.DomainTitleUk)),
+            new ConceptRefDto(row.TopicSlug, LocalizedTitle.Of(language, row.TopicTitle, row.TopicTitleUk)),
             row.Slug,
             row.Level.ToDbValue(),
             row.Reviewed,

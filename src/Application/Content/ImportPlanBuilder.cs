@@ -21,8 +21,9 @@ public static class ImportPlanBuilder
             {
                 Slug = md.Slug,
                 Title = md.Title,
+                TitleUk = md.Titles?.Uk,
                 SortOrder = d,
-                Hash = ContentHasher.Hash("domain", md.Slug, md.Title, d),
+                Hash = TitledHash("domain", md.Slug, md.Title, md.Titles?.Uk, d),
             };
 
             for (var t = 0; t < md.Topics.Count; t++)
@@ -33,8 +34,9 @@ public static class ImportPlanBuilder
                 {
                     Slug = mt.Slug,
                     Title = mt.Title,
+                    TitleUk = mt.Titles?.Uk,
                     SortOrder = t,
-                    Hash = ContentHasher.Hash("topic", mt.Slug, mt.Title, t),
+                    Hash = TitledHash("topic", mt.Slug, mt.Title, mt.Titles?.Uk, t),
                     File = file?.RelativePath,
                 };
 
@@ -54,6 +56,16 @@ public static class ImportPlanBuilder
 
         return plan;
     }
+
+    /// <summary>
+    /// Domain/topic hash. The Ukrainian title is appended only when present, so rows imported before
+    /// <c>titles.uk</c> existed keep their hash (no spurious updates), while adding, changing or removing it
+    /// changes the hash and therefore the row.
+    /// </summary>
+    private static string TitledHash(string kind, string slug, string title, string? titleUk, int sortOrder) =>
+        titleUk is null
+            ? ContentHasher.Hash(kind, slug, title, sortOrder)
+            : ContentHasher.Hash(kind, slug, title, sortOrder, new { uk = titleUk });
 
     private static PlanConcept BuildConcept(ConceptSeed seed, int sortOrder)
     {

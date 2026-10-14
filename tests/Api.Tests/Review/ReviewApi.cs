@@ -13,13 +13,25 @@ internal static class ReviewApi
     public const string Current = "/api/review/sessions/current";
 
     /// <summary>
-    /// The topic every session in these tests draws from: 28 MCQs in <c>content/dotnet/clr-memory.json</c>, all unreviewed.
-    /// Only topic-scoped assertions may use it; "all"/"domain" counts grow with every content batch, so they are asserted
-    /// against <c>totalEligible</c> of the same response instead.
+    /// The topic every session in these tests draws from: <c>tests/Fixtures/api-content/dotnet/clr-memory.json</c>, three
+    /// concepts (stack-vs-heap, gc-modes, span-memory) with 4 MCQs + 1 open question each, all unreviewed and English only
+    /// (tests that need <c>uk</c> on it add rows in SQL).
     /// </summary>
-    public const int ClrMemoryMcqCount = 28;
+    public const int ClrMemoryMcqCount = 12;
 
-    /// <summary>A topic that is in the manifest but has no content file (and so nothing to review).</summary>
+    /// <summary>
+    /// <c>dotnet/async.json</c>: reviewed, 3 MCQs; <c>async-await</c> has a <c>uk</c> concept translation and <c>uk</c> on
+    /// <c>mcq.1</c> only, <c>configure-await</c> is English only.
+    /// </summary>
+    public const int AsyncMcqCount = 3;
+
+    /// <summary>Every eligible MCQ in the fixture; <c>dotnet</c> is the only domain with content.</summary>
+    public const int AllMcqCount = ClrMemoryMcqCount + AsyncMcqCount;
+
+    public const string AsyncUkQuestion = "dotnet.async.async-await.mcq.1";
+    public const string AsyncEnOnlyQuestion = "dotnet.async.async-await.mcq.2";
+
+    /// <summary>A topic that is in the fixture manifest but has no content file (and so nothing to review).</summary>
     public const string EmptyTopic = "csharp-lang";
 
     public static object TopicScope(int? totalLimit = null, int? newLimit = null) =>

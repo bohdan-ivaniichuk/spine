@@ -1,0 +1,52 @@
+{
+  "domains": [
+    {
+      "slug": "dotnet",
+      "title": "C# & .NET Runtime",
+      "topics": [
+        {
+          "slug": "clr-memory",
+          "title": "Memory & GC"
+        },
+        {
+          "slug": "async",
+          "title": "Async & Threading"
+        },
+        {
+          "slug": "csharp-lang",
+          "title": "Language Features"
+        }
+      ]
+    },
+    {
+      "slug": "aspnet-data",
+      "title": "ASP.NET Core, EF Core & PostgreSQL",
+      "titles": {
+        "uk": "ASP.NET Core, EF Core та PostgreSQL"
+      },
+      "topics": [
+        {
+          "slug": "pipeline",
+          "title": "Request Pipeline",
+          "titles": {
+            "uk": "Конвеєр запитів"
+          }
+        },
+        {
+          "slug": "efcore",
+          "title": "EF Core"
+        }
+      ]
+    },
+    {
+      "slug": "angular",
+      "title": "Angular",
+      "topics": [
+        {
+          "slug": "core",
+          "title": "Core Mechanics"
+        }
+      ]
+    }
+  ]
+}

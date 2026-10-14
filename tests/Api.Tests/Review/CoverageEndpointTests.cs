@@ -39,6 +39,7 @@ public sealed class CoverageEndpointTests(ApiFixture fixture) : IAsyncLifetime
 
         var clr = coverage.Topics.Single(t => t.Topic == "clr-memory");
         clr.ShouldBe(new TopicCoverageDto("dotnet", "clr-memory", ReviewApi.ClrMemoryMcqCount, 0, 0));
+        coverage.Topics.Single(t => t.Topic == "async").ShouldBe(new TopicCoverageDto("dotnet", "async", ReviewApi.AsyncMcqCount, 0, 0));
         coverage.Topics.Single(t => t.Topic == ReviewApi.EmptyTopic).ShouldBe(new TopicCoverageDto("dotnet", ReviewApi.EmptyTopic, 0, 0, 0));
     }
 
@@ -73,7 +74,7 @@ public sealed class CoverageEndpointTests(ApiFixture fixture) : IAsyncLifetime
         return coverage.Topics.Single(t => t.Topic == "clr-memory");
     }
 
-    /// <summary>Every (domain, topic) of content/manifest.json in file order; the repo manifest has nothing deprecated.</summary>
+    /// <summary>Every (domain, topic) of the fixture manifest in file order; it has nothing deprecated.</summary>
     private static List<string> ManifestTopics()
     {
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(ApiFixture.ContentDir, "manifest.json")))!;

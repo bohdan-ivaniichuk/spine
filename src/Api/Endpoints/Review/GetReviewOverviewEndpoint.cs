@@ -24,12 +24,12 @@ public sealed class GetReviewOverviewEndpoint(IReviewSessions sessions) : Endpoi
         Summary(s =>
         {
             s.Summary = "Review overview";
-            s.Description = "How many questions are due and new in the scope (all / domain / topic), the next due time when nothing is due, and the session-size defaults and bounds. lang is validated; scope titles are English (the manifest has no translations).";
+            s.Description = "How many questions are due and new in the scope (all / domain / topic), the next due time when nothing is due, and the session-size defaults and bounds. Scope titles are in lang when the manifest has that title (titles.uk), otherwise English.";
         });
     }
 
     public override async Task HandleAsync(GetReviewOverviewRequest req, CancellationToken ct)
     {
-        await Send.OkAsync(await sessions.GetOverviewAsync(req.ToReviewScope(), ct), ct);
+        await Send.OkAsync(await sessions.GetOverviewAsync(req.ToReviewScope(), req.ParsedLanguage, ct), ct);
     }
 }

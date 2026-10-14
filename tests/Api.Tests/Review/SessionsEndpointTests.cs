@@ -43,7 +43,7 @@ public sealed class SessionsEndpointTests(ApiFixture fixture) : IAsyncLifetime
         var first = questions[0];
         first.GetProperty("id").GetString().ShouldBe("dotnet.clr-memory.stack-vs-heap.mcq.1");
         first.GetProperty("level").GetString().ShouldBeOneOf("M", "S", "L");
-        first.GetProperty("reviewed").GetBoolean().ShouldBeFalse("repo content is not human-reviewed yet");
+        first.GetProperty("reviewed").GetBoolean().ShouldBeFalse("the fixture clr-memory topic is unreviewed");
         first.GetProperty("isNew").GetBoolean().ShouldBeTrue();
         first.GetProperty("prompt").GetString().ShouldNotBeNullOrWhiteSpace();
         first.GetProperty("domain").GetProperty("slug").GetString().ShouldBe("dotnet");
@@ -80,7 +80,7 @@ public sealed class SessionsEndpointTests(ApiFixture fixture) : IAsyncLifetime
 
         session.Questions.Count.ShouldBe(ReviewApi.ClrMemoryMcqCount);
         session.Questions.Select(q => q.Concept.Slug).Distinct().ShouldBe(
-            ["stack-vs-heap", "gc-generations", "gc-modes", "finalization-dispose", "memory-leaks-managed", "span-memory", "string-internals"]);
+            ["stack-vs-heap", "gc-modes", "span-memory"]);
         session.Questions.Select(q => q.Id).ShouldBeUnique();
     }
 

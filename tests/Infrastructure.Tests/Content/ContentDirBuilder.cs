@@ -50,6 +50,19 @@ internal sealed class ContentDirBuilder : IDisposable
         }
     }
 
+    /// <summary>
+    /// Replaces the copied manifest schema with <c>tests/Fixtures/schema/manifest.schema.json</c>, the schema that allows
+    /// <c>titles.uk</c> (a copy of the repo schema; see ManifestTitlesTests for the drift check).
+    /// </summary>
+    public ContentDirBuilder WithFixtureManifestSchema()
+    {
+        File.Copy(
+            Path.Combine(RepoRoot, "tests", "Fixtures", "schema", "manifest.schema.json"),
+            Path.Combine(Dir, "schema", "manifest.schema.json"),
+            overwrite: true);
+        return this;
+    }
+
     /// <summary>Writes the default manifest (dotnet / clr-memory) and the default topic file.</summary>
     public ContentDirBuilder WithDefaultContent() => WriteManifest(TopicTemplate.Manifest()).WriteTopic(TopicTemplate.ClrMemory());
 
@@ -121,6 +134,24 @@ internal static class TopicTemplate
                 ["topics"] = new JsonArray(new JsonObject { ["slug"] = Topic, ["title"] = "Memory & GC" }),
             }),
     };
+
+    /// <summary>The default manifest with <c>titles.uk</c> on the domain and/or the topic (null = omitted).</summary>
+    public static JsonObject ManifestWithUkTitles(string? domainUk, string? topicUk)
+    {
+        var manifest = Manifest();
+        var domain = (JsonObject)manifest["domains"]![0]!;
+        if (domainUk is not null)
+        {
+            domain["titles"] = new JsonObject { ["uk"] = domainUk };
+        }
+
+        if (topicUk is not null)
+        {
+            ((JsonObject)domain["topics"]![0]!)["titles"] = new JsonObject { ["uk"] = topicUk };
+        }
+
+        return manifest;
+    }
 
     public static JsonObject ClrMemory() => new()
     {

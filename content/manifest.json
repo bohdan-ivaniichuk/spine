@@ -3,110 +3,185 @@
     {
       "slug": "dotnet",
       "title": "C# & .NET Runtime",
+      "titles": {
+        "uk": "C# та середовище виконання .NET"
+      },
       "topics": [
         {
           "slug": "clr-memory",
-          "title": "Memory & GC"
+          "title": "Memory & GC",
+          "titles": {
+            "uk": "Пам'ять і GC"
+          }
         },
         {
           "slug": "async",
-          "title": "Async & Threading"
+          "title": "Async & Threading",
+          "titles": {
+            "uk": "Асинхронність і багатопотоковість"
+          }
         },
         {
           "slug": "csharp-lang",
-          "title": "Language Features"
+          "title": "Language Features",
+          "titles": {
+            "uk": "Можливості мови"
+          }
         },
         {
           "slug": "dotnet-platform",
-          "title": "Platform & Tooling"
+          "title": "Platform & Tooling",
+          "titles": {
+            "uk": "Платформа та інструменти"
+          }
         }
       ]
     },
     {
       "slug": "aspnet-data",
       "title": "ASP.NET Core, EF Core & PostgreSQL",
+      "titles": {
+        "uk": "ASP.NET Core, EF Core і PostgreSQL"
+      },
       "topics": [
         {
           "slug": "pipeline",
-          "title": "Request Pipeline"
+          "title": "Request Pipeline",
+          "titles": {
+            "uk": "Конвеєр обробки запитів"
+          }
         },
         {
           "slug": "security",
-          "title": "Auth & Security"
+          "title": "Auth & Security",
+          "titles": {
+            "uk": "Автентифікація та безпека"
+          }
         },
         {
           "slug": "efcore",
-          "title": "EF Core"
+          "title": "EF Core",
+          "titles": {
+            "uk": "EF Core"
+          }
         },
         {
           "slug": "postgres",
-          "title": "PostgreSQL & SQL"
+          "title": "PostgreSQL & SQL",
+          "titles": {
+            "uk": "PostgreSQL і SQL"
+          }
         },
         {
           "slug": "api-design",
-          "title": "API Design & Integration"
+          "title": "API Design & Integration",
+          "titles": {
+            "uk": "Проєктування API та інтеграції"
+          }
         }
       ]
     },
     {
       "slug": "angular",
       "title": "Angular",
+      "titles": {
+        "uk": "Angular"
+      },
       "topics": [
         {
           "slug": "core",
-          "title": "Core Mechanics"
+          "title": "Core Mechanics",
+          "titles": {
+            "uk": "Базові механізми"
+          }
         },
         {
           "slug": "rxjs-state",
-          "title": "RxJS & State"
+          "title": "RxJS & State",
+          "titles": {
+            "uk": "RxJS і стан"
+          }
         },
         {
           "slug": "routing-forms-http",
-          "title": "Routing, Forms, HTTP"
+          "title": "Routing, Forms, HTTP",
+          "titles": {
+            "uk": "Маршрутизація, форми, HTTP"
+          }
         },
         {
           "slug": "performance-arch",
-          "title": "Performance & Architecture"
+          "title": "Performance & Architecture",
+          "titles": {
+            "uk": "Продуктивність і архітектура"
+          }
         }
       ]
     },
     {
       "slug": "architecture",
       "title": "Architecture, Patterns & System Design",
+      "titles": {
+        "uk": "Архітектура, патерни та системний дизайн"
+      },
       "topics": [
         {
           "slug": "principles",
-          "title": "Principles & Patterns"
+          "title": "Principles & Patterns",
+          "titles": {
+            "uk": "Принципи та патерни"
+          }
         },
         {
           "slug": "distributed",
-          "title": "Distributed Systems"
+          "title": "Distributed Systems",
+          "titles": {
+            "uk": "Розподілені системи"
+          }
         },
         {
           "slug": "system-design",
-          "title": "System Design Interviews"
+          "title": "System Design Interviews",
+          "titles": {
+            "uk": "Співбесіди з системного дизайну"
+          }
         },
         {
           "slug": "lead",
-          "title": "Tech Lead Practice"
+          "title": "Tech Lead Practice",
+          "titles": {
+            "uk": "Практика техліда"
+          }
         }
       ]
     },
     {
       "slug": "ai-engineering",
       "title": "Practical AI Engineering",
+      "titles": {
+        "uk": "Практична AI-інженерія"
+      },
       "topics": [
         {
           "slug": "llm-foundations",
-          "title": "Foundations for Engineers"
+          "title": "Foundations for Engineers",
+          "titles": {
+            "uk": "Основи для інженерів"
+          }
         },
         {
           "slug": "patterns",
-          "title": "Application Patterns"
+          "title": "Application Patterns",
+          "titles": {
+            "uk": "Патерни застосунків"
+          }
         },
         {
           "slug": "ai-sdlc",
-          "title": "AI in the Development Process"
+          "title": "AI in the Development Process",
+          "titles": {
+            "uk": "AI у процесі розробки"
+          }
         }
       ]
     }

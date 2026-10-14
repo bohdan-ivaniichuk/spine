@@ -1,0 +1,521 @@
+{
+  "domain": "dotnet",
+  "topic": "clr-memory",
+  "concepts": [
+    {
+      "slug": "stack-vs-heap",
+      "title": "Stack vs heap",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "Stack vs heap",
+          "note": "# Stack vs heap\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Stack vs heap: fixture question 1?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": true
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is A."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Stack vs heap: fixture question 2?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": true
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is B."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.3",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Stack vs heap: fixture question 3?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": true
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is C."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.mcq.4",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Stack vs heap: fixture question 4?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": true
+                }
+              ],
+              "explanation": "Explanation: the right answer is D."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.stack-vs-heap.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Explain Stack vs heap in your own words.",
+              "rubric": [
+                "Names the first point",
+                "Names the second point",
+                "Gives an example"
+              ],
+              "explanation": "A strong answer covers all three rubric points."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "gc-modes",
+      "title": "GC modes",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "GC modes",
+          "note": "# GC modes\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "GC modes: fixture question 1?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": true
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is A."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "GC modes: fixture question 2?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": true
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is B."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "GC modes: fixture question 3?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": true
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is C."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "GC modes: fixture question 4?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": true
+                }
+              ],
+              "explanation": "Explanation: the right answer is D."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.gc-modes.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Explain GC modes in your own words.",
+              "rubric": [
+                "Names the first point",
+                "Names the second point",
+                "Gives an example"
+              ],
+              "explanation": "A strong answer covers all three rubric points."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "span-memory",
+      "title": "Span<T>, Memory<T> and zero-allocation code",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "Span<T>, Memory<T> and zero-allocation code",
+          "note": "# Span<T>, Memory<T> and zero-allocation code\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Span<T>, Memory<T> and zero-allocation code: fixture question 1?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": true
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is A."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.2",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Span<T>, Memory<T> and zero-allocation code: fixture question 2?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": true
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is B."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.3",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Span<T>, Memory<T> and zero-allocation code: fixture question 3?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": true
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is C."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.mcq.4",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Span<T>, Memory<T> and zero-allocation code: fixture question 4?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": true
+                }
+              ],
+              "explanation": "Explanation: the right answer is D."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.clr-memory.span-memory.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": false,
+          "translations": {
+            "en": {
+              "prompt": "Explain Span<T>, Memory<T> and zero-allocation code in your own words.",
+              "rubric": [
+                "Names the first point",
+                "Names the second point",
+                "Gives an example"
+              ],
+              "explanation": "A strong answer covers all three rubric points."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        }
+      ],
+      "katas": [
+        {
+          "id": "dotnet.clr-memory.span-memory.kata.1",
+          "title": "Zero-allocation parser",
+          "language": "csharp",
+          "reviewed": false,
+          "timeLimitMinutes": 30,
+          "translations": {
+            "en": {
+              "task": "Parse comma-separated integers from a ReadOnlySpan<char> without allocating.",
+              "rubric": [
+                "No allocations",
+                "Handles signs",
+                "Skips empty tokens"
+              ],
+              "referenceSolution": "public static int Parse(ReadOnlySpan<char> s) => int.Parse(s);"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

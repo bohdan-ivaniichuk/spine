@@ -26,13 +26,10 @@ public sealed class KnowledgeTreeEmptyDatabaseTests(EmptyApiFixture fixture) : I
 [Trait("Category", "Integration")]
 public sealed class KnowledgeTreeEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private static readonly string[] ManifestDomains = ["dotnet", "aspnet-data", "angular", "architecture", "ai-engineering"];
-    private static readonly string[] DotnetTopics = ["clr-memory", "async", "csharp-lang", "dotnet-platform"];
-    private static readonly string[] ClrMemoryConcepts =
-    [
-        "stack-vs-heap", "gc-generations", "gc-modes", "finalization-dispose",
-        "memory-leaks-managed", "span-memory", "string-internals",
-    ];
+    // Mirrors tests/Fixtures/api-content (frozen), not the repo content.
+    private static readonly string[] ManifestDomains = ["dotnet", "aspnet-data", "angular"];
+    private static readonly string[] DotnetTopics = ["clr-memory", "async", "csharp-lang"];
+    private static readonly string[] ClrMemoryConcepts = ["stack-vs-heap", "gc-modes", "span-memory"];
 
     public Task InitializeAsync() => fixture.ImportAsync();
 
@@ -101,6 +98,32 @@ public sealed class KnowledgeTreeEndpointTests(ApiFixture fixture) : IAsyncLifet
         var enConcepts = en.Domains[0].Topics[0].Concepts;
         ukConcepts.ShouldAllBe(c => c.TitleFallback);
         ukConcepts.Select(c => c.Title).ShouldBe(enConcepts.Select(c => c.Title));
+    }
+
+    [Fact]
+    public async Task Reviewed_topic_reports_reviewed_concepts()
+    {
+        var tree = await GetTreeAsync();
+
+        var async = tree.Domains[0].Topics.Single(t => t.Slug == "async").Concepts;
+        async.Select(c => c.Slug).ShouldBe(["async-await", "configure-await"]);
+        async.ShouldAllBe(c => c.Reviewed);
+        async.Select(c => c.QuestionCount).ShouldBe([3, 2]);
+    }
+
+    [Fact]
+    public async Task Uk_concept_titles_from_content_are_served_and_untranslated_concepts_fall_back()
+    {
+        var en = await GetTreeAsync("?lang=en");
+        var uk = await GetTreeAsync("?lang=uk");
+
+        var ukAsync = uk.Domains[0].Topics.Single(t => t.Slug == "async").Concepts;
+        var enAsync = en.Domains[0].Topics.Single(t => t.Slug == "async").Concepts;
+        var translated = ukAsync.Single(c => c.Slug == "async-await");
+        (translated.Title, translated.TitleFallback).ShouldBe(("Скінченний автомат async/await", false));
+        var untranslated = ukAsync.Single(c => c.Slug == "configure-await");
+        (untranslated.Title, untranslated.TitleFallback).ShouldBe((enAsync.Single(c => c.Slug == "configure-await").Title, true));
+        enAsync.ShouldAllBe(c => !c.TitleFallback);
     }
 
     [Fact]

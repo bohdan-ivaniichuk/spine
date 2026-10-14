@@ -1,0 +1,197 @@
+{
+  "domain": "dotnet",
+  "topic": "async",
+  "concepts": [
+    {
+      "slug": "async-await",
+      "title": "async/await state machine",
+      "level": "M",
+      "translations": {
+        "en": {
+          "title": "async/await state machine",
+          "note": "# async/await state machine\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n"
+        },
+        "uk": {
+          "title": "Скінченний автомат async/await",
+          "note": "# Скінченний автомат async/await\n\nЦе замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів. Це замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів. Це замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів.\n\n```csharp\nvar x = 42;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.async-await.mcq.1",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "async/await state machine: fixture question 1?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": true
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is A."
+            },
+            "uk": {
+              "prompt": "Скінченний автомат async/await: питання 1?",
+              "options": [
+                {
+                  "text": "Option A (uk)",
+                  "correct": true
+                },
+                {
+                  "text": "Option B (uk)",
+                  "correct": false
+                },
+                {
+                  "text": "Option C (uk)",
+                  "correct": false
+                },
+                {
+                  "text": "Option D (uk)",
+                  "correct": false
+                }
+              ],
+              "explanation": "Пояснення: правильна відповідь A."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-await.mcq.2",
+          "type": "mcq",
+          "level": "M",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "async/await state machine: fixture question 2?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": false
+                },
+                {
+                  "text": "Option B",
+                  "correct": true
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is B."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.async.async-await.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Explain async/await state machine in your own words.",
+              "rubric": [
+                "Names the first point",
+                "Names the second point",
+                "Gives an example"
+              ],
+              "explanation": "A strong answer covers all three rubric points."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "configure-await",
+      "title": "ConfigureAwait and SynchronizationContext",
+      "level": "S",
+      "translations": {
+        "en": {
+          "title": "ConfigureAwait and SynchronizationContext",
+          "note": "# ConfigureAwait and SynchronizationContext\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n"
+        }
+      },
+      "questions": [
+        {
+          "id": "dotnet.async.configure-await.mcq.1",
+          "type": "mcq",
+          "level": "S",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "ConfigureAwait and SynchronizationContext: fixture question 1?",
+              "options": [
+                {
+                  "text": "Option A",
+                  "correct": true
+                },
+                {
+                  "text": "Option B",
+                  "correct": false
+                },
+                {
+                  "text": "Option C",
+                  "correct": false
+                },
+                {
+                  "text": "Option D",
+                  "correct": false
+                }
+              ],
+              "explanation": "Explanation: the right answer is A."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        },
+        {
+          "id": "dotnet.async.configure-await.open.1",
+          "type": "open",
+          "level": "S",
+          "reviewed": true,
+          "translations": {
+            "en": {
+              "prompt": "Explain ConfigureAwait and SynchronizationContext in your own words.",
+              "rubric": [
+                "Names the first point",
+                "Names the second point",
+                "Gives an example"
+              ],
+              "explanation": "A strong answer covers all three rubric points."
+            }
+          },
+          "tags": [
+            "fixture"
+          ]
+        }
+      ]
+    }
+  ]
+}

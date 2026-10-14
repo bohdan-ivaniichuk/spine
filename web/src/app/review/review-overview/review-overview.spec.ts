@@ -16,12 +16,14 @@ const tree: KnowledgeTree = {
     {
       slug: 'dotnet',
       title: 'C# & .NET Runtime',
+      titleFallback: false,
       sortOrder: 1,
       deprecatedAt: null,
       topics: [
         {
           slug: 'clr-memory',
           title: 'Memory & GC',
+          titleFallback: false,
           sortOrder: 1,
           deprecatedAt: null,
           concepts: [],
@@ -29,14 +31,39 @@ const tree: KnowledgeTree = {
         {
           slug: 'old',
           title: 'Old topic',
+          titleFallback: false,
           sortOrder: 2,
           deprecatedAt: '2026-01-01T00:00:00+00:00',
           concepts: [],
         },
       ],
     },
-    { slug: 'angular', title: 'Angular', sortOrder: 2, deprecatedAt: null, topics: [] },
+    {
+      slug: 'angular',
+      title: 'Angular',
+      titleFallback: false,
+      sortOrder: 2,
+      deprecatedAt: null,
+      topics: [],
+    },
   ],
+};
+
+/** The same tree as the API serves it for ?lang=uk: Ukrainian titles where the manifest has them. */
+const ukTree: KnowledgeTree = {
+  ...tree,
+  language: 'uk',
+  domains: tree.domains.map((d) =>
+    d.slug === 'dotnet'
+      ? {
+          ...d,
+          title: 'C# та середовище виконання .NET',
+          topics: d.topics.map((t) =>
+            t.slug === 'clr-memory' ? { ...t, title: "Пам'ять і GC" } : t,
+          ),
+        }
+      : { ...d, titleFallback: true },
+  ),
 };
 
 const coverage: Coverage = {
@@ -327,6 +354,32 @@ describe('ReviewOverview', () => {
     expect(text()).toContain('Сьогодні');
     expect(text()).toContain('25 нових питань');
     expect(startButton().textContent).toContain('Почати · 20 карток');
+    TestBed.inject(I18n).set('en');
+  });
+
+  it('re-reads domain and topic titles from the API when the language switches', async () => {
+    await open();
+    expect(root().querySelectorAll('article')[0].textContent).toContain('C# & .NET Runtime');
+
+    TestBed.inject(I18n).set('uk');
+    TestBed.tick();
+    http.expectOne('/api/knowledge/tree?lang=uk').flush(ukTree);
+    http.expectOne('/api/review/overview?scope=all&lang=uk').flush(overview());
+    http.expectOne('/api/review/coverage?lang=uk').flush(coverage);
+    await settle(fixture);
+
+    const tiles = Array.from(root().querySelectorAll('article'));
+    expect(tiles[0].textContent).toContain('C# та середовище виконання .NET');
+    expect(tiles[0].textContent).toContain("Пам'ять і GC");
+    expect(tiles[0].textContent).not.toContain('C# & .NET Runtime');
+    // `angular` has no Ukrainian title: it falls back to English, intentionally without a badge here.
+    expect(tiles[1].textContent).toContain('Angular');
+    // Domain scope without a picked domain issues no overview request (afterEach verifies).
+    setSelect('scopeType', 'domain');
+    await settle(fixture);
+    expect(Array.from(select('domain').options).map((o) => o.textContent?.trim())).toContain(
+      'C# та середовище виконання .NET',
+    );
     TestBed.inject(I18n).set('en');
   });
 });

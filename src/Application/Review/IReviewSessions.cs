@@ -11,7 +11,7 @@ namespace Spine.Application.Review;
 public interface IReviewSessions
 {
     /// <exception cref="ReviewException"><see cref="ReviewError.ScopeNotFound"/>.</exception>
-    Task<ReviewOverviewDto> GetOverviewAsync(ReviewScope scope, CancellationToken ct = default);
+    Task<ReviewOverviewDto> GetOverviewAsync(ReviewScope scope, Language language = Language.En, CancellationToken ct = default);
 
     /// <summary>Finishes any open session first, then builds and stores a new one.</summary>
     /// <exception cref="ReviewException"><see cref="ReviewError.ScopeNotFound"/>, <see cref="ReviewError.NothingToReview"/>.</exception>

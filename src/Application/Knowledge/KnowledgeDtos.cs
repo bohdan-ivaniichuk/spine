@@ -2,9 +2,9 @@ namespace Spine.Application.Knowledge;
 
 public sealed record KnowledgeTreeDto(string Language, IReadOnlyList<TreeDomainDto> Domains);
 
-public sealed record TreeDomainDto(string Slug, string Title, int SortOrder, DateTimeOffset? DeprecatedAt, IReadOnlyList<TreeTopicDto> Topics);
+public sealed record TreeDomainDto(string Slug, string Title, bool TitleFallback, int SortOrder, DateTimeOffset? DeprecatedAt, IReadOnlyList<TreeTopicDto> Topics);
 
-public sealed record TreeTopicDto(string Slug, string Title, int SortOrder, DateTimeOffset? DeprecatedAt, IReadOnlyList<TreeConceptDto> Concepts);
+public sealed record TreeTopicDto(string Slug, string Title, bool TitleFallback, int SortOrder, DateTimeOffset? DeprecatedAt, IReadOnlyList<TreeConceptDto> Concepts);
 
 public sealed record TreeConceptDto(
     string Slug,

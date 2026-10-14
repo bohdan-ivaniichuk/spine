@@ -27,7 +27,7 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
         await Migrate(db);
 
         (await db.Database.GetPendingMigrationsAsync()).ShouldBeEmpty();
-        (await db.Database.GetAppliedMigrationsAsync()).Count().ShouldBe(2);
+        (await db.Database.GetAppliedMigrationsAsync()).Count().ShouldBe(3);
     }
 
     [Fact]
@@ -53,6 +53,18 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
             "SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> '__EFMigrationsHistory'");
 
         tables.OrderBy(t => t, StringComparer.Ordinal).ShouldBe(ExpectedTables.OrderBy(t => t, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Domains_and_topics_have_a_nullable_text_title_uk()
+    {
+        await using var db = fixture.CreateContext();
+        await Migrate(db);
+
+        var columns = await Scalars(db,
+            "SELECT table_name || ':' || data_type || ':' || is_nullable AS \"Value\" FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'title_uk'");
+
+        columns.OrderBy(c => c, StringComparer.Ordinal).ShouldBe(["domains:text:YES", "topics:text:YES"]);
     }
 
     [Fact]

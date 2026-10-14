@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Spine.Application.Knowledge;
 using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
@@ -39,9 +40,9 @@ public sealed class ReviewSessions(
     /// <summary>Prompt and options of one question translation, as projected for a session card.</summary>
     private sealed record QuestionText(string Prompt, IReadOnlyList<McqOption>? Options);
 
-    public async Task<ReviewOverviewDto> GetOverviewAsync(ReviewScope scope, CancellationToken ct = default)
+    public async Task<ReviewOverviewDto> GetOverviewAsync(ReviewScope scope, Language language = Language.En, CancellationToken ct = default)
     {
-        var scopeDto = await ResolveScopeAsync(scope, ct);
+        var scopeDto = await ResolveScopeAsync(scope, language, ct);
         var now = clock.GetUtcNow();
 
         var totalEligible = await Eligible(scope).CountAsync(ct);
@@ -71,7 +72,7 @@ public sealed class ReviewSessions(
             throw new ArgumentOutOfRangeException(nameof(newLimit), newLimit, $"Must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.");
         }
 
-        await ResolveScopeAsync(scope, ct);
+        await ResolveScopeAsync(scope, language, ct);
 
         var strategy = db.Database.CreateExecutionStrategy();
         var sessionId = await strategy.ExecuteAsync(async () =>
@@ -319,7 +320,7 @@ public sealed class ReviewSessions(
             var dueTomorrow = await DueAtOf(scope).Where(dueAt => dueAt <= tomorrow).CountAsync(ct);
             await tx.CommitAsync(ct);
 
-            return SessionSummaryBuilder.Build(session, await DescribeScopeAsync(session, ct), answered, dueTomorrow);
+            return SessionSummaryBuilder.Build(session, await DescribeScopeAsync(session, language, ct), answered, dueTomorrow);
         });
     }
 
@@ -435,8 +436,10 @@ public sealed class ReviewSessions(
                     ?? q.Concept.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
                 TopicSlug = q.Concept.Topic!.Slug,
                 TopicTitle = q.Concept.Topic.Title,
+                TopicTitleUk = q.Concept.Topic.TitleUk,
                 DomainSlug = q.Concept.Topic.Domain!.Slug,
                 DomainTitle = q.Concept.Topic.Domain.Title,
+                DomainTitleUk = q.Concept.Topic.Domain.TitleUk,
                 // "New" = no review state existed when the session started.
                 HadState = db.ReviewStates.Any(r => r.UserId == userId && r.QuestionId == q.Id && r.CreatedAt < startedAt),
             })
@@ -472,8 +475,8 @@ public sealed class ReviewSessions(
                 !row.HadState,
                 served.Text.Prompt,
                 served.Text.Options?.Select(o => o.Text).ToList() ?? [],
-                new RefDto(row.DomainSlug, row.DomainTitle),
-                new RefDto(row.TopicSlug, row.TopicTitle),
+                new RefDto(row.DomainSlug, LocalizedTitle.Of(language, row.DomainTitle, row.DomainTitleUk)),
+                new RefDto(row.TopicSlug, LocalizedTitle.Of(language, row.TopicTitle, row.TopicTitleUk)),
                 new RefDto(row.ConceptSlug, row.ConceptTitle ?? row.ConceptSlug),
                 served.Language.ToDbValue(),
                 served.Fallback));
@@ -481,7 +484,7 @@ public sealed class ReviewSessions(
 
         return new SessionDto(
             session.Id,
-            await DescribeScopeAsync(session, ct),
+            await DescribeScopeAsync(session, language, ct),
             session.StartedAt,
             session.FinishedAt,
             session.TotalLimit,
@@ -494,7 +497,7 @@ public sealed class ReviewSessions(
     // ---- scope ----
 
     /// <summary>Validates the scope against live content; deprecated or unknown → <see cref="ReviewError.ScopeNotFound"/>.</summary>
-    private async Task<ScopeDto> ResolveScopeAsync(ReviewScope scope, CancellationToken ct)
+    private async Task<ScopeDto> ResolveScopeAsync(ReviewScope scope, Language language, CancellationToken ct)
     {
         scope.Validate();
         switch (scope.Type)
@@ -503,22 +506,27 @@ public sealed class ReviewSessions(
                 return new ScopeDto("all", null, null, null, null);
             case SessionScopeType.Domain:
                 {
-                    var title = await db.Domains.AsNoTracking()
+                    var row = await db.Domains.AsNoTracking()
                         .Where(d => d.Slug == scope.Domain && d.DeprecatedAt == null)
-                        .Select(d => d.Title)
+                        .Select(d => new { d.Title, d.TitleUk })
                         .SingleOrDefaultAsync(ct)
                         ?? throw new ReviewException(ReviewError.ScopeNotFound, $"No domain '{scope.Domain}'.");
-                    return new ScopeDto("domain", scope.Domain, null, title, null);
+                    return new ScopeDto("domain", scope.Domain, null, LocalizedTitle.Of(language, row.Title, row.TitleUk), null);
                 }
 
             case SessionScopeType.Topic:
                 {
                     var row = await db.Topics.AsNoTracking()
                         .Where(t => t.Slug == scope.Topic && t.Domain!.Slug == scope.Domain && t.DeprecatedAt == null && t.Domain.DeprecatedAt == null)
-                        .Select(t => new { DomainTitle = t.Domain!.Title, t.Title })
+                        .Select(t => new { DomainTitle = t.Domain!.Title, DomainTitleUk = t.Domain.TitleUk, t.Title, t.TitleUk })
                         .SingleOrDefaultAsync(ct)
                         ?? throw new ReviewException(ReviewError.ScopeNotFound, $"No topic '{scope.Domain}/{scope.Topic}'.");
-                    return new ScopeDto("topic", scope.Domain, scope.Topic, row.DomainTitle, row.Title);
+                    return new ScopeDto(
+                        "topic",
+                        scope.Domain,
+                        scope.Topic,
+                        LocalizedTitle.Of(language, row.DomainTitle, row.DomainTitleUk),
+                        LocalizedTitle.Of(language, row.Title, row.TitleUk));
                 }
 
             default:
@@ -527,7 +535,7 @@ public sealed class ReviewSessions(
     }
 
     /// <summary>Titles for a stored session's scope; lenient, because content may have been deprecated since.</summary>
-    private async Task<ScopeDto> DescribeScopeAsync(Session session, CancellationToken ct)
+    private async Task<ScopeDto> DescribeScopeAsync(Session session, Language language, CancellationToken ct)
     {
         var type = session.ScopeType.ToDbValue();
         if (session.ScopeDomainSlug is null)
@@ -535,17 +543,19 @@ public sealed class ReviewSessions(
             return new ScopeDto(type, null, null, null, null);
         }
 
-        var domainTitle = await db.Domains.AsNoTracking()
+        var domain = await db.Domains.AsNoTracking()
             .Where(d => d.Slug == session.ScopeDomainSlug)
-            .Select(d => d.Title)
+            .Select(d => new { d.Title, d.TitleUk })
             .SingleOrDefaultAsync(ct);
+        var domainTitle = domain is null ? null : LocalizedTitle.Of(language, domain.Title, domain.TitleUk);
         string? topicTitle = null;
         if (session.ScopeTopicSlug is not null)
         {
-            topicTitle = await db.Topics.AsNoTracking()
+            var topic = await db.Topics.AsNoTracking()
                 .Where(t => t.Slug == session.ScopeTopicSlug && t.Domain!.Slug == session.ScopeDomainSlug)
-                .Select(t => t.Title)
+                .Select(t => new { t.Title, t.TitleUk })
                 .SingleOrDefaultAsync(ct);
+            topicTitle = topic is null ? null : LocalizedTitle.Of(language, topic.Title, topic.TitleUk);
         }
 
         return new ScopeDto(type, session.ScopeDomainSlug, session.ScopeTopicSlug, domainTitle, topicTitle);

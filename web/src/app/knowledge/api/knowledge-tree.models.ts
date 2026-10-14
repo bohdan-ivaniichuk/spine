@@ -10,7 +10,10 @@ export interface KnowledgeTree {
 
 export interface TreeDomain {
   slug: string;
+  /** In the requested language when the manifest has it (`titles.uk`), else English. */
   title: string;
+  /** True when a non-English language was requested and the English title is served. */
+  titleFallback: boolean;
   sortOrder: number;
   deprecatedAt: string | null;
   topics: TreeTopic[];
@@ -18,7 +21,10 @@ export interface TreeDomain {
 
 export interface TreeTopic {
   slug: string;
+  /** In the requested language when the manifest has it (`titles.uk`), else English. */
   title: string;
+  /** True when a non-English language was requested and the English title is served. */
+  titleFallback: boolean;
   sortOrder: number;
   deprecatedAt: string | null;
   concepts: TreeConcept[];

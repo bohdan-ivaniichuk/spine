@@ -31,13 +31,14 @@ public static class ImportDiff
             var counts = change.Summary.For(ImportPlan.ManifestFile, EntityKinds.Domain);
             if (!byDomainSlug.TryGetValue(pd.Slug, out var domain))
             {
-                domain = new DomainEntity { Slug = pd.Slug, Title = pd.Title, SortOrder = pd.SortOrder, ContentHash = pd.Hash, CreatedAt = now, UpdatedAt = now };
+                domain = new DomainEntity { Slug = pd.Slug, Title = pd.Title, TitleUk = pd.TitleUk, SortOrder = pd.SortOrder, ContentHash = pd.Hash, CreatedAt = now, UpdatedAt = now };
                 change.NewDomains.Add(domain);
                 counts.Created++;
             }
             else if (domain.ContentHash != pd.Hash || domain.DeprecatedAt is not null)
             {
                 domain.Title = pd.Title;
+                domain.TitleUk = pd.TitleUk;
                 domain.SortOrder = pd.SortOrder;
                 domain.ContentHash = pd.Hash;
                 domain.DeprecatedAt = null;
@@ -71,13 +72,14 @@ public static class ImportDiff
             var counts = change.Summary.For(ImportPlan.ManifestFile, EntityKinds.Topic);
             if (!bySlug.TryGetValue(pt.Slug, out var topic))
             {
-                topic = new Topic { Slug = pt.Slug, Title = pt.Title, SortOrder = pt.SortOrder, ContentHash = pt.Hash, CreatedAt = now, UpdatedAt = now };
+                topic = new Topic { Slug = pt.Slug, Title = pt.Title, TitleUk = pt.TitleUk, SortOrder = pt.SortOrder, ContentHash = pt.Hash, CreatedAt = now, UpdatedAt = now };
                 domain.Topics.Add(topic);
                 counts.Created++;
             }
             else if (topic.ContentHash != pt.Hash || topic.DeprecatedAt is not null)
             {
                 topic.Title = pt.Title;
+                topic.TitleUk = pt.TitleUk;
                 topic.SortOrder = pt.SortOrder;
                 topic.ContentHash = pt.Hash;
                 topic.DeprecatedAt = null;

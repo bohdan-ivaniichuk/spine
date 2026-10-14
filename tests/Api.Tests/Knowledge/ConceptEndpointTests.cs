@@ -43,7 +43,7 @@ public sealed class ConceptEndpointTests(ApiFixture fixture) : IAsyncLifetime
         page.Slug.ShouldBe("span-memory");
         page.Level.ShouldBe("S");
         page.Reviewed.ShouldBeFalse();
-        page.SortOrder.ShouldBe(5);
+        page.SortOrder.ShouldBe(2);
         page.RequestedLanguage.ShouldBe("en");
         page.Language.ShouldBe("en");
         page.Fallback.ShouldBeFalse();
@@ -75,6 +75,22 @@ public sealed class ConceptEndpointTests(ApiFixture fixture) : IAsyncLifetime
         uk.Fallback.ShouldBeTrue();
         uk.Title.ShouldBe(en.Title);
         uk.Note.ShouldBe(en.Note);
+    }
+
+    [Fact]
+    public async Task Uk_translation_from_content_is_served_without_fallback()
+    {
+        const string path = "/api/knowledge/concepts/dotnet/async/async-await";
+        var en = await GetConceptAsync(path + "?lang=en");
+        var uk = await GetConceptAsync(path + "?lang=uk");
+
+        uk.Reviewed.ShouldBeTrue();
+        uk.RequestedLanguage.ShouldBe("uk");
+        uk.Language.ShouldBe("uk");
+        uk.Fallback.ShouldBeFalse();
+        uk.Title.ShouldBe("Скінченний автомат async/await");
+        uk.Note.ShouldNotBe(en.Note);
+        uk.QuestionCount.ShouldBe(en.QuestionCount);
     }
 
     [Fact]

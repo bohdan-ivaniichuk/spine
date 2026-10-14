@@ -7,9 +7,9 @@ using Npgsql;
 namespace Spine.Api.Tests.Review;
 
 /// <summary>
-/// <c>?lang=</c> on the review endpoints. The repo content has no <c>uk</c> yet, so each test copies the English row of
-/// one question (options included, so they stay index-aligned) and its concept into a <c>uk</c> row, and removes it
-/// again afterwards.
+/// <c>?lang=</c> on the review endpoints. The fixture clr-memory topic has no <c>uk</c>, so most tests copy the English row
+/// of one question (options included, so they stay index-aligned) and its concept into a <c>uk</c> row, and remove it
+/// again afterwards. The fixture async topic carries imported <c>uk</c> on one question and is used as-is.
 /// </summary>
 [Collection("api")]
 [Trait("Category", "Integration")]
@@ -116,6 +116,30 @@ public sealed class ReviewI18nEndpointTests(ApiFixture fixture) : IAsyncLifetime
         summary.Answered.ShouldBe(2);
         summary.WeakConcepts.Where(w => w.Concept == translated.Concept.Slug).ShouldAllBe(w => w.Title == UkConceptTitle);
         summary.WeakConcepts.Where(w => w.Concept == untranslated.Concept.Slug).ShouldAllBe(w => w.Title == untranslated.Concept.Title);
+    }
+
+    [Fact]
+    public async Task Imported_uk_translations_are_served_and_untranslated_questions_fall_back()
+    {
+        var response = await fixture.Client.PostAsJsonAsync(
+            ReviewApi.Sessions + "?lang=uk",
+            new { scope = "topic", domain = "dotnet", topic = "async", totalLimit = ReviewApi.AsyncMcqCount, newLimit = ReviewApi.AsyncMcqCount });
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var session = (await response.Content.ReadFromJsonAsync<SessionDto>(ApiFixture.Json)).ShouldNotBeNull();
+
+        session.Questions.Count.ShouldBe(ReviewApi.AsyncMcqCount);
+        session.Questions.ShouldAllBe(q => q.Reviewed);
+        var uk = session.Questions.Single(q => q.Id == ReviewApi.AsyncUkQuestion);
+        (uk.Language, uk.Fallback).ShouldBe(("uk", false));
+        uk.Prompt.ShouldBe("Скінченний автомат async/await: питання 1?");
+        uk.Options.ShouldAllBe(o => o.EndsWith(" (uk)"));
+        uk.Concept.Title.ShouldBe("Скінченний автомат async/await");
+        var en = session.Questions.Single(q => q.Id == ReviewApi.AsyncEnOnlyQuestion);
+        (en.Language, en.Fallback).ShouldBe(("en", true));
+
+        var feedback = await AnswerAsync(session.Id, ReviewApi.AsyncUkQuestion, 0, "uk");
+        (feedback.Language, feedback.Fallback).ShouldBe(("uk", false));
+        feedback.Explanation.ShouldStartWith("Пояснення");
     }
 
     [Fact]

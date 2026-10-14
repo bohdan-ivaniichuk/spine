@@ -49,7 +49,7 @@ public sealed class OverviewEndpointTests(ApiFixture fixture) : IAsyncLifetime
         body.RootElement.GetProperty("scope").GetProperty("type").GetString().ShouldBe("all");
         body.RootElement.GetProperty("scope").GetProperty("domain").ValueKind.ShouldBe(JsonValueKind.Null);
         var totalEligible = body.RootElement.GetProperty("totalEligible").GetInt32();
-        totalEligible.ShouldBeGreaterThanOrEqualTo(ReviewApi.ClrMemoryMcqCount, "\"all\" spans every imported topic");
+        totalEligible.ShouldBe(ReviewApi.AllMcqCount, "\"all\" spans every imported topic");
         body.RootElement.GetProperty("dueCount").GetInt32().ShouldBe(0);
         body.RootElement.GetProperty("newCount").GetInt32().ShouldBe(totalEligible, "nothing has been answered yet");
     }
@@ -65,7 +65,7 @@ public sealed class OverviewEndpointTests(ApiFixture fixture) : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var totalEligible = body.RootElement.GetProperty("totalEligible").GetInt32();
-        totalEligible.ShouldBeGreaterThanOrEqualTo(ReviewApi.ClrMemoryMcqCount);
+        totalEligible.ShouldBe(ReviewApi.ClrMemoryMcqCount + ReviewApi.AsyncMcqCount);
         body.RootElement.GetProperty("dueCount").GetInt32().ShouldBe(0);
         body.RootElement.GetProperty("newCount").GetInt32().ShouldBe(totalEligible - 1, "one question now has a review state");
         body.RootElement.GetProperty("nextDueAt").ValueKind.ShouldBe(JsonValueKind.String);

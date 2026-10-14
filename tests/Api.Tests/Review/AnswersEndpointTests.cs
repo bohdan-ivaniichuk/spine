@@ -63,7 +63,7 @@ public sealed class AnswersEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("dotnet.clr-memory.string-internals.mcq.1")]
+    [InlineData("dotnet.clr-memory.span-memory.mcq.4")]
     [InlineData("nope.nope.nope.mcq.1")]
     public async Task Question_outside_the_session_is_a_422_problem(string questionId)
     {

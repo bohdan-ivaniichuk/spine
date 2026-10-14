@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://interviewprep.local/schema/manifest.schema.json",
   "title": "InterviewPrep content manifest",
-  "description": "content/manifest.json — the ordered list of domains and topics with their titles. Mirrors specs/000-taxonomy.md. Topic files must reference a (domain, topic) pair listed here.",
+  "description": "content/manifest.json — the ordered list of domains and topics with their titles. Mirrors specs/000-taxonomy.md. Topic files must reference a (domain, topic) pair listed here. `title` is English (canonical, required); `titles.uk` is the optional Ukrainian title served for lang=uk.",
   "type": "object",
   "additionalProperties": false,
   "required": ["domains"],
@@ -17,6 +17,7 @@
         "properties": {
           "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
           "title": { "type": "string", "minLength": 1 },
+          "titles": { "$ref": "#/$defs/titles" },
           "topics": {
             "type": "array",
             "minItems": 1,
@@ -26,11 +27,23 @@
               "required": ["slug", "title"],
               "properties": {
                 "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-                "title": { "type": "string", "minLength": 1 }
+                "title": { "type": "string", "minLength": 1 },
+                "titles": { "$ref": "#/$defs/titles" }
               }
             }
           }
         }
+      }
+    }
+  },
+  "$defs": {
+    "titles": {
+      "description": "Non-English titles of a domain or topic. Only Ukrainian is supported; English stays in `title`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uk"],
+      "properties": {
+        "uk": { "type": "string", "minLength": 1, "pattern": "\\S" }
       }
     }
   }

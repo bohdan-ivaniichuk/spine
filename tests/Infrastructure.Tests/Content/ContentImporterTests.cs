@@ -353,7 +353,66 @@ public sealed class ContentImporterTests(PostgresFixture fixture) : IAsyncLifeti
         result.Errors.ShouldContain(e => e.Rule == "mcq-one-correct" && e.File == TopicTemplate.File);
     }
 
+    [Fact]
+    public async Task Uk_titles_are_stored_and_reimporting_them_unchanged_writes_nothing()
+    {
+        _content.WithFixtureManifestSchema().WriteManifest(TopicTemplate.ManifestWithUkTitles("Середовище .NET", "Пам'ять і GC"));
+
+        (await ImportAsync()).ExitCode.ShouldBe(ImportExitCode.Success);
+        var (domain, topic) = await DomainAndTopicAsync();
+        domain.TitleUk.ShouldBe("Середовище .NET");
+        topic.TitleUk.ShouldBe("Пам'ять і GC");
+        domain.Title.ShouldBe("C# & .NET Runtime");
+
+        var again = await ImportAsync();
+
+        again.ExitCode.ShouldBe(ImportExitCode.Success, Describe(again));
+        foreach (var kind in EntityKinds.All)
+        {
+            var counts = Total(again, kind);
+            (counts.Created, counts.Updated, counts.Deprecated).ShouldBe((0, 0, 0), kind);
+        }
+
+        (await DomainAndTopicAsync()).Domain.UpdatedAt.ShouldBe(domain.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Adding_changing_and_removing_uk_titles_updates_only_the_affected_rows()
+    {
+        _content.WithFixtureManifestSchema();
+        (await ImportAsync()).ExitCode.ShouldBe(ImportExitCode.Success);
+        var ids = await IdSnapshotAsync();
+
+        _content.WriteManifest(TopicTemplate.ManifestWithUkTitles("Середовище .NET", null));
+        var added = await ImportAsync();
+        added.ExitCode.ShouldBe(ImportExitCode.Success, Describe(added));
+        (Total(added, EntityKinds.Domain).Updated, Total(added, EntityKinds.Topic).Updated).ShouldBe((1, 0));
+        (await DomainAndTopicAsync()).Domain.TitleUk.ShouldBe("Середовище .NET");
+
+        _content.WriteManifest(TopicTemplate.ManifestWithUkTitles("Середовище виконання .NET", "Пам'ять і GC"));
+        var changed = await ImportAsync();
+        (Total(changed, EntityKinds.Domain).Updated, Total(changed, EntityKinds.Topic).Updated).ShouldBe((1, 1));
+        var (domain, topic) = await DomainAndTopicAsync();
+        (domain.TitleUk, topic.TitleUk).ShouldBe(("Середовище виконання .NET", "Пам'ять і GC"));
+
+        _content.WriteManifest(TopicTemplate.Manifest());
+        var removed = await ImportAsync();
+        (Total(removed, EntityKinds.Domain).Updated, Total(removed, EntityKinds.Topic).Updated).ShouldBe((1, 1));
+        (domain, topic) = await DomainAndTopicAsync();
+        domain.TitleUk.ShouldBeNull();
+        topic.TitleUk.ShouldBeNull();
+        (await IdSnapshotAsync()).ShouldBe(ids, "titles are updated in place");
+    }
+
     // ---- helpers ----
+
+    private async Task<(Domain.Content.Domain Domain, Topic Topic)> DomainAndTopicAsync()
+    {
+        await using var db = fixture.CreateContext();
+        var domain = await db.Domains.AsNoTracking().SingleAsync(d => d.Slug == TopicTemplate.Domain);
+        var topic = await db.Topics.AsNoTracking().SingleAsync(t => t.Slug == TopicTemplate.Topic);
+        return (domain, topic);
+    }
 
     private async Task<ImportResult> ImportAsync(bool dryRun = false)
     {

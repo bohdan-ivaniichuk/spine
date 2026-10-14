@@ -10,7 +10,10 @@ namespace Spine.Api.Tests;
 
 /// <summary>
 /// One PostgreSQL container + one in-process API per collection. The API boots exactly as in production
-/// (migrations, learner seed), then tests call <see cref="ImportAsync"/> to load the real repo <c>content/</c>.
+/// (migrations, learner seed), then tests call <see cref="ImportAsync"/> to load the frozen fixture content set
+/// (<c>tests/Fixtures/api-content</c>) validated against the real repo schemas (<c>content/schema</c>), so API tests do not
+/// change when the repo content grows while schema drift is still caught. The repo content itself is guarded by
+/// <c>RepoContentValidatesTests</c> in Application.Tests.
 /// </summary>
 public class ApiFixture : IAsyncLifetime
 {
@@ -28,7 +31,13 @@ public class ApiFixture : IAsyncLifetime
     /// <summary>Repo root, found by walking up from the test binaries until the content schema is visible.</summary>
     public static string RepoRoot { get; } = FindRepoRoot();
 
-    public static string ContentDir => Path.Combine(RepoRoot, "content");
+    /// <summary>
+    /// The frozen fixture content: <c>manifest.json</c> and <c>dotnet/{clr-memory,async}.json</c> (see <c>ReviewApi</c> for
+    /// the shape the tests rely on). It has no <c>schema/</c>; <see cref="ImportAsync"/> adds the repo schemas.
+    /// </summary>
+    public static string ContentDir => Path.Combine(RepoRoot, "tests", "Fixtures", "api-content");
+
+    public static string SchemaDir => Path.Combine(RepoRoot, "content", "schema");
 
     public async Task InitializeAsync()
     {
@@ -53,7 +62,7 @@ public class ApiFixture : IAsyncLifetime
         await _db.DisposeAsync();
     }
 
-    /// <summary>Imports the repo content once; later calls are no-ops so every test class sees the same data.</summary>
+    /// <summary>Imports the fixture content once; later calls are no-ops so every test class sees the same data.</summary>
     public async Task ImportAsync()
     {
         await _importGate.WaitAsync();
@@ -64,16 +73,45 @@ public class ApiFixture : IAsyncLifetime
                 return;
             }
 
-            using var scope = Services.CreateScope();
-            var importer = scope.ServiceProvider.GetRequiredService<IContentImporter>();
-            var result = await importer.ImportAsync(new ImportOptions(ContentDir));
-            result.ExitCode.ShouldBe(ImportExitCode.Success, string.Join("\n", result.Errors.Select(e => e.ToString())));
-            _imported = true;
+            var contentDir = AssembleContentDir();
+            try
+            {
+                using var scope = Services.CreateScope();
+                var importer = scope.ServiceProvider.GetRequiredService<IContentImporter>();
+                var result = await importer.ImportAsync(new ImportOptions(contentDir));
+                result.ExitCode.ShouldBe(ImportExitCode.Success, string.Join("\n", result.Errors.Select(e => e.ToString())));
+                _imported = true;
+            }
+            finally
+            {
+                Directory.Delete(contentDir, recursive: true);
+            }
         }
         finally
         {
             _importGate.Release();
         }
+    }
+
+    /// <summary>A throw-away content directory: the fixture files plus <c>schema/</c> copied from the repo.</summary>
+    private static string AssembleContentDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "spine-api-tests", Guid.NewGuid().ToString("N"));
+        foreach (var file in Directory.GetFiles(ContentDir, "*.json", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(dir, Path.GetRelativePath(ContentDir, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+
+        var schemaDir = Path.Combine(dir, "schema");
+        Directory.CreateDirectory(schemaDir);
+        foreach (var file in Directory.GetFiles(SchemaDir, "*.json"))
+        {
+            File.Copy(file, Path.Combine(schemaDir, Path.GetFileName(file)));
+        }
+
+        return dir;
     }
 
     /// <summary>Empties the progress tables so every review test class starts with no sessions, attempts or review states.</summary>
@@ -86,6 +124,16 @@ public class ApiFixture : IAsyncLifetime
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddRange(parameters);
         return await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<object?> ExecuteScalarAsync(string sql, params NpgsqlParameter[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(_db.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddRange(parameters);
+        var value = await command.ExecuteScalarAsync();
+        return value is DBNull ? null : value;
     }
 
     public async Task SetConceptDeprecatedAsync(string conceptSlug, DateTimeOffset? deprecatedAt)
