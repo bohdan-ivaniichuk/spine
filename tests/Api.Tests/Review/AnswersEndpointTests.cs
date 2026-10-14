@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using InterviewPrep.Application.Review;
+using Npgsql;
 
 namespace InterviewPrep.Api.Tests.Review;
 
@@ -90,6 +91,30 @@ public sealed class AnswersEndpointTests(ApiFixture fixture) : IAsyncLifetime
 
         await ReviewApi.ShouldBeProblemAsync(response, HttpStatusCode.NotFound, "Session not found");
     }
+
+    [Fact]
+    public async Task Question_deprecated_after_start_is_a_422_problem()
+    {
+        var questionId = _session.Questions[2].Id;
+        await SetQuestionDeprecatedAsync(questionId, deprecated: true);
+        try
+        {
+            var response = await fixture.Client.PostAsJsonAsync(AnswersPath, new { questionId, selectedIndex = 0 });
+
+            await ReviewApi.ShouldBeProblemAsync(response, HttpStatusCode.UnprocessableEntity, "Question deprecated");
+        }
+        finally
+        {
+            // The imported content is shared by the whole collection; put it back.
+            await SetQuestionDeprecatedAsync(questionId, deprecated: false);
+        }
+    }
+
+    private Task<int> SetQuestionDeprecatedAsync(string questionId, bool deprecated) =>
+        fixture.ExecuteSqlAsync(
+            "UPDATE questions SET deprecated_at = CASE WHEN @deprecated THEN now() END WHERE id = @id",
+            new NpgsqlParameter("deprecated", deprecated),
+            new NpgsqlParameter("id", questionId));
 
     [Fact]
     public async Task Answer_after_finish_is_a_409_problem()

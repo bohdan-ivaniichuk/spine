@@ -32,6 +32,7 @@ npm-debug.log*
 # ── Playwright ──
 test-results/
 playwright-report/
+.playwright-mcp/
 
 # ── OS / editor noise ──
 .DS_Store

@@ -51,7 +51,7 @@ Endpoints:
 | `POST /api/review/sessions` | body `{ "scope": "topic", "domain": "dotnet", "topic": "clr-memory", "totalLimit": 20, "newLimit": 10 }` (`totalLimit`/`newLimit` optional → defaults; each 1..100) | 201 `Session`, `Location: /api/review/sessions/{id}` | 400; 404 scope; 409 `title: "Nothing to review"` |
 | `GET /api/review/sessions/current` | – | 200 `Session` or **204** (no open session) | – |
 | `GET /api/review/sessions/{id}` | route guid | 200 `Session` (open or finished) | 400 non-guid; 404 `title: "Session not found"` |
-| `POST /api/review/sessions/{id}/answers` | `{ "questionId": "…", "selectedIndex": 0..3 }` | 200 `AnswerFeedback` | 400; 404 session; 409 `title: "Session already finished"`; 409 `title: "Question already answered"`; 422 `title: "Question not in session"` |
+| `POST /api/review/sessions/{id}/answers` | `{ "questionId": "…", "selectedIndex": 0..3 }` | 200 `AnswerFeedback` | 400; 404 session; 409 `title: "Session already finished"`; 409 `title: "Question already answered"`; 422 `title: "Question not in session"`; 422 `title: "Question deprecated"` (question, concept, topic or domain deprecated after the session started) |
 | `POST /api/review/sessions/{id}/finish` | – | 200 `SessionSummary` (idempotent) | 404 |
 
 Error mapping lives in one `ReviewExceptionHandler : IExceptionHandler` (`src/Api/Errors/`) registered with `builder.Services.AddExceptionHandler<ReviewExceptionHandler>()` and `app.UseExceptionHandler()` placed before `UseFastEndpoints`; it maps `ReviewError` → status/title above and writes `application/problem+json` with `instance = request path`, exactly like the existing 404 in `GetConceptEndpoint`. Non-`ReviewException` exceptions fall through to the default ProblemDetails 500. Endpoint classes stay one-liners: validate → call `IReviewSessions` → `Send.OkAsync` / `Send.CreatedAtAsync<GetSessionEndpoint>(...)` / `Send.NoContentAsync()`.
@@ -61,6 +61,6 @@ Angular codes against the table above; the C# records are `ReviewDtos.cs` positi
 
 ## Decisions
 
-- `POST /api/review/sessions` with nothing due and nothing new → **409** `title: "Nothing to review"`.
+- `POST /api/review/sessions` with nothing due and nothing new → **409** `title: "Nothing to review"`; the currently open session, if any, is left open (it is only auto-finished when a new session actually starts).
 - `POST /api/review/sessions` does not return the auto-finished previous session's summary.
 - Session and answer payloads are English only in 002 (`lang` may be added later as an optional query parameter).

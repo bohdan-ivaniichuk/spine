@@ -156,6 +156,12 @@ scripts/validate-content.sh
   walks up to find the nearest `content/schema/content.schema.json`. Pass `--content-dir` (or set
   `CONTENT_DIR`) when importing something else. Use `--no-launch-profile` in scripts to avoid the
   Development profile.
+- **nginx `proxy_pass` with a variable** (`http://$api`, used so a restarted api container is
+  re-resolved) must have **no URI part**: `proxy_pass http://$api/api/;` sends every request to the
+  literal `/api/`. Check a non-health endpoint through `localhost:80` after touching `web/nginx.conf`.
+- **Postgres MCP needs the database up before the session starts** — otherwise `postgres-mcp` retries
+  the pool and Claude Code drops it after 30 s (`CONNECT_TIMEOUT`). `docker compose up -d postgres`,
+  then `/mcp` to reconnect.
 - **`secrets-scan` blocks any connection string with a literal password.** Keep passwords out of every
   committed file: compose interpolates `${POSTGRES_PASSWORD}`, local runs export `PGPASSWORD` or
   `ConnectionStrings__Default` from `.env`.

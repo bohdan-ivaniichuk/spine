@@ -19,6 +19,7 @@ public sealed class ReviewExceptionHandler : IExceptionHandler
         ReviewError.SessionFinished => (StatusCodes.Status409Conflict, "Session already finished"),
         ReviewError.QuestionNotInSession => (StatusCodes.Status422UnprocessableEntity, "Question not in session"),
         ReviewError.DuplicateAnswer => (StatusCodes.Status409Conflict, "Question already answered"),
+        ReviewError.QuestionDeprecated => (StatusCodes.Status422UnprocessableEntity, "Question deprecated"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 

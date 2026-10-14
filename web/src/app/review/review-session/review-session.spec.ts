@@ -174,6 +174,41 @@ describe('ReviewSession', () => {
     expect(text()).toContain('Correct');
   });
 
+  it('ignores an auto-repeated Enter so holding the key cannot skip the feedback', async () => {
+    await open(2);
+
+    press('1');
+    press('Enter');
+    http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
+    await settle(fixture);
+
+    const repeat = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true });
+    document.dispatchEvent(repeat);
+    await settle(fixture);
+
+    expect(text()).toContain('Question 1');
+    expect(button('Next')).toBeDefined();
+  });
+
+  it('does not pull focus back to the feedback when finishing fails', async () => {
+    await open(1);
+
+    press('1');
+    press('Enter');
+    http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
+    await settle(fixture);
+    const finish = button('Finish')!;
+    finish.focus();
+
+    finish.click();
+    http
+      .expectOne(`${SESSIONS}/${ID}/finish`)
+      .flush({ title: 'Service unavailable' }, { status: 503, statusText: 'Service Unavailable' });
+    await settle(fixture);
+
+    expect(document.activeElement).toBe(button('Finish'));
+  });
+
   it('keeps the card, shows the error and lets Finish be retried when finishing fails', async () => {
     await open(1);
 

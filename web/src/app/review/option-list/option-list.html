@@ -1,14 +1,18 @@
 <div role="radiogroup" aria-label="Answer options" class="grid gap-2">
   @for (option of options(); track $index; let i = $index) {
     <button
+      #row
       type="button"
       role="radio"
       class="flex w-full items-start gap-3 rounded-card border px-4 py-3 text-left text-sm text-text transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default"
       [class]="rowClasses(i)"
       [attr.aria-checked]="selected() === i"
+      [attr.aria-keyshortcuts]="i + 1"
+      [tabindex]="tabIndex(i)"
       [attr.data-state]="state(i)"
       [disabled]="locked()"
       (click)="pick(i)"
+      (keydown)="onArrow($event, i)"
     >
       <span
         class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border font-mono text-xs font-medium"

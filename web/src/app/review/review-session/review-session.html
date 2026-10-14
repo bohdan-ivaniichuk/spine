@@ -47,7 +47,7 @@
         <button
           type="button"
           class="rounded px-2 py-1.5 text-sm text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          [disabled]="store.status() === 'finishing'"
+          [disabled]="store.status() === 'finishing' || store.status() === 'checking'"
           (click)="endEarly()"
         >
           End session

@@ -25,6 +25,9 @@ public sealed class Sm2AlgorithmTests
     [InlineData(1, 2.3, 0, ReviewGrade.Good, 1, 2.3, 1)]
     // degenerate stored interval 0 with a long streak still yields at least 1 day
     [InlineData(0, 2.5, 5, ReviewGrade.Good, 1, 2.5, 6)]
+    // interval capped at 36500 days so now.AddDays cannot overflow, even from an absurd stored interval
+    [InlineData(20000, 2.5, 10, ReviewGrade.Good, Sm2Algorithm.MaxIntervalDays, 2.5, 11)]
+    [InlineData(int.MaxValue, 2.5, 10, ReviewGrade.Good, Sm2Algorithm.MaxIntervalDays, 2.5, 11)]
     public void Next_transitions(int interval, double ease, int reps, ReviewGrade grade, int expectedInterval, double expectedEase, int expectedReps)
     {
         var current = new ReviewSnapshot(interval, ease, reps, null, Now, null);

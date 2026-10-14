@@ -29,7 +29,7 @@ D "Focused flashcards". The user chose A and B together, as the light and dark t
 
 Palette (light → dark): bg `#f7f7f5` → `#0f141a`; surface `#ffffff` → `#161c24`; text `#1f2328` →
 `#e6edf3`; muted `#6b7280` → `#8b98a8`; line `#e5e5e1` → `#2a3441`; accent `#3b6cf0` → `#7dd3fc`;
-ok `#1f9d61` → `#7ee787`; bad `#d6453d` → `#ff7b72`; code bg `#f3f4f6` → `#0b0f14`; card radius
+ok `#157a4a` → `#7ee787`; bad `#c0362f` → `#ff7b72`; code bg `#f3f4f6` → `#0b0f14`; card radius
 10px → 6px.
 
 ## Consequences
@@ -39,3 +39,10 @@ ok `#1f9d61` → `#7ee787`; bad `#d6453d` → `#ff7b72`; code bg `#f3f4f6` → `
 - Markdown notes render inside `.prose-note`; syntax highlighting maps to the `--color-syntax-*`
   tokens.
 - Monaco (feature 004) gets a light and a dark editor theme derived from the same tokens.
+
+## Amendments
+
+- **2026-10-14 (feature 002, SC-006):** light-theme `ok` darkened from `#1f9d61` to `#157a4a` and `bad`
+  from `#d6453d` to `#c0362f`. The originals were 3.0–4.4:1 on white and on the `*-soft` card fills,
+  below WCAG AA for small text; the new values are ≥ 4.6:1 on every light background. Dark theme
+  unchanged.

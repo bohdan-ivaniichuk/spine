@@ -50,6 +50,20 @@ say so rather than deleting.
 - Design canvas artifact "InterviewPrep Design Directions" holds the chosen screens (page 1) and the
   unchosen sketches C/D (page 2).
 
+## 2026-10-14 — 002 Review session as built
+
+- **Session membership** is an ordered `text[]` on `sessions` with the start limits (ADR 0005); one
+  answer per question per session is a partial unique index on `attempts (session_id, item_id)`.
+- **Concurrency:** Start takes `pg_advisory_xact_lock` then `FOR UPDATE` on open sessions *before*
+  planning; Answer and Finish take `FOR UPDATE` on their session row. No cycle (only Start uses the
+  advisory lock). Unique violations on either the session-attempt or the review-state index map to
+  `DuplicateAnswer` (409).
+- **Errors:** nothing to review → 409 (open session untouched); no open session → 204; deprecated
+  question → 422; `finish` idempotent.
+- **Web:** root `SessionStore` (signals) survives overview → session → summary; the API is the source
+  of truth on reload. Keyboard: digits/letters and Enter at document level, arrows inside the option
+  radio group. `correct` never leaves the server before an answer.
+
 ## Tooling patterns
 
 - Spec Kit feature folders under `specs/NNN-*`; `specs/000-taxonomy.md` is content scope, not a feature.

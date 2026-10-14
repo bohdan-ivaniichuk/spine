@@ -161,7 +161,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     }
 
     [Fact]
-    public async Task Start_with_nothing_to_review_is_NothingToReview_and_still_closes_the_open_session()
+    public async Task Start_with_nothing_to_review_is_NothingToReview_and_leaves_the_open_session_open()
     {
         var session = await _sut.StartAsync(ReviewScope.All, 20, 10);
         foreach (var id in AllMcqs)
@@ -172,8 +172,11 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         var ex = await Should.ThrowAsync<ReviewException>(() => _sut.StartAsync(ReviewScope.All, 20, 10));
 
         ex.Kind.ShouldBe(ReviewError.NothingToReview);
-        (await _sut.GetCurrentAsync()).ShouldBeNull();
-        (await _sut.GetAsync(session.Id))!.FinishedAt.ShouldBe(Start);
+        var current = (await _sut.GetCurrentAsync()).ShouldNotBeNull();
+        current.Id.ShouldBe(session.Id);
+        current.FinishedAt.ShouldBeNull();
+        await using var db = fixture.CreateContext();
+        (await db.Sessions.SingleAsync()).AnsweredCount.ShouldBeNull();
     }
 
     [Fact]
@@ -259,6 +262,115 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         await using var db = fixture.CreateContext();
         (await db.Attempts.CountAsync()).ShouldBe(1);
         (await db.ReviewStates.SingleAsync()).Repetitions.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Parallel_answers_to_the_same_new_question_yield_one_success_and_one_DuplicateAnswer()
+    {
+        var session = await _sut.StartAsync(ReviewScope.All, 4, 4);
+
+        // Two independent contexts, as two concurrent HTTP requests would have.
+        await using var db1 = fixture.CreateContext();
+        await using var db2 = fixture.CreateContext();
+        var sut1 = new ReviewSessions(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        var sut2 = new ReviewSessions(db2, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+
+        var results = await Task.WhenAll(
+            Capture(() => sut1.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct)),
+            Capture(() => sut2.AnswerAsync(session.Id, TopicTemplate.Mcq1, Wrong)));
+
+        results.Count(r => r is null).ShouldBe(1, string.Join("\n", results.Where(r => r is not null)));
+        results.Single(r => r is not null).ShouldBeOfType<ReviewException>().Kind.ShouldBe(ReviewError.DuplicateAnswer);
+        await using var verify = fixture.CreateContext();
+        (await verify.Attempts.CountAsync()).ShouldBe(1);
+        (await verify.ReviewStates.SingleAsync()).Repetitions.ShouldBeInRange(0, 1);
+
+        static async Task<Exception?> Capture(Func<Task> answer)
+        {
+            try
+            {
+                await answer();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Answer_waits_for_a_concurrent_finish_and_then_is_SessionFinished()
+    {
+        var session = await _sut.StartAsync(ReviewScope.All, 4, 4);
+
+        // A "Finish" in flight on another connection: row locked and finished_at written, not yet committed.
+        await using var finisher = fixture.CreateContext();
+        await using var tx = await finisher.Database.BeginTransactionAsync();
+        await finisher.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE id = {session.Id} FOR UPDATE");
+        await finisher.Database.ExecuteSqlAsync($"UPDATE sessions SET finished_at = {Start} WHERE id = {session.Id}");
+
+        var answer = _sut.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct);
+
+        // Commit only once the answer is actually blocked on a lock, so the interleaving is deterministic.
+        await using (var probe = fixture.CreateContext())
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (await probe.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_locks WHERE NOT granted").SingleAsync() == 0)
+            {
+                answer.IsCompleted.ShouldBeFalse("the answer must wait for the finishing transaction, not run past it");
+                DateTime.UtcNow.ShouldBeLessThan(deadline, "the answer never blocked on the session lock");
+                await Task.Delay(20);
+            }
+        }
+
+        await tx.CommitAsync();
+
+        (await Should.ThrowAsync<ReviewException>(() => answer)).Kind.ShouldBe(ReviewError.SessionFinished);
+        await using var verify = fixture.CreateContext();
+        (await verify.Attempts.CountAsync(a => a.SessionId == session.Id)).ShouldBe(0);
+        (await verify.ReviewStates.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Parallel_finishes_store_one_FinishedAt_and_return_the_same_summary()
+    {
+        var session = await _sut.StartAsync(ReviewScope.All, 4, 4);
+        await _sut.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct);
+
+        await using var db1 = fixture.CreateContext();
+        await using var db2 = fixture.CreateContext();
+        var clock2 = new FakeTimeProvider(Start.AddMinutes(1));
+        var sut1 = new ReviewSessions(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        var sut2 = new ReviewSessions(db2, new Sm2Algorithm(), clock2, Options.Create(new ReviewOptions()));
+
+        var summaries = await Task.WhenAll(sut1.FinishAsync(session.Id), sut2.FinishAsync(session.Id));
+
+        summaries[0].FinishedAt.ShouldBe(summaries[1].FinishedAt);
+        summaries.ShouldAllBe(s => s.Answered == 1 && s.Correct == 1);
+        await using var verify = fixture.CreateContext();
+        (await verify.Sessions.SingleAsync()).FinishedAt.ShouldBe(summaries[0].FinishedAt);
+    }
+
+    [Theory]
+    [InlineData("UPDATE questions SET deprecated_at = {0} WHERE id = 'dotnet.clr-memory.stack-vs-heap.mcq.2'")]
+    [InlineData("UPDATE concepts SET deprecated_at = {0} WHERE slug = 'stack-vs-heap'")]
+    [InlineData("UPDATE topics SET deprecated_at = {0} WHERE slug = 'clr-memory'")]
+    [InlineData("UPDATE domains SET deprecated_at = {0} WHERE slug = 'dotnet'")]
+    public async Task Answer_to_a_question_deprecated_after_start_is_QuestionDeprecated(string deprecate)
+    {
+        var session = await _sut.StartAsync(ReviewScope.All, 4, 4);
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(deprecate, Start);
+        }
+
+        var ex = await Should.ThrowAsync<ReviewException>(() => _sut.AnswerAsync(session.Id, TopicTemplate.Mcq2, Correct));
+
+        ex.Kind.ShouldBe(ReviewError.QuestionDeprecated);
+        await using var verify = fixture.CreateContext();
+        (await verify.Attempts.CountAsync()).ShouldBe(0);
+        (await verify.ReviewStates.CountAsync()).ShouldBe(0);
     }
 
     [Fact]

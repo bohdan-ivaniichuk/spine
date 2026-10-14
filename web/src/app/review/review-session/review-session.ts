@@ -1,6 +1,6 @@
-import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  DOCUMENT,
   Component,
   ElementRef,
   OnInit,
@@ -42,7 +42,9 @@ export class ReviewSession implements OnInit {
     afterRenderEffect(() => {
       const status = this.store.status();
       const questionId = this.store.current()?.id ?? null;
-      if (status === 'checked') {
+      // Only on the first 'checked' per question: a failed finish returns to 'checked' and must
+      // leave focus near the error alert.
+      if (status === 'checked' && questionId !== this.checkedQuestionId) {
         this.checkedQuestionId = questionId;
         this.feedbackPanel()?.nativeElement.focus();
       } else if (
@@ -95,9 +97,10 @@ export class ReviewSession implements OnInit {
     }
   }
 
-  /** 1–4 (or A–D) select while unchecked; Enter checks, then Enter moves on. Inputs and modifier chords are ignored. */
+  /** 1–4 (or A–D) select while unchecked (arrows are handled by the option list); Enter checks, then Enter moves on. Inputs and modifier chords are ignored. */
   protected onKeydown(event: KeyboardEvent): void {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) {
+    // A held key auto-repeats; without the repeat guard one long Enter would Check and then skip the feedback.
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) {
       return;
     }
     if (isEditable(event.target)) {

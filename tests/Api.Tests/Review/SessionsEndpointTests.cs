@@ -114,6 +114,39 @@ public sealed class SessionsEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Nothing_to_review_leaves_the_open_session_open()
+    {
+        var open = await ReviewApi.StartAsync(fixture.Client);
+
+        var response = await fixture.Client.PostAsJsonAsync(ReviewApi.Sessions, new { scope = "topic", domain = "dotnet", topic = ReviewApi.EmptyTopic });
+
+        await ReviewApi.ShouldBeProblemAsync(response, HttpStatusCode.Conflict, "Nothing to review");
+        var current = (await fixture.Client.GetFromJsonAsync<SessionDto>(ReviewApi.Current, ApiFixture.Json)).ShouldNotBeNull();
+        current.Id.ShouldBe(open.Id);
+        current.FinishedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Current_resumes_with_the_same_question_order_and_the_given_answers()
+    {
+        // SC-005: start, answer k = 2, come back → same membership in the same order, both answers recorded.
+        var started = await ReviewApi.StartAsync(fixture.Client);
+        var first = await ReviewApi.AnswerAsync(fixture.Client, started.Id, started.Questions[0].Id, 0);
+        var second = await ReviewApi.AnswerAsync(fixture.Client, started.Id, started.Questions[1].Id, 3);
+
+        var resumed = (await fixture.Client.GetFromJsonAsync<SessionDto>(ReviewApi.Current, ApiFixture.Json)).ShouldNotBeNull();
+
+        resumed.Id.ShouldBe(started.Id);
+        resumed.Questions.Select(q => q.Id).ShouldBe(started.Questions.Select(q => q.Id));
+        resumed.Answers.ShouldBe(
+        [
+            new SessionAnswerDto(started.Questions[0].Id, 0, first.IsCorrect),
+            new SessionAnswerDto(started.Questions[1].Id, 3, second.IsCorrect),
+        ]);
+        resumed.SkippedQuestionIds.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Current_is_204_without_an_open_session_and_200_with_one()
     {
         var none = await fixture.Client.GetAsync(ReviewApi.Current);

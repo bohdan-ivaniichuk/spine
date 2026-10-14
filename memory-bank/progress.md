@@ -7,6 +7,9 @@
 - [x] 001 Foundation — schema + migration, seeded learner, `import-content` (idempotent, deprecation,
       dry-run, validate-only), knowledge read endpoints, health, compose (postgres/api/web), web shell.
 - [x] Content batch `dotnet/clr-memory` (EN, unreviewed) imported.
+- [x] Content batch `dotnet/async` (EN, unreviewed) imported.
+- [x] 002 Review session — MCQ + SM-2, session API, Angular review flow; 210 .NET + 68 web tests;
+      SC-001…SC-006 measured in `specs/002-review-session/quickstart.md` (2026-10-14).
 
 ## In progress
 
@@ -15,7 +18,6 @@
 
 ## Planned (in order)
 
-- [ ] 002 Review session (MCQ + SM-2) — spec written 2026-09-06, in implementation
 - [ ] 003 Knowledge tree & notes
 - [ ] 004 LLM grading (open + kata)
 - [ ] 005 Weak-spots & failed-question review
@@ -30,3 +32,4 @@
 
 - Angular 22 CLI requires Node ≥ 22.22.3 (`nvm use 22`); see CLAUDE.md "Things that bite".
 - First start on an empty DB logs two benign EF errors about `__EFMigrationsHistory`.
+- Postgres MCP times out at session start unless the `postgres` container is already running.

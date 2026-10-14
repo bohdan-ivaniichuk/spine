@@ -1,31 +1,30 @@
 # Active Context — InterviewPrep
 
-## Where things stand (2026-09-06, branch `dev`)
+## Where things stand (2026-10-14, branch `dev`)
 
-Feature **001 Foundation** is complete (merged to `main`): stack runs under `docker compose up`,
-103 tests green, both reviewers clean, clean-clone quickstart measured. Visual direction chosen
-(ADR 0004: light "Calm workspace" + dark "Developer dark"). Feature **002 Review session** is in
-progress: spec done, plan/tasks next, implementation via workflow.
+Features **001 Foundation** and **002 Review session** are complete. 002 ships the daily MCQ review
+loop: overview with due/new counts per scope, server-built session with membership frozen on the
+session row (ADR 0005), SM-2 behind `ISchedulingAlgorithm`, instant feedback, resume after reload,
+summary with weak concepts (expandable in place until 003) and "due tomorrow".
+Tests: 210 .NET (20 domain, 70 application, 62 API, 58 infrastructure) + 68 web, all green; both
+reviewers clean; walked end-to-end in Chrome in both themes. Lockflight (lite) adopted 2026-10-14.
 
-**Done**
-- Solution `InterviewPrep.sln`: Domain / Application / Infrastructure / Api + 4 test projects, CPM pins.
-- Schema: 12 tables, `InitialSchema` migration, migrate-on-start with bounded retry, seeded learner.
-- `import-content` CLI verb: schema + rule validation (file/pointer/rule errors), hashes, diff, single
-  transaction under `pg_try_advisory_xact_lock`, soft-deprecation, `--validate-only`, `--dry-run`.
-- Read API: `/api/knowledge/tree`, `/api/knowledge/concepts/{d}/{t}/{c}`, `/health`, `/health/ready`,
-  `/api/meta`; ProblemDetails errors; Swagger in Development.
-- Web: Angular 22 zoneless shell with `httpResource` status indicator, Vitest, Tailwind 4, nginx image.
-- Compose with health checks; `scripts/validate-content.sh`; ADR 0002; CLAUDE.md commands + gotchas.
-- Content: `content/dotnet/clr-memory.json` (7 concepts, 35 questions, 1 kata, EN, unreviewed) generated
-  by the content workflow (author → reviewer → fix → assemble); digest in `working/`.
-
-**In flight**
-- 002 Review session: `specs/002-review-session/spec.md` (no open clarifications; MCQ only, two-outcome SM-2, session membership stored on the session).
+**Done in the 002 close-out (2026-10-14)**
+- Fixed nginx `/api/` proxy: with a variable in `proxy_pass`, a URI part replaced the whole request
+  URI, so every API call except `/api/health` returned 404 behind nginx (latent since 001).
+- Backend: session row locks (`FOR UPDATE`) in Answer/Finish/Start (Start locks before planning);
+  review_states unique violation → `DuplicateAnswer`; 422 "Question deprecated"; empty-plan Start
+  keeps the open session; SM-2 interval capped at 36500 days.
+- Web: radio-group keyboard pattern (one Tab stop, arrows), ✓/✗ marks (not color-only), held-Enter
+  guard, focus stays on the error after a failed finish, summary no longer blanks on "Review again",
+  weak concepts expand in place via the concept read endpoint.
+- Light-theme `ok`/`bad` darkened for AA (ADR 0004 amendment).
 
 **Next**
-1. 002: plan → tasks → implement (workflow: backend SM-2 + endpoints, Angular review feature, tests, reviewers) → user tests a session in the browser.
-2. Human review of `working/content-review-digest-clr-memory.md` → flip `reviewed: true` → re-import.
-3. 003 Knowledge tree & notes; next content batch `dotnet/async`.
+1. Human review of `working/content-review-digest-clr-memory.md` and `…-async.md` → flip
+   `reviewed: true` → re-import.
+2. Content sprint (see progress.md), then 003 Knowledge tree & notes (replaces the summary's
+   in-place concept peek with the concept route; adds the Playwright smoke deferred from 002).
 
 **Waiting on the user**
-- Content review of `clr-memory` (flip `"reviewed": true` on accepted items).
+- Content review of `clr-memory` and `async`.

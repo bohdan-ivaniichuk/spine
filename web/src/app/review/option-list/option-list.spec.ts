@@ -80,4 +80,40 @@ describe('OptionList', () => {
     expect(buttons()[0].dataset['state']).toBe('correct');
     expect(buttons().filter((b) => b.dataset['state'] === 'wrong')).toHaveLength(0);
   });
+
+  it('has a single Tab stop: the selected row, else the first', async () => {
+    expect(buttons().map((b) => b.tabIndex)).toEqual([0, -1, -1, -1]);
+
+    fixture.componentRef.setInput('selected', 2);
+    await fixture.whenStable();
+
+    expect(buttons().map((b) => b.tabIndex)).toEqual([-1, -1, 0, -1]);
+    expect(buttons()[2].getAttribute('aria-keyshortcuts')).toBe('3');
+  });
+
+  it('arrow keys move selection and focus, wrapping around', async () => {
+    const picked: number[] = [];
+    fixture.componentInstance.selectedChange.subscribe((i) => picked.push(i));
+    const arrow = (key: string, from: number) =>
+      buttons()[from].dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+
+    arrow('ArrowDown', 0);
+    expect(document.activeElement).toBe(buttons()[1]);
+    arrow('ArrowUp', 0);
+    expect(document.activeElement).toBe(buttons()[3]);
+    arrow('ArrowRight', 3);
+
+    expect(picked).toEqual([1, 3, 0]);
+  });
+
+  it('marks correct and wrong rows with a visible glyph, not only color', async () => {
+    fixture.componentRef.setInput('selected', 3);
+    fixture.componentRef.setInput('correctIndex', 0);
+    fixture.componentRef.setInput('locked', true);
+    await fixture.whenStable();
+
+    expect(buttons().map((b) => b.textContent?.trim().charAt(0))).toEqual(['✓', 'B', 'C', '✗']);
+  });
 });

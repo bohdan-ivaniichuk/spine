@@ -25,6 +25,9 @@ public sealed class ReviewSessions(
     /// <summary>The partial unique index that closes the double-submit race on <c>attempts</c>.</summary>
     public const string SessionItemIndex = "ix_attempts_session_id_item_id";
 
+    /// <summary>The unique index on <c>review_states (user_id, item_id)</c>: one schedule per learner and item.</summary>
+    public const string ReviewStateItemIndex = "ix_review_states_user_id_item_id";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     /// <summary>Application-wide advisory lock key for "start a session"; one learner, so one fixed key suffices.</summary>
@@ -78,21 +81,25 @@ public sealed class ReviewSessions(
             // FR-003: a learner never has two open sessions. Two concurrent starts would each see none and both insert
             // under READ COMMITTED, so serialise them on a transaction-scoped advisory lock (released at commit/rollback).
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({StartSessionLockKey})", ct);
-            var open = await db.Sessions.Where(s => s.UserId == userId && s.FinishedAt == null).ToListAsync(ct);
-            foreach (var session in open)
-            {
-                await CloseAsync(session, now, ct);
-            }
+
+            // Row-lock the open sessions before reading the plan, so an in-flight Answer on them commits first and its
+            // review-state change is visible to the due/new queries below (and Answer/Finish wait for this close).
+            // On the empty-plan path the transaction rolls back and the locks are released with nothing closed.
+            await db.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE user_id = {userId} AND finished_at IS NULL FOR UPDATE", ct);
 
             var dueIds = await DueIds(scope, now).Take(totalLimit).ToListAsync(ct);
             var newIds = await NewIds(scope).Take(Math.Min(newLimit, totalLimit)).ToListAsync(ct);
             var plan = SessionPlanner.Plan(dueIds, newIds, totalLimit, newLimit);
             if (plan.Length == 0)
             {
-                // The auto-finish still counts: the previous session is closed even though no new one starts.
-                await db.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
+                // Nothing starts, so nothing is closed either: the open session (if any) stays resumable.
                 throw new ReviewException(ReviewError.NothingToReview, "Nothing is due and there are no new questions in this scope.");
+            }
+
+            var open = await db.Sessions.Where(s => s.UserId == userId && s.FinishedAt == null).ToListAsync(ct);
+            foreach (var session in open)
+            {
+                await CloseAsync(session, now, ct);
             }
 
             var created = new Session
@@ -147,6 +154,7 @@ public sealed class ReviewSessions(
             var now = clock.GetUtcNow();
             var userId = LocalLearner.Id;
 
+            await LockSessionAsync(sessionId, ct);
             var session = await db.Sessions.SingleOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, ct)
                 ?? throw new ReviewException(ReviewError.SessionNotFound, $"No session '{sessionId}'.");
             if (session.FinishedAt is not null)
@@ -162,6 +170,19 @@ public sealed class ReviewSessions(
             if (await db.Attempts.AnyAsync(a => a.SessionId == sessionId && a.QuestionId == questionId, ct))
             {
                 throw new ReviewException(ReviewError.DuplicateAnswer, $"Question '{questionId}' was already answered in session '{sessionId}'.");
+            }
+
+            // FR-011: a question deprecated after the session started is skipped on resume, so it cannot be answered either.
+            var deprecated = await db.Questions.AsNoTracking()
+                .Where(q => q.Id == questionId)
+                .Select(q => q.DeprecatedAt != null
+                    || q.Concept!.DeprecatedAt != null
+                    || q.Concept.Topic!.DeprecatedAt != null
+                    || q.Concept.Topic.Domain!.DeprecatedAt != null)
+                .SingleOrDefaultAsync(ct);
+            if (deprecated)
+            {
+                throw new ReviewException(ReviewError.QuestionDeprecated, $"Question '{questionId}' was deprecated after session '{sessionId}' started.");
             }
 
             var translation = await db.QuestionTranslations.AsNoTracking()
@@ -219,9 +240,14 @@ public sealed class ReviewSessions(
             {
                 await db.SaveChangesAsync(ct);
             }
-            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: SessionItemIndex })
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException
             {
-                // Two submissions raced past the pre-check; the index decided, the client still sees a clean conflict.
+                SqlState: PostgresErrorCodes.UniqueViolation,
+                ConstraintName: SessionItemIndex or ReviewStateItemIndex,
+            })
+            {
+                // Two submissions raced past the pre-check (the session row lock normally serialises them); the index
+                // decided, the client still sees a clean conflict.
                 throw new ReviewException(ReviewError.DuplicateAnswer, $"Question '{questionId}' was already answered in session '{sessionId}'.");
             }
 
@@ -240,6 +266,8 @@ public sealed class ReviewSessions(
             var now = clock.GetUtcNow();
             var userId = LocalLearner.Id;
 
+            // Serialises with Answer and with a concurrent Finish: the second Finish sees FinishedAt set and rewrites nothing.
+            await LockSessionAsync(sessionId, ct);
             var session = await db.Sessions.SingleOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, ct)
                 ?? throw new ReviewException(ReviewError.SessionNotFound, $"No session '{sessionId}'.");
 
@@ -475,6 +503,13 @@ public sealed class ReviewSessions(
     private static ReviewScope ScopeOf(Session session) => new(session.ScopeType, session.ScopeDomainSlug, session.ScopeTopicSlug);
 
     // ---- helpers ----
+
+    /// <summary>
+    /// <c>SELECT ... FOR UPDATE</c> on one session row, held until the surrounding transaction ends. Answer, Finish and
+    /// the auto-close in Start all take it, so an answer can never land in a session that is being finished.
+    /// </summary>
+    private async Task LockSessionAsync(Guid sessionId, CancellationToken ct) =>
+        await db.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE id = {sessionId} FOR UPDATE", ct);
 
     private async Task CloseAsync(Session session, DateTimeOffset now, CancellationToken ct)
     {

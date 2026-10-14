@@ -75,10 +75,10 @@ Stories: US1 answer with feedback, US2 spaced schedule, US3 scope & size, US4 su
 
 ## Phase 3: Integration, review, docs
 
-- [ ] T030 Run the stack (`docker compose up --build`), import content, walk quickstart §1 and §2 in both themes; fix integration issues on either track
-- [ ] T031 [P] Run `code-reviewer` on the backend diff and `frontend-reviewer` on `web/`; fix must-fix findings; re-run all suites
-- [ ] T032 [P] Write `docs/architecture/decisions/0005-session-membership.md`; update `memory-bank/systemPatterns.md`, `activeContext.md`, `progress.md`; update `specs/002-review-session/quickstart.md` with measured SC-001/SC-002
-- [ ] T033 Final commit on `dev`; merge to `main`
+- [X] T030 Run the stack (`docker compose up --build`), import content, walk quickstart §1 and §2 in both themes; fix integration issues on either track
+- [X] T031 [P] Run `code-reviewer` on the backend diff and `frontend-reviewer` on `web/`; fix must-fix findings; re-run all suites
+- [X] T032 [P] Write `docs/architecture/decisions/0005-session-membership.md`; update `memory-bank/systemPatterns.md`, `activeContext.md`, `progress.md`; update `specs/002-review-session/quickstart.md` with measured SC-001/SC-002
+- [X] T033 Final commit on `dev`; merge to `main`
 
 ## Dependencies
 

@@ -232,7 +232,8 @@ export class SessionStore {
     this.answeredState.set(new Map(session.answers.map((a) => [a.questionId, a])));
     this.selectedState.set(null);
     this.feedbackState.set(null);
-    this.summaryState.set(null);
+    // The summary is kept: clearing it here would blank the summary page while "Review again"
+    // navigates away; finish() replaces it.
     this.errorState.set(null);
     this.statusState.set('ready');
   }

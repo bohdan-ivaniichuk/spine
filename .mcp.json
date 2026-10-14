@@ -14,7 +14,7 @@
     "postgres": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["postgres-mcp", "--access-mode=restricted"],
+      "args": ["--python", "3.12", "--with", "mcp<2", "postgres-mcp", "--access-mode=restricted"],
       "env": { "DATABASE_URI": "${DATABASE_URI:-postgresql://interviewprep:interviewprep@localhost:5432/interviewprep}" }
     },
     "angular-cli": {

@@ -9,6 +9,7 @@ public enum ReviewError
     SessionFinished,
     QuestionNotInSession,
     DuplicateAnswer,
+    QuestionDeprecated,
 }
 
 public sealed class ReviewException(ReviewError kind, string detail) : Exception(detail)

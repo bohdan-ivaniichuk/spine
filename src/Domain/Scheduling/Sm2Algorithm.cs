@@ -4,7 +4,7 @@ namespace InterviewPrep.Domain.Scheduling;
 
 /// <summary>
 /// SM-2 with two grades. Good: repetitions + 1, interval 1 → 6 → previous × ease (whole days, rounded away from
-/// zero, minimum 1), ease unchanged. Again: repetitions 0, interval 1, ease − 0.2 with a floor of 1.3.
+/// zero, clamped to 1..<see cref="MaxIntervalDays"/>), ease unchanged. Again: repetitions 0, interval 1, ease − 0.2 with a floor of 1.3.
 /// Deliberate deviation from canonical SM-2: a wrong answer subtracts a flat 0.2 (the spec fixes it) rather than the
 /// quality-derived 0.54 for q = 1.
 /// </summary>
@@ -13,6 +13,9 @@ public sealed class Sm2Algorithm : ISchedulingAlgorithm
     public const string AlgorithmName = "sm2";
     public const double EaseFloor = 1.3;
     public const double WrongEasePenalty = 0.2;
+
+    /// <summary>Upper bound on the interval (about 100 years) so <c>now.AddDays(interval)</c> can never overflow.</summary>
+    public const int MaxIntervalDays = 36500;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -33,7 +36,7 @@ public sealed class Sm2Algorithm : ISchedulingAlgorithm
                 {
                     1 => 1,
                     2 => 6,
-                    _ => Math.Max(1, (int)Math.Round(current.IntervalDays * current.Ease, MidpointRounding.AwayFromZero)),
+                    _ => (int)Math.Clamp(Math.Round(current.IntervalDays * current.Ease, MidpointRounding.AwayFromZero), 1, MaxIntervalDays),
                 };
                 ease = current.Ease;
                 break;
