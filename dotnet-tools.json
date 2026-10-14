@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "lockflight.cli": {
+      "version": "0.2.0-dev.20261014210102",
+      "commands": [
+        "lockflight"
+      ],
+      "rollForward": false
+    }
+  }
+}
