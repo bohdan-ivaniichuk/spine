@@ -3,7 +3,7 @@
   "isRoot": true,
   "tools": {
     "lockflight.cli": {
-      "version": "0.2.0-dev.20261014223251",
+      "version": "0.2.0-dev.20261014223700",
       "commands": [
         "lockflight"
       ],
