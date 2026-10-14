@@ -172,8 +172,17 @@ scripts/validate-content.sh
 <!-- lockflight:begin -->
 ## Lockflight
 
-This project is gated by Lockflight. Protected files (`lockflight.yaml`, `.lockflight/`, Claude Code settings, hooks, agents,
-skills and commands, build and package config, each unit's control files) are changed by a person or a `lockflight` command,
-not by the agent; the guard blocks the rest. Approvals, baselines and `redgreen reset` are human decisions: ask the user.
-Start Claude Code at this directory so these settings load. `lockflight doctor` shows what is missing.
+This project is gated by Lockflight: checks, not instructions, decide when work is done. `lockflight` below is
+`dotnet lockflight`, or `~/.lockflight/bin/lockflight` when Lockflight was installed from source.
+
+- **Done means a gate verdict.** Before you report a task done or commit, run `lockflight gate run` and report its
+  verdict. FAIL or NOT-EARNED means not done.
+- **Protected files** (`lockflight.yaml`, `.lockflight/`, Claude Code settings, hooks, agents, skills and commands, build
+  and package config, each unit's control files) are changed by a person or a `lockflight` command; the guard blocks
+  your edits. When a task needs one changed (a rename, a package bump), write the exact change as a patch outside the
+  project, for example `/tmp/<task>.patch`, and ask the user to review and `git apply` it.
+- **Human decisions** are run by the user in their own terminal; ask, never run them: `lockflight approve` (sign off a
+  spec or tasks), `lockflight baseline` (accept build warnings, failing tests or package advisories the project
+  already has) and `lockflight redgreen reset` (discard a feature's test-first evidence).
+- Start Claude Code at this directory so these settings load. `lockflight doctor` shows what is missing.
 <!-- lockflight:end -->
