@@ -1,7 +1,7 @@
-using InterviewPrep.Application.Content.Seed;
-using InterviewPrep.Application.Content.Validation;
+using Spine.Application.Content.Seed;
+using Spine.Application.Content.Validation;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 public class ContentRuleValidatorTests
 {

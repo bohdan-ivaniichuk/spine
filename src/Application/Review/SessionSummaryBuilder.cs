@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Progress;
+using Spine.Domain.Progress;
 
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
 /// <summary>Where a question lives, for grouping wrong answers by concept.</summary>
 public sealed record ConceptRef(string DomainSlug, string TopicSlug, string ConceptSlug, string ConceptTitle);

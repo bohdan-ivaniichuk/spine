@@ -1,14 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { QuestionLevel, SessionQuestion } from '../api/review.models';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { KnowledgeTreeSource } from '../../knowledge/api/knowledge-tree.source';
+import { I18n } from '../../shared/i18n/i18n';
+import { SessionQuestion } from '../api/review.models';
 import { PromptMarkdown } from '../prompt-markdown/prompt-markdown';
 
-const LEVEL_NAMES: Record<QuestionLevel, string> = {
-  M: 'Middle',
-  S: 'Senior',
-  L: 'Lead',
-};
-
-/** Card header (level badge, unreviewed/new badges, scope breadcrumb) and the prompt. */
+/** Card header (domain chip in its color, topic → concept, level/new/EN/unreviewed badges) and the prompt. */
 @Component({
   selector: 'app-question-card',
   imports: [PromptMarkdown],
@@ -16,9 +12,17 @@ const LEVEL_NAMES: Record<QuestionLevel, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class QuestionCard {
+  protected readonly i18n = inject(I18n);
+  private readonly domains = inject(KnowledgeTreeSource).domains;
+
   readonly question = input.required<SessionQuestion>();
 
   protected readonly levelName = computed(
-    () => LEVEL_NAMES[this.question().level] ?? this.question().level,
+    () => this.i18n.t().session.levels[this.question().level] ?? this.question().level,
+  );
+
+  /** Manifest position of the question's domain (1–5) for its color; 1 until the tree loads. */
+  protected readonly domainPosition = computed(
+    () => this.domains().find((d) => d.slug === this.question().domain.slug)?.position ?? 1,
   );
 }

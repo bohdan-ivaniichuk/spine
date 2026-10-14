@@ -1,9 +1,9 @@
 using FastEndpoints;
 using FluentValidation;
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 using Microsoft.Extensions.Options;
 
-namespace InterviewPrep.Api.Endpoints.Review;
+namespace Spine.Api.Endpoints.Review;
 
 public sealed class StartSessionRequest : ScopeQuery
 {
@@ -39,7 +39,7 @@ public sealed class StartSessionEndpoint(IReviewSessions sessions, IOptions<Revi
         Summary(s =>
         {
             s.Summary = "Start a review session";
-            s.Description = "Due questions first (most overdue first), then new ones in taxonomy order, bounded by totalLimit and newLimit. Any open session is finished first. 404 for an unknown scope, 409 when nothing is due or new.";
+            s.Description = "Due questions first (most overdue first), then new ones in taxonomy order, bounded by totalLimit and newLimit. Any open session is finished first. ?lang=en|uk selects the text of the returned session (per-question fallback to English). 404 for an unknown scope, 409 when nothing is due or new.";
         });
     }
 
@@ -49,6 +49,7 @@ public sealed class StartSessionEndpoint(IReviewSessions sessions, IOptions<Revi
             req.ToReviewScope(),
             req.TotalLimit ?? options.Value.DefaultTotalLimit,
             req.NewLimit ?? options.Value.DefaultNewLimit,
+            req.ParsedLanguage,
             ct);
         await Send.CreatedAtAsync<GetSessionEndpoint>(new { id = session.Id }, session, cancellation: ct);
     }

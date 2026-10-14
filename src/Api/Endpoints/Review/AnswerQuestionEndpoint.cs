@@ -1,10 +1,10 @@
 using FastEndpoints;
 using FluentValidation;
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 
-namespace InterviewPrep.Api.Endpoints.Review;
+namespace Spine.Api.Endpoints.Review;
 
-public sealed class AnswerQuestionRequest
+public sealed class AnswerQuestionRequest : LanguageQuery
 {
     /// <summary>Session id (route).</summary>
     public Guid Id { get; set; }
@@ -21,6 +21,7 @@ public sealed class AnswerQuestionValidator : Validator<AnswerQuestionRequest>
 
     public AnswerQuestionValidator()
     {
+        RuleFor(r => r.Lang).MustBeSupportedLanguage();
         RuleFor(r => r.QuestionId).NotEmpty();
         RuleFor(r => r.SelectedIndex).InclusiveBetween(0, MaxOptionIndex);
     }
@@ -42,12 +43,12 @@ public sealed class AnswerQuestionEndpoint(IReviewSessions sessions) : Endpoint<
         Summary(s =>
         {
             s.Summary = "Answer a question";
-            s.Description = "Grades the selected option deterministically, stores the attempt, updates the SM-2 review state and returns the feedback (correct index, explanation, next due). 409 when the session is finished or the question was already answered; 422 when the question is not part of the session.";
+            s.Description = "Grades the selected option deterministically, stores the attempt, updates the SM-2 review state and returns the feedback (correct index, explanation in ?lang with per-question fallback to English, next due). 409 when the session is finished or the question was already answered; 422 when the question is not part of the session.";
         });
     }
 
     public override async Task HandleAsync(AnswerQuestionRequest req, CancellationToken ct)
     {
-        await Send.OkAsync(await sessions.AnswerAsync(req.Id, req.QuestionId, req.SelectedIndex, ct), ct);
+        await Send.OkAsync(await sessions.AnswerAsync(req.Id, req.QuestionId, req.SelectedIndex, req.ParsedLanguage, ct), ct);
     }
 }

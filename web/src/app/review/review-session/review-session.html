@@ -1,103 +1,164 @@
-<section class="mx-auto max-w-2xl">
+@let t = i18n.t();
+<div class="mx-auto max-w-[1180px]">
   @if (store.status() === 'loading') {
-    <p class="text-sm text-muted" aria-live="polite">Loading session…</p>
+    <p class="text-sm text-muted" aria-live="polite">{{ t.session.loading }}</p>
   } @else if (store.status() === 'error' && !store.session()) {
-    <div class="rounded-card border border-bad bg-bad-soft p-4 text-sm text-text" role="alert">
-      <p class="font-semibold text-bad">Could not load the session</p>
+    <div class="rounded-card bg-bad-soft p-5 text-sm text-text" role="alert">
+      <p class="font-semibold text-bad">{{ t.session.loadError }}</p>
       <p class="mt-1">{{ store.error() }}</p>
       <button
         type="button"
-        class="mt-3 rounded border border-line bg-surface px-3 py-1.5 text-sm text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        class="mt-3 rounded-xl border border-line bg-surface px-3 py-1.5 text-sm text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         (click)="load()"
       >
-        Retry
+        {{ t.session.retry }}
       </button>
     </div>
   } @else if (store.current(); as question) {
-    <app-progress-bar
-      [position]="store.position()"
-      [total]="store.total()"
-      [label]="store.scopeLabel()"
-    />
-
-    <article
-      #card
-      tabindex="-1"
-      class="mt-5 rounded-card border border-line bg-surface p-6 shadow-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      [attr.aria-label]="'Question ' + store.position() + ' of ' + store.total()"
-    >
-      <app-question-card [question]="question" />
-
-      <app-option-list
-        class="mt-5 block"
-        [options]="question.options"
-        [selected]="store.selectedIndex()"
-        [correctIndex]="store.feedback()?.correctIndex ?? null"
-        [locked]="store.status() !== 'ready'"
-        (selectedChange)="store.select($event)"
-      />
-
-      <app-feedback-panel class="mt-5" [feedback]="store.feedback()" />
-
-      @if (store.error()) {
-        <p class="mt-4 text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
-      }
-
-      <footer class="mt-6 flex items-center justify-between gap-4">
-        <button
-          type="button"
-          class="rounded px-2 py-1.5 text-sm text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          [disabled]="store.status() === 'finishing' || store.status() === 'checking'"
-          (click)="endEarly()"
-        >
-          End session
-        </button>
-
-        <div class="flex items-center gap-3">
-          <span class="hidden font-mono text-xs text-muted sm:inline" aria-hidden="true"
-            >1–4 select · Enter</span
-          >
-          @if (store.status() === 'checked' || store.status() === 'finishing') {
-            <button
-              type="button"
-              class="rounded-card bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
-              [disabled]="store.status() === 'finishing'"
-              (click)="next()"
-            >
-              @if (store.status() === 'finishing') {
-                Finishing…
-              } @else if (store.isLast()) {
-                Finish
-              } @else {
-                Next
-              }
-            </button>
-          } @else {
-            <button
-              type="button"
-              class="rounded-card border border-line bg-surface px-5 py-2 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50"
-              [disabled]="store.selectedIndex() === null || store.status() !== 'ready'"
-              (click)="check()"
-            >
-              {{ store.status() === 'checking' ? 'Checking…' : 'Check' }}
-            </button>
-          }
+    <div class="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <aside class="hidden min-w-0 flex-col gap-4 lg:sticky lg:top-8 lg:flex">
+        <div class="flex flex-col gap-3.5 rounded-card bg-surface p-5 shadow-card">
+          <p class="font-display text-[13px] font-bold">
+            {{ t.session.rail(store.position(), store.total()) }}
+          </p>
+          <ol class="flex flex-col gap-2 text-sm">
+            @for (item of rail(); track item.id) {
+              <li
+                class="flex items-center gap-2.5"
+                [class.font-semibold]="item.state === 'current'"
+                [class.text-muted]="item.state === 'todo'"
+                [attr.aria-current]="item.state === 'current' ? 'step' : null"
+              >
+                @switch (item.state) {
+                  @case ('correct') {
+                    <span
+                      class="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-ok-fill font-mono text-xs font-bold text-on-ok-fill"
+                      aria-hidden="true"
+                      >✓</span
+                    >
+                  }
+                  @case ('wrong') {
+                    <span
+                      class="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-bad-fill font-mono text-xs font-bold text-on-bad-fill"
+                      aria-hidden="true"
+                      >✗</span
+                    >
+                  }
+                  @case ('current') {
+                    <span
+                      class="flex size-[26px] shrink-0 items-center justify-center rounded-full border-2 border-accent font-mono text-xs font-bold text-accent-text"
+                      aria-hidden="true"
+                      >{{ item.position }}</span
+                    >
+                  }
+                  @default {
+                    <span
+                      class="flex size-[26px] shrink-0 items-center justify-center rounded-full border border-line font-mono text-xs"
+                      aria-hidden="true"
+                      >{{ item.position }}</span
+                    >
+                  }
+                }
+                <span class="min-w-0 truncate">{{ item.title }}</span>
+                @if (item.state === 'correct') {
+                  <span class="sr-only">— {{ t.session.answeredRight }}</span>
+                } @else if (item.state === 'wrong') {
+                  <span class="sr-only">— {{ t.session.answeredWrong }}</span>
+                }
+              </li>
+            }
+          </ol>
         </div>
-      </footer>
-    </article>
+      </aside>
+
+      <div class="flex min-w-0 flex-col gap-5">
+        <app-progress-bar
+          [position]="store.position()"
+          [total]="store.total()"
+          [label]="store.scopeLabel()"
+        />
+
+        <article
+          #card
+          tabindex="-1"
+          class="flex flex-col gap-6 rounded-panel bg-surface p-6 shadow-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:p-8"
+          [attr.aria-label]="t.session.questionOf(store.position(), store.total())"
+        >
+          <app-question-card [question]="question" />
+
+          <app-option-list
+            class="block"
+            [attr.lang]="question.language ?? null"
+            [options]="question.options"
+            [selected]="store.selectedIndex()"
+            [correctIndex]="store.feedback()?.correctIndex ?? null"
+            [locked]="store.status() !== 'ready'"
+            (selectedChange)="store.select($event)"
+          />
+
+          <app-feedback-panel [feedback]="store.feedback()" />
+
+          @if (store.error()) {
+            <p class="text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
+          }
+
+          <footer class="flex flex-wrap items-center justify-between gap-4">
+            <button
+              type="button"
+              class="rounded-full border border-line px-4 py-2 text-sm text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
+              [disabled]="store.status() === 'finishing' || store.status() === 'checking'"
+              (click)="endEarly()"
+            >
+              {{ t.session.end }}
+            </button>
+
+            <div class="flex items-center gap-3">
+              <span class="hidden font-mono text-xs text-muted sm:inline" aria-hidden="true">{{
+                t.session.shortcuts
+              }}</span>
+              @if (store.status() === 'checked' || store.status() === 'finishing') {
+                <button
+                  type="button"
+                  class="rounded-2xl bg-accent px-6 py-3 font-display text-sm font-bold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+                  [disabled]="store.status() === 'finishing'"
+                  (click)="next()"
+                >
+                  @if (store.status() === 'finishing') {
+                    {{ t.session.finishing }}
+                  } @else if (store.isLast()) {
+                    {{ t.session.finish }}
+                  } @else {
+                    {{ t.session.next }}
+                  }
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="rounded-2xl bg-ink px-6 py-3 font-display text-sm font-bold text-on-ink hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-40"
+                  [disabled]="store.selectedIndex() === null || store.status() !== 'ready'"
+                  (click)="check()"
+                >
+                  {{ store.status() === 'checking' ? t.session.checking : t.session.check }}
+                </button>
+              }
+            </div>
+          </footer>
+        </article>
+      </div>
+    </div>
   } @else if (store.status() === 'finishing') {
-    <p class="text-sm text-muted" aria-live="polite">Finishing session…</p>
+    <p class="text-sm text-muted" aria-live="polite">{{ t.session.finishingSession }}</p>
   } @else if (store.error()) {
-    <div class="rounded-card border border-bad bg-bad-soft p-4 text-sm text-text" role="alert">
-      <p class="font-semibold text-bad">Could not finish the session</p>
+    <div class="rounded-card bg-bad-soft p-5 text-sm text-text" role="alert">
+      <p class="font-semibold text-bad">{{ t.session.finishError }}</p>
       <p class="mt-1">{{ store.error() }}</p>
       <button
         type="button"
-        class="mt-3 rounded border border-line bg-surface px-3 py-1.5 text-sm text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        class="mt-3 rounded-xl border border-line bg-surface px-3 py-1.5 text-sm text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         (click)="store.finish()"
       >
-        Retry
+        {{ t.session.retry }}
       </button>
     </div>
   }
-</section>
+</div>

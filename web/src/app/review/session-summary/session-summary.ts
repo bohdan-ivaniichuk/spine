@@ -1,4 +1,3 @@
-import { PercentPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -8,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { I18n } from '../../shared/i18n/i18n';
 import { scopeLabel } from '../api/review.models';
 import { OVERVIEW_ROUTE, SessionStore } from '../session-store';
 import { ConceptPeek } from './concept-peek';
@@ -15,12 +15,13 @@ import { ConceptPeek } from './concept-peek';
 /** How the session went: counts, accuracy, weak concepts ranked by misses, due tomorrow. */
 @Component({
   selector: 'app-session-summary',
-  imports: [RouterLink, PercentPipe, ConceptPeek],
+  imports: [RouterLink, ConceptPeek],
   templateUrl: './session-summary.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionSummary implements OnInit {
   protected readonly store = inject(SessionStore);
+  protected readonly i18n = inject(I18n);
   private readonly router = inject(Router);
 
   protected readonly summary = this.store.summary;
@@ -29,7 +30,7 @@ export class SessionSummary implements OnInit {
 
   protected readonly scope = computed(() => {
     const summary = this.summary();
-    return summary ? scopeLabel(summary.scope) : '';
+    return summary ? scopeLabel(summary.scope, this.i18n.t().scope.all) : '';
   });
 
   ngOnInit(): void {

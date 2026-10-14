@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Progress;
+using Spine.Domain.Progress;
 
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
 /// <summary>What a session or overview covers: everything, one domain, or one topic of a domain.</summary>
 public sealed record ReviewScope(SessionScopeType Type, string? Domain, string? Topic)

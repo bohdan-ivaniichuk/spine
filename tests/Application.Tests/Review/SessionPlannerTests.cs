@@ -1,6 +1,6 @@
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 
-namespace InterviewPrep.Application.Tests.Review;
+namespace Spine.Application.Tests.Review;
 
 public sealed class SessionPlannerTests
 {

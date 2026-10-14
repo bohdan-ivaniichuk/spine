@@ -1,7 +1,7 @@
-using InterviewPrep.Application.Review;
-using InterviewPrep.Domain.Progress;
+using Spine.Application.Review;
+using Spine.Domain.Progress;
 
-namespace InterviewPrep.Application.Tests.Review;
+namespace Spine.Application.Tests.Review;
 
 public sealed class SessionSummaryBuilderTests
 {

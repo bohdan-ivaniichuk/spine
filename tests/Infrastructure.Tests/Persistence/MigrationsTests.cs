@@ -1,8 +1,8 @@
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace InterviewPrep.Infrastructure.Tests.Persistence;
+namespace Spine.Infrastructure.Tests.Persistence;
 
 [Collection(PostgresCollection.Name)]
 [Trait("Category", "Integration")]

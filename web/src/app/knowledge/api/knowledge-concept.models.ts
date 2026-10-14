@@ -7,6 +7,9 @@ export interface KnowledgeConcept {
   topic: { slug: string; title: string };
   slug: string;
   level: string;
+  /** Language actually served (`fallback` = UK requested, EN shown). */
+  language: 'en' | 'uk';
+  fallback: boolean;
   reviewed: boolean;
   title: string;
   /** Markdown; `null` when the concept has no note yet. */

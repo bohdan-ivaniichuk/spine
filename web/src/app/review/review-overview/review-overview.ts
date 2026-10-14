@@ -1,4 +1,3 @@
-import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
@@ -8,35 +7,65 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
-import { map } from 'rxjs';
-import { KnowledgeTree } from '../../knowledge/api/knowledge-tree.models';
-import { overviewUrl } from '../api/review-api';
+import { ActivatedRoute, Router } from '@angular/router';
+import { distinctUntilChanged, map } from 'rxjs';
+import { KnowledgeTreeSource } from '../../knowledge/api/knowledge-tree.source';
+import { I18n } from '../../shared/i18n/i18n';
+import { coverageUrl, overviewUrl } from '../api/review-api';
 import {
+  Coverage,
   ReviewOverview as ReviewOverviewDto,
   ReviewScopeType,
   ScopeQuery,
+  TopicCoverage,
 } from '../api/review.models';
 import { SESSION_ROUTE, SessionStore } from '../session-store';
 
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 100;
 
-/** Scope + size picker with live due/new counts; the entry point of the review feature. */
+const SCOPES: readonly ReviewScopeType[] = ['all', 'domain', 'topic'];
+
+/** One atlas tile: a domain with its topics and their coverage. */
+export interface AtlasTopic {
+  slug: string;
+  title: string;
+  coverage: TopicCoverage | null;
+  /** Seen share 0–100 for the bar. */
+  percent: number;
+}
+
+export interface AtlasDomain {
+  slug: string;
+  title: string;
+  position: number;
+  topics: AtlasTopic[];
+  hasContent: boolean;
+}
+
+/**
+ * The review home: a hero, the ink "Today" card (scope + size picker with live due/new counts) and
+ * the atlas of domains with per-topic coverage. Scope can be preset by `?scope=&domain=&topic=`
+ * (the spine rail's domain tabs) or by clicking a domain/topic in the atlas.
+ */
 @Component({
   selector: 'app-review-overview',
-  imports: [ReactiveFormsModule, DatePipe],
+  imports: [ReactiveFormsModule],
   templateUrl: './review-overview.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReviewOverview implements OnInit {
   protected readonly store = inject(SessionStore);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly fb = inject(NonNullableFormBuilder);
+  protected readonly i18n = inject(I18n);
+  private readonly treeSource = inject(KnowledgeTreeSource);
 
   protected readonly form = this.fb.group({
     scopeType: this.fb.control<ReviewScopeType>('all'),
@@ -71,15 +100,63 @@ export class ReviewOverview implements OnInit {
 
   private readonly overviewRequest = computed(() => {
     const query = this.scopeQuery();
-    return query ? overviewUrl(query) : undefined;
+    return query ? overviewUrl(query, this.i18n.lang()) : undefined;
   });
 
-  protected readonly tree = httpResource<KnowledgeTree>(() => '/api/knowledge/tree');
+  protected readonly tree = this.treeSource.tree;
   protected readonly overview = httpResource<ReviewOverviewDto>(() => this.overviewRequest());
+  protected readonly coverage = httpResource<Coverage>(() => coverageUrl(this.i18n.lang()));
+  /** Last loaded coverage, kept while a language switch re-fetches (no atlas flicker). */
+  private readonly coverageValue = linkedSignal<Coverage | undefined, Coverage | undefined>({
+    source: () => (this.coverage.hasValue() ? this.coverage.value() : undefined),
+    computation: (value, previous) => value ?? previous?.value,
+  });
 
-  protected readonly domains = computed(() =>
-    this.tree.hasValue() ? this.tree.value().domains.filter((d) => !d.deprecatedAt) : [],
-  );
+  protected readonly domains = this.treeSource.domains;
+
+  protected readonly today = computed(() => this.i18n.formatDay(new Date()));
+
+  /** Domains with topics and coverage, in manifest order. */
+  protected readonly atlas = computed<AtlasDomain[]>(() => {
+    const byKey = new Map<string, TopicCoverage>();
+    const coverage = this.coverageValue();
+    if (coverage) {
+      for (const c of coverage.topics) {
+        byKey.set(`${c.domain}/${c.topic}`, c);
+      }
+    }
+    return this.domains().map((d) => {
+      const topics = d.topics
+        .filter((t) => !t.deprecatedAt)
+        .map((t) => {
+          const coverage = byKey.get(`${d.slug}/${t.slug}`) ?? null;
+          const percent =
+            coverage && coverage.eligible > 0
+              ? Math.round((coverage.seen / coverage.eligible) * 100)
+              : 0;
+          return { slug: t.slug, title: t.title, coverage, percent };
+        });
+      return {
+        slug: d.slug,
+        title: d.title,
+        position: d.position,
+        topics,
+        hasContent: topics.some((t) => (t.coverage?.eligible ?? 0) > 0),
+      };
+    });
+  });
+
+  protected readonly atlasCounts = computed(() => {
+    const atlas = this.atlas();
+    return {
+      domains: atlas.length,
+      topics: atlas.reduce((n, d) => n + d.topics.length, 0),
+      withContent: atlas.reduce(
+        (n, d) => n + d.topics.filter((t) => (t.coverage?.eligible ?? 0) > 0).length,
+        0,
+      ),
+    };
+  });
 
   protected readonly topics = computed(() => {
     const domain = this.domains().find((d) => d.slug === this.formValue().domain);
@@ -111,6 +188,32 @@ export class ReviewOverview implements OnInit {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+
+    // The URL is the scope's source of truth: `?scope=domain&domain=dotnet` (spine tabs, reload,
+    // back/forward) presets the picker, and every picker/atlas change is written back, so a spine
+    // tab always differs from the current URL and always works.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(destroyRef)).subscribe((params) => {
+      const raw = params.get('scope');
+      const scope: ReviewScopeType = SCOPES.includes(raw as ReviewScopeType)
+        ? (raw as ReviewScopeType)
+        : 'all';
+      const domain = params.get('domain') ?? '';
+      const topic = params.get('topic') ?? '';
+      const value = this.form.getRawValue();
+      if (value.scopeType !== scope || value.domain !== domain || value.topic !== topic) {
+        this.applyScope(scope, domain, topic);
+      }
+    });
+    this.form.valueChanges
+      .pipe(
+        map(() => scopeParams(this.form.getRawValue())),
+        distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        takeUntilDestroyed(destroyRef),
+      )
+      .subscribe((queryParams) => {
+        void this.router.navigate([], { relativeTo: this.route, queryParams, replaceUrl: true });
+      });
+
     this.form.controls.domain.valueChanges
       .pipe(takeUntilDestroyed(destroyRef))
       .subscribe(() => this.form.controls.topic.setValue(''));
@@ -147,6 +250,30 @@ export class ReviewOverview implements OnInit {
   protected retry(): void {
     this.tree.reload();
     this.overview.reload();
+    this.coverage.reload();
+  }
+
+  /** Atlas click: review that domain or topic (the Today card picks it up). */
+  protected pickDomain(domain: string): void {
+    this.applyScope('domain', domain, '');
+  }
+
+  protected pickTopic(domain: string, topic: string): void {
+    this.applyScope('topic', domain, topic);
+  }
+
+  protected pad(position: number): string {
+    return String(position).padStart(2, '0');
+  }
+
+  private applyScope(scope: ReviewScopeType, domain: string, topic: string): void {
+    // domain first (its valueChanges clears topic), then topic.
+    this.form.controls.scopeType.setValue(scope);
+    this.form.controls.domain.setValue(scope === 'all' ? '' : domain);
+    if (scope === 'topic') {
+      this.form.controls.topic.enable({ emitEvent: false });
+      this.form.controls.topic.setValue(topic);
+    }
   }
 
   protected resume(): void {
@@ -167,4 +294,23 @@ export class ReviewOverview implements OnInit {
       this.starting.set(false);
     }
   }
+}
+
+/** Query params for a picker value; incomplete parts are left out. */
+function scopeParams(value: {
+  scopeType: ReviewScopeType;
+  domain: string;
+  topic: string;
+}): Record<string, string> {
+  if (value.scopeType === 'all') {
+    return {};
+  }
+  const params: Record<string, string> = { scope: value.scopeType };
+  if (value.domain) {
+    params['domain'] = value.domain;
+  }
+  if (value.scopeType === 'topic' && value.topic) {
+    params['topic'] = value.topic;
+  }
+  return params;
 }

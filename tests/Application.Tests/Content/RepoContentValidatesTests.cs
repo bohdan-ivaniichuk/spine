@@ -1,7 +1,7 @@
-using InterviewPrep.Application.Content.Validation;
+using Spine.Application.Content.Validation;
 using Xunit.Abstractions;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 /// <summary>Replaces the ajv-cli check: the committed content/ directory must pass both validators.</summary>
 public class RepoContentValidatesTests(ITestOutputHelper output)

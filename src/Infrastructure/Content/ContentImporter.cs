@@ -1,10 +1,10 @@
-using InterviewPrep.Application.Content;
-using InterviewPrep.Application.Content.Validation;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Application.Content;
+using Spine.Application.Content.Validation;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace InterviewPrep.Infrastructure.Content;
+namespace Spine.Infrastructure.Content;
 
 /// <summary>
 /// The `import-content` use case: validate everything first (no database), then apply the diff in one transaction

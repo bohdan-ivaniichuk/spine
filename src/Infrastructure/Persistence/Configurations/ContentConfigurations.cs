@@ -1,9 +1,9 @@
-using InterviewPrep.Domain.Content;
+using Spine.Domain.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using DomainEntity = InterviewPrep.Domain.Content.Domain;
+using DomainEntity = Spine.Domain.Content.Domain;
 
-namespace InterviewPrep.Infrastructure.Persistence.Configurations;
+namespace Spine.Infrastructure.Persistence.Configurations;
 
 internal sealed class DomainConfiguration : IEntityTypeConfiguration<DomainEntity>
 {

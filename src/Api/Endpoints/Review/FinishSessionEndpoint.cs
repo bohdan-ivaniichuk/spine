@@ -1,12 +1,14 @@
 using FastEndpoints;
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 
-namespace InterviewPrep.Api.Endpoints.Review;
+namespace Spine.Api.Endpoints.Review;
 
-public sealed class FinishSessionRequest
+public sealed class FinishSessionRequest : LanguageQuery
 {
     public Guid Id { get; set; }
 }
+
+public sealed class FinishSessionValidator : LanguageQueryValidator<FinishSessionRequest>;
 
 /// <summary>POST /api/review/sessions/{id}/finish — closes the session (idempotent) and returns its summary.</summary>
 public sealed class FinishSessionEndpoint(IReviewSessions sessions) : Endpoint<FinishSessionRequest, SessionSummaryDto>
@@ -19,12 +21,12 @@ public sealed class FinishSessionEndpoint(IReviewSessions sessions) : Endpoint<F
         Summary(s =>
         {
             s.Summary = "Finish a session";
-            s.Description = "Stores finish time and counts (once), then returns answered/correct, accuracy, weak concepts ranked by misses and how many questions are due within 24 hours in the same scope. Repeatable.";
+            s.Description = "Stores finish time and counts (once), then returns answered/correct, accuracy, weak concepts ranked by misses and how many questions are due within 24 hours in the same scope. Weak-concept titles follow ?lang with fallback to English. Repeatable.";
         });
     }
 
     public override async Task HandleAsync(FinishSessionRequest req, CancellationToken ct)
     {
-        await Send.OkAsync(await sessions.FinishAsync(req.Id, ct), ct);
+        await Send.OkAsync(await sessions.FinishAsync(req.Id, req.ParsedLanguage, ct), ct);
     }
 }

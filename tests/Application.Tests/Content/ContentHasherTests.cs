@@ -1,8 +1,8 @@
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content;
-using InterviewPrep.Domain.Content;
+using Spine.Application.Content;
+using Spine.Domain.Content;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 public class ContentHasherTests
 {

@@ -6,13 +6,14 @@ layer (layout, commands, hooks, gotchas). When they disagree, the constitution w
 
 ## What this is
 
-**InterviewPrep** — a single-user, locally-run knowledge platform for Senior Full-stack
-(Angular + .NET + AI Engineering) interview preparation: knowledge graph (domain → topic → concept),
-spaced-repetition quizzes (SM-2 behind `ISchedulingAlgorithm`), LLM-graded open answers and code katas.
+**Spine** ("the senior engineer's interview atlas"; formerly InterviewPrep) — a single-user, locally-run
+knowledge platform for Senior Full-stack (Angular + .NET + AI Engineering) interview preparation:
+knowledge graph (domain → topic → concept), spaced-repetition quizzes (SM-2 behind `ISchedulingAlgorithm`),
+LLM-graded open answers and code katas.
 The platform is intentionally thin; most value lives in the content (`content/**/*.json`) and in the
 AI-assisted workflow that produces it. Building it is itself a showcase of AI-augmented development.
 
-Single git repository, single solution, one Angular app. Default branch for work is `dev`.
+Single git repository, single solution (`Spine.slnx`, projects `Spine.*`), one Angular app. Default branch for work is `dev`.
 
 ## Repository layout
 
@@ -20,7 +21,7 @@ Single git repository, single solution, one Angular app. Default branch for work
 |---|---|
 | `src/Domain`, `src/Application`, `src/Infrastructure`, `src/Api` | Modular monolith, .NET 10, FastEndpoints 8. Layering Domain → Application → Infrastructure → Api, no upward references. `Api` also hosts the `import-content` CLI verb (`Program.cs` branches on `args[0]`). |
 | `tests/` | xUnit + Shouldly, mirroring `src/`; `Infrastructure.Tests` and `Api.Tests` use Testcontainers (`Category=Integration`). Fixtures under `tests/Fixtures/`. |
-| `web/` | Angular 22 (zoneless, standalone, signals, `httpResource`), Tailwind 4, Vitest; nginx image proxies `/api`. Feature folders `knowledge/`, `review/`, `grading/`. Design tokens (light/dark, ADR 0004) in `src/styles.scss`; use token utilities, never raw palette classes. |
+| `web/` | Angular 22 (zoneless, standalone, signals, `httpResource`), Tailwind 4, Vitest; nginx image proxies `/api`. Feature folders `knowledge/`, `review/`, `grading/`. Design tokens (Atlas light/dark, ADR 0006) in `src/styles.scss`; use token utilities, never raw palette classes. UI copy only in `src/app/shared/i18n/messages.{en,uk}.ts` (runtime EN/UK, `?lang=uk` to the API). |
 | `docker-compose.yml`, `.env.example` | `postgres` + `api` + `web` with health checks; `docker compose run --rm api import-content` imports `./content` (mounted read-only). |
 | `scripts/validate-content.sh` | Validates content against schema + import rules without a database. |
 | `content/schema/content.schema.json`, `content/schema/manifest.schema.json` | JSON Schemas for topic seed files and for the manifest. |
@@ -147,6 +148,8 @@ scripts/validate-content.sh
 - **`dotnet ef` creates a literal `bin\Debug` folder** (backslash in the name) next to `src/Api` and
   `src/Infrastructure` on macOS (Roslyn BuildHost artefacts). `.gitignore` covers it (`**/bin\\Debug/`);
   never `git add` it by hand.
+- **The compose project is `spine`, but the postgres volume is pinned to `interviewprep_postgres_data`** (the
+  name it got before the rename). Never drop that `name:` or run `down -v`; the database and role stay `interviewprep`.
 - **Alpine containers resolve `localhost` to IPv6 first**; nginx/Kestrel listen on IPv4. Healthchecks use
   `127.0.0.1`, not `localhost`.
 - **First start on an empty database logs two EF "Failed executing DbCommand" errors** for

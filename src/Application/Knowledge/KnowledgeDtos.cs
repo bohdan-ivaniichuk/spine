@@ -1,4 +1,4 @@
-namespace InterviewPrep.Application.Knowledge;
+namespace Spine.Application.Knowledge;
 
 public sealed record KnowledgeTreeDto(string Language, IReadOnlyList<TreeDomainDto> Domains);
 

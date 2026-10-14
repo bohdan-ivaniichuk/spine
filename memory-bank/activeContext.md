@@ -1,30 +1,30 @@
-# Active Context — InterviewPrep
+# Active Context — Spine
 
-## Where things stand (2026-10-14, branch `dev`)
+## Where things stand (2026-10-15, branch `dev`)
 
-Features **001 Foundation** and **002 Review session** are complete. 002 ships the daily MCQ review
-loop: overview with due/new counts per scope, server-built session with membership frozen on the
-session row (ADR 0005), SM-2 behind `ISchedulingAlgorithm`, instant feedback, resume after reload,
-summary with weak concepts (expandable in place until 003) and "due tomorrow".
-Tests: 210 .NET (20 domain, 70 application, 62 API, 58 infrastructure) + 68 web, all green; both
-reviewers clean; walked end-to-end in Chrome in both themes. Lockflight (lite) adopted 2026-10-14.
+Features **001 Foundation**, **002 Review session** and **003 Atlas redesign + EN/UK UI + rename**
+are complete. The product is now **Spine — the senior engineer's interview atlas** (formerly
+InterviewPrep); solution `Spine.slnx`, projects/namespaces `Spine.*`, compose project `spine`
+(postgres volume pinned to `interviewprep_postgres_data`, DB/role still `interviewprep`).
+Tests: 237 .NET (20 domain, 76 application, 77 API, 64 infrastructure) + 80 web, all green; both
+reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 
-**Done in the 002 close-out (2026-10-14)**
-- Fixed nginx `/api/` proxy: with a variable in `proxy_pass`, a URI part replaced the whole request
-  URI, so every API call except `/api/health` returned 404 behind nginx (latent since 001).
-- Backend: session row locks (`FOR UPDATE`) in Answer/Finish/Start (Start locks before planning);
-  review_states unique violation → `DuplicateAnswer`; 422 "Question deprecated"; empty-plan Start
-  keeps the open session; SM-2 interval capped at 36500 days.
-- Web: radio-group keyboard pattern (one Tab stop, arrows), ✓/✗ marks (not color-only), held-Enter
-  guard, focus stays on the error after a failed finish, summary no longer blanks on "Review again",
-  weak concepts expand in place via the concept read endpoint.
-- Light-theme `ok`/`bad` darkened for AA (ADR 0004 amendment).
+**003 in short (ADR 0006)**
+- Atlas look: light ground, ink panels, domain colors 01–05, Unbounded + Golos Text + JetBrains Mono;
+  dark Atlas variant; every token pair ≥ 4.5:1.
+- Shell: B1 "spine" rail (sections, domain tabs → `/review?scope=domain&domain=…`, EN/УК, theme, API).
+- Runtime i18n: `web/src/app/shared/i18n` (signal `lang`, typed dictionaries, Intl plurals,
+  `withLang` adds `?lang=uk` only when not English). Store re-reads the open session on a switch.
+- API: `?lang=en|uk` on all review endpoints (per-question fallback via `TranslationPicker`,
+  `language`/`fallback` fields), new `GET /api/review/coverage` for the atlas tiles.
+- Overview: hero, ink Today card, atlas with per-topic coverage; the scope lives in the URL.
 
 **Next**
-1. Human review of `working/content-review-digest-clr-memory.md` and `…-async.md` → flip
-   `reviewed: true` → re-import.
-2. Content sprint (see progress.md), then 003 Knowledge tree & notes (replaces the summary's
-   in-place concept peek with the concept route; adds the Playwright smoke deferred from 002).
+1. User: update protected files after the rename (see 003 tasks T021).
+2. Human review of the `clr-memory` and `async` digests → `reviewed: true` → re-import; then the
+   `uk` translation pass for reviewed items (content-author) so Ukrainian content appears.
+3. Ukrainian domain/topic titles: manifest `titles.uk` + importer + migration (deferred from 003).
+4. Content sprint (domains 1, 2, 4), then 004 Knowledge atlas & notes (the rail's "Atlas" item).
 
 **Waiting on the user**
-- Content review of `clr-memory` and `async`.
+- Protected-file edits for the rename; content review of `clr-memory` and `async`.

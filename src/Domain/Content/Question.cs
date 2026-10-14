@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Content;
+namespace Spine.Domain.Content;
 
 /// <summary>A question keyed by its stable content id: &lt;domain&gt;.&lt;topic&gt;.&lt;concept&gt;.&lt;mcq|open&gt;.&lt;n&gt;.</summary>
 public sealed class Question

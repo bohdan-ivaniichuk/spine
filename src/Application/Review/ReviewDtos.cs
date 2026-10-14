@@ -1,6 +1,7 @@
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
-// Shapes are the Angular contract (specs/002-review-session/contracts/review-api.md); property names serialize camelCase.
+// Shapes are the Angular contract (specs/002-review-session/contracts/review-api.md, extended by
+// specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md); property names serialize camelCase.
 
 public sealed record ScopeDto(string Type, string? Domain, string? Topic, string? DomainTitle, string? TopicTitle);
 
@@ -16,7 +17,9 @@ public sealed record SessionQuestionDto(
     IReadOnlyList<string> Options,
     RefDto Domain,
     RefDto Topic,
-    RefDto Concept);
+    RefDto Concept,
+    string Language,
+    bool Fallback);
 
 public sealed record SessionAnswerDto(string QuestionId, int SelectedIndex, bool IsCorrect);
 
@@ -38,7 +41,9 @@ public sealed record AnswerFeedbackDto(
     int CorrectIndex,
     string Explanation,
     DateTimeOffset NextDueAt,
-    int IntervalDays);
+    int IntervalDays,
+    string Language,
+    bool Fallback);
 
 public sealed record SessionDefaultsDto(int TotalLimit, int NewLimit);
 
@@ -66,3 +71,8 @@ public sealed record SessionSummaryDto(
     double? Accuracy,
     IReadOnlyList<WeakConceptDto> WeakConcepts,
     int DueTomorrow);
+
+/// <summary>Per-topic progress of the local learner. Due &lt;= seen &lt;= eligible.</summary>
+public sealed record TopicCoverageDto(string Domain, string Topic, int Eligible, int Seen, int Due);
+
+public sealed record ReviewCoverageDto(IReadOnlyList<TopicCoverageDto> Topics);

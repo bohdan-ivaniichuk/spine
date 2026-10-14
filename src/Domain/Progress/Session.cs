@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 /// <summary>
 /// A review sitting: scope (all / one domain / one topic), the ordered membership frozen at start, the limits used,

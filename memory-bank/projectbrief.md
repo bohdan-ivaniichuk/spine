@@ -1,4 +1,4 @@
-# Project Brief — InterviewPrep
+# Project Brief — Spine
 
 ## What it is
 

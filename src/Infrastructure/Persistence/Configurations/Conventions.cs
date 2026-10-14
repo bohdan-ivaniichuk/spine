@@ -1,11 +1,11 @@
 using System.Text.Json;
-using InterviewPrep.Domain.Content;
+using Spine.Domain.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
-namespace InterviewPrep.Infrastructure.Persistence.Configurations;
+namespace Spine.Infrastructure.Persistence.Configurations;
 
 /// <summary>Shared column conventions: text enums with CHECK constraints, jsonb lists with comparers, timestamps.</summary>
 internal static class Conventions

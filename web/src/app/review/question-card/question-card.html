@@ -1,33 +1,48 @@
 @let q = question();
-<header class="flex flex-wrap items-center gap-2 text-xs">
+@let t = i18n.t();
+<header class="flex flex-wrap items-center gap-2.5 text-[13px]">
   <span
-    class="inline-flex h-6 min-w-6 items-center justify-center rounded border border-line bg-surface-2 px-1.5 font-mono font-semibold text-text"
-    [attr.title]="levelName()"
-    [attr.aria-label]="'Level: ' + levelName()"
-    >{{ q.level }}</span
+    class="inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2.5 font-semibold"
+    [class]="'domain-' + domainPosition()"
+    >{{ q.domain.title }}</span
   >
-  <nav aria-label="Question scope" class="flex min-w-0 items-center gap-1 text-muted">
-    <span class="truncate">{{ q.domain.title }}</span>
-    <span aria-hidden="true">›</span>
+  <nav [attr.aria-label]="t.session.scopeNav" class="flex min-w-0 items-center gap-1.5 text-muted">
     <span class="truncate">{{ q.topic.title }}</span>
-    <span aria-hidden="true">›</span>
+    <span aria-hidden="true">→</span>
     <span class="truncate font-medium text-text">{{ q.concept.title }}</span>
   </nav>
-  <span class="ml-auto flex items-center gap-1.5">
+  <span class="ml-auto flex items-center gap-1.5 text-xs">
+    <span
+      class="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-line px-2 font-mono font-bold text-text"
+      [attr.title]="levelName()"
+      [attr.aria-label]="t.session.level(levelName())"
+      >{{ q.level }}</span
+    >
     @if (q.isNew) {
-      <span class="rounded-full border border-line bg-surface-2 px-2 py-0.5 font-medium text-muted"
-        >new</span
+      <span class="rounded-full bg-accent-soft px-2.5 py-1 font-medium text-accent-text">{{
+        t.session.isNew
+      }}</span>
+    }
+    @if (q.fallback) {
+      <span
+        class="rounded-full border border-line px-2.5 py-1 font-mono font-bold text-muted"
+        [attr.title]="t.session.fallbackHint"
+        [attr.aria-label]="t.session.fallbackHint"
+        >{{ t.session.fallback }}</span
       >
     }
     @if (!q.reviewed) {
       <span
-        class="rounded-full border border-bad bg-surface px-2 py-0.5 font-medium text-bad"
-        title="This question has not been human-reviewed yet"
-        >unreviewed</span
+        class="rounded-full bg-warn-soft px-2.5 py-1 font-medium text-warn"
+        [attr.title]="t.session.unreviewedHint"
+        >{{ t.session.unreviewed }}</span
       >
     }
   </span>
 </header>
-<div class="mt-4 text-base text-text">
+<div
+  class="mt-5 text-[1.35rem] leading-[1.45] font-medium tracking-[-0.01em] text-text"
+  [attr.lang]="q.language ?? null"
+>
   <app-prompt-markdown [source]="q.prompt" />
 </div>

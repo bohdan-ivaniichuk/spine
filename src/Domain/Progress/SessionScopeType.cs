@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 public enum SessionScopeType
 {

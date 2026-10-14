@@ -1,7 +1,7 @@
 using FastEndpoints;
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 
-namespace InterviewPrep.Api.Endpoints.Review;
+namespace Spine.Api.Endpoints.Review;
 
 public sealed class GetReviewOverviewRequest : ScopeQuery;
 
@@ -24,7 +24,7 @@ public sealed class GetReviewOverviewEndpoint(IReviewSessions sessions) : Endpoi
         Summary(s =>
         {
             s.Summary = "Review overview";
-            s.Description = "How many questions are due and new in the scope (all / domain / topic), the next due time when nothing is due, and the session-size defaults and bounds.";
+            s.Description = "How many questions are due and new in the scope (all / domain / topic), the next due time when nothing is due, and the session-size defaults and bounds. lang is validated; scope titles are English (the manifest has no translations).";
         });
     }
 

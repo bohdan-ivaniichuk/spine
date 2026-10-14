@@ -1,6 +1,6 @@
 # docs/
 
-Stable, lookup-style documentation for InterviewPrep. `CLAUDE.md` is the operational source of truth
+Stable, lookup-style documentation for Spine. `CLAUDE.md` is the operational source of truth
 and links here; `memory-bank/` holds the living state; `specs/` holds feature designs.
 
 | Path | What's in it |

@@ -1,7 +1,7 @@
 using System.Reflection;
 using FastEndpoints;
 
-namespace InterviewPrep.Api.Endpoints.Meta;
+namespace Spine.Api.Endpoints.Meta;
 
 public sealed record MetaResponse(string Name, string Version, string Environment);
 
@@ -20,6 +20,6 @@ public sealed class GetMetaEndpoint(IWebHostEnvironment environment) : EndpointW
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                       ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
                       ?? "0.0.0";
-        return Send.OkAsync(new MetaResponse("InterviewPrep API", version, environment.EnvironmentName), ct);
+        return Send.OkAsync(new MetaResponse("Spine API", version, environment.EnvironmentName), ct);
     }
 }

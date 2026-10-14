@@ -1,10 +1,10 @@
 using FastEndpoints;
 using FluentValidation;
-using InterviewPrep.Application.Knowledge;
+using Spine.Application.Knowledge;
 
-namespace InterviewPrep.Api.Endpoints.Knowledge;
+namespace Spine.Api.Endpoints.Knowledge;
 
-public sealed class GetKnowledgeTreeRequest : LanguageQuery;
+public sealed class GetKnowledgeTreeRequest : KnowledgeQuery;
 
 public sealed class GetKnowledgeTreeValidator : Validator<GetKnowledgeTreeRequest>
 {

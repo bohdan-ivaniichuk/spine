@@ -1,4 +1,4 @@
-# Progress — InterviewPrep
+# Progress — Spine
 
 ## What works
 
@@ -10,6 +10,8 @@
 - [x] Content batch `dotnet/async` (EN, unreviewed) imported.
 - [x] 002 Review session — MCQ + SM-2, session API, Angular review flow; 210 .NET + 68 web tests;
       SC-001…SC-006 measured in `specs/002-review-session/quickstart.md` (2026-10-14).
+- [x] 003 Atlas redesign, EN/UK UI, coverage endpoint, rename to Spine — 237 .NET + 80 web tests
+      (2026-10-15, ADR 0006).
 
 ## In progress
 
@@ -18,9 +20,9 @@
 
 ## Planned (in order)
 
-- [ ] 003 Knowledge tree & notes
-- [ ] 004 LLM grading (open + kata)
-- [ ] 005 Weak-spots & failed-question review
+- [ ] 004 Knowledge atlas & notes (was 003)
+- [ ] 005 LLM grading (open + kata) (was 004)
+- [ ] 006 Weak-spots & failed-question review (was 005)
 - [ ] Content sprint (user priority, 2026-09-06): after 002 integration, run the content workflow 2–3 topics
       at a time for the rest of domain 1 (`csharp-lang`, `dotnet-platform`), all of domain 2 (`pipeline`,
       `security`, `efcore`, `postgres`, `api-design`) and domain 4 (`principles`, `distributed`,

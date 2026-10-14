@@ -1,4 +1,4 @@
-# Tech Context — InterviewPrep
+# Tech Context — Spine
 
 Versions verified on **2026-09-06** by `deep-researcher` (sources in `docs/architecture/STACK.md`).
 Re-verify with context7 before pinning anything in a csproj/package.json.

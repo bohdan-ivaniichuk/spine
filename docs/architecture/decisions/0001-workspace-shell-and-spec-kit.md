@@ -5,7 +5,7 @@
 
 ## Context
 
-InterviewPrep starts as an empty folder with a constitution and a content taxonomy. An existing
+Spine (originally named InterviewPrep) starts as an empty folder with a constitution and a content taxonomy. An existing
 workspace shell (the MailHub multi-repo workspace) already encodes a proven Claude Code setup: blocking
 hooks for secrets and local files, a commit/push confirmation gate, format-after-edit hooks, a
 memory-bank loaded at session start, read-only reviewer subagents, a research subagent, a
@@ -21,7 +21,7 @@ guards, validation-layer guard, order-status warnings, per-repo memory banks).
   (`secrets-scan` gains Anthropic/OpenAI key patterns; `local-runtime-files-guard` keeps only `.env` and
   `appsettings.Local.json`; `load-memory-banks` / `memory-bank-staleness` read one `memory-bank/`;
   `code-reviewer` / `debugger` / `solution-architect` / `test-author` / `deep-researcher` are rewritten
-  around the InterviewPrep constitution), and drop everything MailHub-specific.
+  around the Spine constitution), and drop everything MailHub-specific.
 - Add what this project needs: `frontend-reviewer` (Angular), `content-author` (seed generation from
   the taxonomy), `web-format` hook (prettier + `ng lint --fix`), the content JSON Schema, and
   project-scope MCP servers (`context7`, `playwright`, `postgres` read-only, `angular-cli` read-only).

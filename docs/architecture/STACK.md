@@ -1,4 +1,4 @@
-# InterviewPrep — stack & conventions reference
+# Spine — stack & conventions reference
 
 Stable, lookup-style reference. **`CLAUDE.md` is the source of truth for workflow and gotchas; the
 constitution for principles.** Versions below were verified on **2026-09-06** (sources at the bottom);
@@ -30,7 +30,7 @@ re-verify with context7 before pinning.
 ## Solution layout (target — created by feature 001)
 
 ```
-InterviewPrep.sln
+Spine.slnx
 src/
   Domain/          entities, value objects, ISchedulingAlgorithm, Sm2Algorithm
   Application/     use cases, interfaces (IGrader, IContentImporter, repositories if any)
@@ -45,7 +45,7 @@ docker-compose.yml, .env.example, docker/nginx.conf
 
 ## Conventions
 
-- Namespaces mirror folders: `InterviewPrep.Domain.Scheduling`, `InterviewPrep.Api.Endpoints.Review`.
+- Namespaces mirror folders: `Spine.Domain.Scheduling`, `Spine.Api.Endpoints.Review`.
 - Endpoint per file, `<Verb><Thing>Endpoint` + `<Thing>Request/Response` + validator alongside.
 - Tables snake_case (`review_states`), columns snake_case, UTC timestamps (`timestamptz`), `jsonb` for
   `algorithm_state`. Unique indexes on every slug/id column.

@@ -1,4 +1,4 @@
-# InterviewPrep — Tech Debt
+# Spine — Tech Debt
 
 **How to read:** grouped by area, sorted by severity within each area. Each item lists the file(s), the
 problem, why it matters, and a rough effort (`XS` < 1h, `S` 1–4h, `M` 1–2d, `L` 3–5d).

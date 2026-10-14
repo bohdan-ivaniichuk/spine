@@ -1,4 +1,4 @@
-name: interviewprep
+name: spine
 
 services:
   postgres:
@@ -63,3 +63,6 @@ services:
 
 volumes:
   postgres_data:
+    # Pinned to the volume created under the project's former compose name (interviewprep), so renaming the
+    # project to spine keeps the existing database instead of silently starting an empty one.
+    name: interviewprep_postgres_data

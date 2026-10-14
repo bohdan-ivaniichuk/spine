@@ -1,14 +1,14 @@
 using System.Text.Json;
-using InterviewPrep.Application.Review;
-using InterviewPrep.Domain.Content;
-using InterviewPrep.Domain.Progress;
-using InterviewPrep.Domain.Scheduling;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Application.Review;
+using Spine.Domain.Content;
+using Spine.Domain.Progress;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace InterviewPrep.Infrastructure.Review;
+namespace Spine.Infrastructure.Review;
 
 /// <summary>
 /// EF implementation of the review-session use cases for the single local learner. Eligible = non-deprecated MCQ
@@ -36,6 +36,9 @@ public sealed class ReviewSessions(
     /// <summary>Stored in <c>attempts.answer</c>: the option index plus its text at answer time.</summary>
     private sealed record McqAnswer(int SelectedIndex, string SelectedText);
 
+    /// <summary>Prompt and options of one question translation, as projected for a session card.</summary>
+    private sealed record QuestionText(string Prompt, IReadOnlyList<McqOption>? Options);
+
     public async Task<ReviewOverviewDto> GetOverviewAsync(ReviewScope scope, CancellationToken ct = default)
     {
         var scopeDto = await ResolveScopeAsync(scope, ct);
@@ -56,7 +59,7 @@ public sealed class ReviewSessions(
             new SessionLimitsDto(ReviewOptions.MinLimit, ReviewOptions.MaxLimit));
     }
 
-    public async Task<SessionDto> StartAsync(ReviewScope scope, int totalLimit, int newLimit, CancellationToken ct = default)
+    public async Task<SessionDto> StartAsync(ReviewScope scope, int totalLimit, int newLimit, Language language = Language.En, CancellationToken ct = default)
     {
         if (!ReviewOptions.IsWithinBounds(totalLimit))
         {
@@ -121,27 +124,27 @@ public sealed class ReviewSessions(
             return created.Id;
         });
 
-        return await GetAsync(sessionId, ct) ?? throw new InvalidOperationException($"Session '{sessionId}' was not found right after it was created.");
+        return await GetAsync(sessionId, language, ct) ?? throw new InvalidOperationException($"Session '{sessionId}' was not found right after it was created.");
     }
 
-    public async Task<SessionDto?> GetCurrentAsync(CancellationToken ct = default)
+    public async Task<SessionDto?> GetCurrentAsync(Language language = Language.En, CancellationToken ct = default)
     {
         var userId = LocalLearner.Id;
         var session = await db.Sessions.AsNoTracking()
             .Where(s => s.UserId == userId && s.FinishedAt == null)
             .OrderByDescending(s => s.StartedAt)
             .FirstOrDefaultAsync(ct);
-        return session is null ? null : await ProjectAsync(session, ct);
+        return session is null ? null : await ProjectAsync(session, language, ct);
     }
 
-    public async Task<SessionDto?> GetAsync(Guid sessionId, CancellationToken ct = default)
+    public async Task<SessionDto?> GetAsync(Guid sessionId, Language language = Language.En, CancellationToken ct = default)
     {
         var userId = LocalLearner.Id;
         var session = await db.Sessions.AsNoTracking().SingleOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, ct);
-        return session is null ? null : await ProjectAsync(session, ct);
+        return session is null ? null : await ProjectAsync(session, language, ct);
     }
 
-    public async Task<AnswerFeedbackDto> AnswerAsync(Guid sessionId, string questionId, int selectedIndex, CancellationToken ct = default)
+    public async Task<AnswerFeedbackDto> AnswerAsync(Guid sessionId, string questionId, int selectedIndex, Language language = Language.En, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(questionId);
         ArgumentOutOfRangeException.ThrowIfNegative(selectedIndex);
@@ -185,11 +188,14 @@ public sealed class ReviewSessions(
                 throw new ReviewException(ReviewError.QuestionDeprecated, $"Question '{questionId}' was deprecated after session '{sessionId}' started.");
             }
 
-            var translation = await db.QuestionTranslations.AsNoTracking()
-                .Where(t => t.QuestionId == questionId && t.Language == Language.En)
-                .Select(t => new { t.Options, t.Explanation })
-                .SingleOrDefaultAsync(ct)
+            // Grading always uses the English options; the requested language only picks the explanation.
+            var translations = await db.QuestionTranslations.AsNoTracking()
+                .Where(t => t.QuestionId == questionId && (t.Language == Language.En || t.Language == language))
+                .Select(t => new { t.Language, t.Options, t.Explanation })
+                .ToListAsync(ct);
+            var translation = translations.SingleOrDefault(t => t.Language == Language.En)
                 ?? throw new InvalidOperationException($"Question '{questionId}' has no English translation.");
+            var requested = language == Language.En ? null : translations.SingleOrDefault(t => t.Language == language);
             var mcqOptions = translation.Options ?? throw new InvalidOperationException($"Question '{questionId}' has no options.");
             if (selectedIndex >= mcqOptions.Count)
             {
@@ -252,11 +258,21 @@ public sealed class ReviewSessions(
             }
 
             await tx.CommitAsync(ct);
-            return new AnswerFeedbackDto(questionId, selectedIndex, isCorrect, correctIndex, translation.Explanation, state.DueAt, state.IntervalDays);
+            var served = TranslationPicker.Pick(language, translation.Explanation, mcqOptions, requested?.Explanation, requested?.Options);
+            return new AnswerFeedbackDto(
+                questionId,
+                selectedIndex,
+                isCorrect,
+                correctIndex,
+                served.Text,
+                state.DueAt,
+                state.IntervalDays,
+                served.Language.ToDbValue(),
+                served.Fallback);
         });
     }
 
-    public async Task<SessionSummaryDto> FinishAsync(Guid sessionId, CancellationToken ct = default)
+    public async Task<SessionSummaryDto> FinishAsync(Guid sessionId, Language language = Language.En, CancellationToken ct = default)
     {
         var strategy = db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -283,7 +299,8 @@ public sealed class ReviewSessions(
                     DomainSlug = q.Concept!.Topic!.Domain!.Slug,
                     TopicSlug = q.Concept.Topic.Slug,
                     ConceptSlug = q.Concept.Slug,
-                    ConceptTitle = q.Concept.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
+                    ConceptTitle = q.Concept.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault()
+                        ?? q.Concept.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
                 }).ToListAsync(ct);
             var answered = rows
                 .Select(r => new AnsweredItem(r.QuestionId, r.IsCorrect == true, new ConceptRef(r.DomainSlug, r.TopicSlug, r.ConceptSlug, r.ConceptTitle ?? r.ConceptSlug)))
@@ -304,6 +321,33 @@ public sealed class ReviewSessions(
 
             return SessionSummaryBuilder.Build(session, await DescribeScopeAsync(session, ct), answered, dueTomorrow);
         });
+    }
+
+    public async Task<ReviewCoverageDto> GetCoverageAsync(CancellationToken ct = default)
+    {
+        var now = clock.GetUtcNow();
+
+        var topics = await db.Topics.AsNoTracking()
+            .Where(t => t.DeprecatedAt == null && t.Domain!.DeprecatedAt == null)
+            .OrderBy(t => t.Domain!.SortOrder).ThenBy(t => t.Domain!.Id).ThenBy(t => t.SortOrder).ThenBy(t => t.Id)
+            .Select(t => new { t.Id, DomainSlug = t.Domain!.Slug, t.Slug })
+            .ToListAsync(ct);
+
+        // One grouped query: eligible questions left-joined to the learner's review state (unique per item).
+        var counts = await (
+            from q in Eligible(ReviewScope.All)
+            join r in States() on q.Id equals r.QuestionId into states
+            from r in states.DefaultIfEmpty()
+            select new { q.Concept!.TopicId, Seen = r != null, Due = r != null && r.DueAt <= now })
+            .GroupBy(x => x.TopicId)
+            .Select(g => new { TopicId = g.Key, Eligible = g.Count(), Seen = g.Count(x => x.Seen), Due = g.Count(x => x.Due) })
+            .ToDictionaryAsync(x => x.TopicId, ct);
+
+        return new ReviewCoverageDto(topics
+            .Select(t => counts.TryGetValue(t.Id, out var c)
+                ? new TopicCoverageDto(t.DomainSlug, t.Slug, c.Eligible, c.Seen, c.Due)
+                : new TopicCoverageDto(t.DomainSlug, t.Slug, 0, 0, 0))
+            .ToList());
     }
 
     // ---- queries ----
@@ -365,7 +409,7 @@ public sealed class ReviewSessions(
 
     // ---- session projection ----
 
-    private async Task<SessionDto> ProjectAsync(Session session, CancellationToken ct)
+    private async Task<SessionDto> ProjectAsync(Session session, Language language, CancellationToken ct)
     {
         var userId = LocalLearner.Id;
         var ids = session.QuestionIds;
@@ -382,9 +426,13 @@ public sealed class ReviewSessions(
                     || q.Concept!.DeprecatedAt != null
                     || q.Concept.Topic!.DeprecatedAt != null
                     || q.Concept.Topic.Domain!.DeprecatedAt != null,
-                En = q.Translations.Where(t => t.Language == Language.En).Select(t => new { t.Prompt, t.Options }).FirstOrDefault(),
+                En = q.Translations.Where(t => t.Language == Language.En).Select(t => new QuestionText(t.Prompt, t.Options)).FirstOrDefault(),
+                Requested = language == Language.En
+                    ? null
+                    : q.Translations.Where(t => t.Language == language).Select(t => new QuestionText(t.Prompt, t.Options)).FirstOrDefault(),
                 ConceptSlug = q.Concept!.Slug,
-                ConceptTitle = q.Concept.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
+                ConceptTitle = q.Concept.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault()
+                    ?? q.Concept.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
                 TopicSlug = q.Concept.Topic!.Slug,
                 TopicTitle = q.Concept.Topic.Title,
                 DomainSlug = q.Concept.Topic.Domain!.Slug,
@@ -416,16 +464,19 @@ public sealed class ReviewSessions(
                 continue;
             }
 
+            var served = TranslationPicker.Pick(language, row.En, row.En.Options, row.Requested, row.Requested?.Options);
             questions.Add(new SessionQuestionDto(
                 row.Id,
                 row.Level.ToDbValue(),
                 row.Reviewed,
                 !row.HadState,
-                row.En.Prompt,
-                row.En.Options?.Select(o => o.Text).ToList() ?? [],
+                served.Text.Prompt,
+                served.Text.Options?.Select(o => o.Text).ToList() ?? [],
                 new RefDto(row.DomainSlug, row.DomainTitle),
                 new RefDto(row.TopicSlug, row.TopicTitle),
-                new RefDto(row.ConceptSlug, row.ConceptTitle ?? row.ConceptSlug)));
+                new RefDto(row.ConceptSlug, row.ConceptTitle ?? row.ConceptSlug),
+                served.Language.ToDbValue(),
+                served.Fallback));
         }
 
         return new SessionDto(

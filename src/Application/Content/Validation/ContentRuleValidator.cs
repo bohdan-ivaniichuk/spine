@@ -1,6 +1,6 @@
-using InterviewPrep.Application.Content.Seed;
+using Spine.Application.Content.Seed;
 
-namespace InterviewPrep.Application.Content.Validation;
+namespace Spine.Application.Content.Validation;
 
 /// <summary>
 /// Rules the JSON Schema cannot express. Rule ids are stable and documented in

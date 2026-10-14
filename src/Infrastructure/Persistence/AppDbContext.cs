@@ -1,9 +1,9 @@
-using InterviewPrep.Domain.Content;
-using InterviewPrep.Domain.Progress;
+using Spine.Domain.Content;
+using Spine.Domain.Progress;
 using Microsoft.EntityFrameworkCore;
-using DomainEntity = InterviewPrep.Domain.Content.Domain;
+using DomainEntity = Spine.Domain.Content.Domain;
 
-namespace InterviewPrep.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {

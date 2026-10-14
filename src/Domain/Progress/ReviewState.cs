@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Scheduling;
+using Spine.Domain.Scheduling;
 
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 /// <summary>
 /// Spaced-repetition state of one learner for one item (question or kata). At most one per (learner, item).

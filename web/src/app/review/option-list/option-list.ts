@@ -2,10 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  inject,
   input,
   output,
   viewChildren,
 } from '@angular/core';
+import { I18n } from '../../shared/i18n/i18n';
 import { PromptMarkdown } from '../prompt-markdown/prompt-markdown';
 
 export type OptionState = 'neutral' | 'selected' | 'correct' | 'wrong';
@@ -16,17 +18,18 @@ const KEY_HINTS = ['A', 'B', 'C', 'D'];
 const STATE_MARKS: Partial<Record<OptionState, string>> = { correct: '✓', wrong: '✗' };
 
 const ROW_CLASSES: Record<OptionState, string> = {
-  neutral: 'border-line bg-surface enabled:hover:bg-surface-2',
-  selected: 'border-accent bg-accent-soft',
-  correct: 'border-ok bg-ok-soft',
-  wrong: 'border-bad bg-bad-soft',
+  neutral:
+    'border-transparent bg-surface-2 text-muted enabled:hover:border-line enabled:hover:text-text',
+  selected: 'border-accent bg-accent-soft text-text',
+  correct: 'border-ok-fill bg-ok-soft text-text',
+  wrong: 'border-bad-fill bg-bad-soft text-text',
 };
 
 const HINT_CLASSES: Record<OptionState, string> = {
-  neutral: 'border-line bg-surface-2 text-muted',
-  selected: 'border-accent bg-surface text-accent',
-  correct: 'border-ok bg-surface text-ok',
-  wrong: 'border-bad bg-surface text-bad',
+  neutral: 'bg-surface text-text',
+  selected: 'bg-accent text-on-accent',
+  correct: 'bg-ok-fill text-on-ok-fill',
+  wrong: 'bg-bad-fill text-on-bad-fill',
 };
 
 /**
@@ -41,6 +44,7 @@ const HINT_CLASSES: Record<OptionState, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OptionList {
+  protected readonly i18n = inject(I18n);
   readonly options = input.required<string[]>();
   readonly selected = input<number | null>(null);
   /** Revealed after Check; `null` while the answer is still open. */

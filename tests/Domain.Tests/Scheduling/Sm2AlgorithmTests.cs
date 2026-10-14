@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Scheduling;
+using Spine.Domain.Scheduling;
 
-namespace InterviewPrep.Domain.Tests.Scheduling;
+namespace Spine.Domain.Tests.Scheduling;
 
 public sealed class Sm2AlgorithmTests
 {

@@ -2,10 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <UserSecretsId>interviewprep-api</UserSecretsId>
+    <UserSecretsId>spine-api</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Infrastructure/InterviewPrep.Infrastructure.csproj" />
+    <ProjectReference Include="../Infrastructure/Spine.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
@@ -19,6 +19,6 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="InterviewPrep.Api.Tests" />
+    <InternalsVisibleTo Include="Spine.Api.Tests" />
   </ItemGroup>
 </Project>

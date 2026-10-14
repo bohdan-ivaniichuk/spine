@@ -1,172 +1,278 @@
-<section class="mx-auto max-w-2xl">
-  <h1 class="text-2xl font-bold tracking-tight text-text">Daily review</h1>
-  <p class="mt-1 text-sm text-muted">
-    Due questions first, then new ones, one card at a time. Answers update the spaced-repetition
-    schedule.
-  </p>
-
+@let t = i18n.t();
+<div class="mx-auto flex max-w-[1180px] flex-col gap-10">
   @if (store.session(); as open) {
     <div
-      class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-card border border-accent bg-accent-soft p-4 text-sm text-text"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-card bg-accent-soft px-5 py-4 text-sm text-text"
     >
       <div>
-        <p class="font-semibold">Unfinished session</p>
+        <p class="font-semibold">{{ t.overview.unfinished }}</p>
         <p class="text-muted">
-          {{ store.scopeLabel() }} · {{ store.answeredCount() }} / {{ store.total() }} answered
+          {{ t.overview.unfinishedMeta(store.scopeLabel(), store.answeredCount(), store.total()) }}
         </p>
       </div>
       <button
         type="button"
-        class="rounded-card bg-accent px-4 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        class="rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         (click)="resume()"
       >
-        Resume
+        {{ t.overview.resume }}
       </button>
     </div>
   }
 
-  <form
-    class="mt-6 rounded-card border border-line bg-surface p-6 shadow-card"
-    [formGroup]="form"
-    (ngSubmit)="start()"
-  >
-    <fieldset class="grid gap-4 sm:grid-cols-3">
-      <legend class="sr-only">Scope</legend>
-      <label class="block text-sm">
-        <span class="mb-1 block font-medium text-text">Scope</span>
-        <select
-          formControlName="scopeType"
-          class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          <option value="all">All domains</option>
-          <option value="domain">One domain</option>
-          <option value="topic">One topic</option>
-        </select>
-      </label>
+  <section class="flex flex-wrap items-stretch gap-6">
+    <div class="flex min-w-0 flex-[999_1_480px] flex-col justify-center gap-5 py-2">
+      <h1
+        class="font-display text-[clamp(2.4rem,5vw,3.9rem)] leading-[1.02] font-extrabold tracking-[-0.045em] text-text"
+      >
+        {{ t.overview.heroLine1 }}<br /><span class="text-accent-text">{{
+          t.overview.heroAccent
+        }}</span>
+        {{ t.overview.heroLine2 }}
+      </h1>
+      <p class="max-w-[34rem] text-lg leading-relaxed text-muted">{{ t.overview.lead }}</p>
+    </div>
 
-      @if (form.controls.scopeType.value !== 'all') {
-        <label class="block text-sm">
-          <span class="mb-1 block font-medium text-text">Domain</span>
-          <select
-            formControlName="domain"
-            class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            <option value="">Choose a domain…</option>
-            @for (domain of domains(); track domain.slug) {
-              <option [value]="domain.slug">{{ domain.title }}</option>
-            }
-          </select>
-        </label>
-      }
-
-      @if (form.controls.scopeType.value === 'topic') {
-        <label class="block text-sm">
-          <span class="mb-1 block font-medium text-text">Topic</span>
-          <select
-            formControlName="topic"
-            class="w-full rounded border border-line bg-surface px-3 py-2 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            <option value="">Choose a topic…</option>
-            @for (topic of topics(); track topic.slug) {
-              <option [value]="topic.slug">{{ topic.title }}</option>
-            }
-          </select>
-        </label>
-      }
-    </fieldset>
-
-    <div
-      class="mt-5 min-h-12 rounded-card border border-line bg-surface-2 p-4 text-sm"
-      aria-live="polite"
+    <form
+      class="flex flex-[1_1_360px] flex-col gap-5 rounded-[28px] bg-ink p-7 text-on-ink"
+      [formGroup]="form"
+      (ngSubmit)="start()"
     >
-      @if (apiUnreachable()) {
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <p class="font-medium text-bad">API unreachable — counts could not be loaded.</p>
-          <button
-            type="button"
-            class="rounded border border-line bg-surface px-3 py-1.5 text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            (click)="retry()"
-          >
-            Retry
-          </button>
-        </div>
-      } @else if (scopeQuery() === undefined) {
-        <p class="text-muted">
-          {{
-            form.controls.scopeType.value === 'topic'
-              ? 'Pick a domain and a topic'
-              : 'Pick a domain'
-          }}
-          to see what is due.
-        </p>
-      } @else if (overview.isLoading()) {
-        <p class="text-muted">Loading counts…</p>
-      } @else if (overview.hasValue()) {
-        @let o = overview.value();
-        @if (o.totalEligible === 0) {
-          <p class="text-text">No questions in this scope yet.</p>
-          <p class="mt-1 text-muted">
-            Import content first:
-            <code class="rounded bg-surface px-1 font-mono text-xs"
-              >docker compose run --rm api import-content</code
+      <div class="flex items-center justify-between">
+        <h2 class="font-display text-sm font-bold">{{ t.overview.today }}</h2>
+        <span class="font-mono text-xs text-ink-muted">{{ today() }}</span>
+      </div>
+
+      <div class="min-h-[5.5rem]" aria-live="polite">
+        @if (apiUnreachable()) {
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="font-medium text-warm">{{ t.overview.unreachable }}</p>
+            <button
+              type="button"
+              class="rounded-xl bg-ink-2 px-3 py-1.5 text-sm hover:bg-ink-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+              (click)="retry()"
             >
+              {{ t.app.retry }}
+            </button>
+          </div>
+        } @else if (scopeQuery() === undefined) {
+          <p class="text-ink-muted">
+            {{
+              form.controls.scopeType.value === 'topic'
+                ? t.overview.pickTopic
+                : t.overview.pickDomain
+            }}
           </p>
-        } @else if (nothingToReview()) {
-          <p class="font-medium text-text">Nothing to review right now.</p>
-          @if (o.nextDueAt) {
-            <p class="mt-1 text-muted">Next question due {{ o.nextDueAt | date: 'medium' }}.</p>
+        } @else if (overview.hasValue()) {
+          @let o = overview.value();
+          @if (o.totalEligible === 0) {
+            <p>{{ t.overview.empty }}</p>
+            <p class="mt-1 text-sm text-ink-muted">
+              {{ t.overview.importHint }}
+              <code class="rounded bg-ink-2 px-1 font-mono text-xs"
+                >docker compose run --rm api import-content</code
+              >
+            </p>
+          } @else {
+            <div class="flex gap-8">
+              <div>
+                <p class="font-display text-[3.4rem] leading-none font-extrabold text-warm">
+                  {{ o.newCount }}
+                </p>
+                <p class="mt-1.5 text-sm text-ink-muted">{{ t.overview.fresh(o.newCount) }}</p>
+              </div>
+              <div>
+                <p class="font-display text-[3.4rem] leading-none font-extrabold">
+                  {{ o.dueCount }}
+                </p>
+                <p class="mt-1.5 text-sm text-ink-muted">{{ t.overview.due(o.dueCount) }}</p>
+              </div>
+            </div>
+            @if (nothingToReview()) {
+              <p class="mt-3 text-sm font-medium">{{ t.overview.nothingNow }}</p>
+              @if (o.nextDueAt) {
+                <p class="text-sm text-ink-muted">
+                  {{ t.overview.nextDue(i18n.formatDateTime(o.nextDueAt)) }}
+                </p>
+              }
+            } @else {
+              <p class="mt-3 font-mono text-xs text-ink-muted">
+                {{ t.overview.eligible(o.totalEligible) }}
+              </p>
+            }
           }
         } @else {
-          <p class="text-text">
-            <span class="font-mono text-lg font-semibold">{{ o.dueCount }}</span> due ·
-            <span class="font-mono text-lg font-semibold">{{ o.newCount }}</span> new
-            <span class="text-muted">· {{ o.totalEligible }} eligible in scope</span>
-          </p>
+          <p class="text-ink-muted">{{ t.overview.loadingCounts }}</p>
         }
+      </div>
+
+      <fieldset class="grid gap-3">
+        <legend class="sr-only">{{ t.overview.scope }}</legend>
+        <label class="grid gap-1.5 text-xs text-ink-muted">
+          {{ t.overview.scope }}
+          <select
+            formControlName="scopeType"
+            class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-3 text-[15px] font-medium text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+          >
+            <option value="all">{{ t.overview.scopeAll }}</option>
+            <option value="domain">{{ t.overview.scopeDomain }}</option>
+            <option value="topic">{{ t.overview.scopeTopic }}</option>
+          </select>
+        </label>
+
+        @if (form.controls.scopeType.value !== 'all') {
+          <label class="grid gap-1.5 text-xs text-ink-muted">
+            {{ t.overview.domain }}
+            <select
+              formControlName="domain"
+              class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-3 text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            >
+              <option value="">{{ t.overview.chooseDomain }}</option>
+              @for (domain of domains(); track domain.slug) {
+                <option [value]="domain.slug">{{ domain.title }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (form.controls.scopeType.value === 'topic') {
+          <label class="grid gap-1.5 text-xs text-ink-muted">
+            {{ t.overview.topic }}
+            <select
+              formControlName="topic"
+              class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-3 text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            >
+              <option value="">{{ t.overview.chooseTopic }}</option>
+              @for (topic of topics(); track topic.slug) {
+                <option [value]="topic.slug">{{ topic.title }}</option>
+              }
+            </select>
+          </label>
+        }
+      </fieldset>
+
+      <div class="grid grid-cols-2 gap-3">
+        <label class="grid gap-1.5 text-xs text-ink-muted">
+          {{ t.overview.perSession }}
+          <input
+            type="number"
+            formControlName="totalLimit"
+            [min]="minLimit"
+            [max]="maxLimit"
+            class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-2.5 font-mono text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+          />
+          @if (form.controls.totalLimit.invalid) {
+            <span class="text-warm">{{ t.overview.limitError }}</span>
+          }
+        </label>
+        <label class="grid gap-1.5 text-xs text-ink-muted">
+          {{ t.overview.newMax }}
+          <input
+            type="number"
+            formControlName="newLimit"
+            [min]="minLimit"
+            [max]="maxLimit"
+            class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-2.5 font-mono text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+          />
+          @if (form.controls.newLimit.invalid) {
+            <span class="text-warm">{{ t.overview.limitError }}</span>
+          }
+        </label>
+      </div>
+
+      @if (store.error() && !store.session()) {
+        <p class="text-sm font-medium text-warm" role="alert">{{ store.error() }}</p>
       }
-    </div>
 
-    <div class="mt-5 grid gap-4 sm:grid-cols-2">
-      <label class="block text-sm">
-        <span class="mb-1 block font-medium text-text">Questions per session</span>
-        <input
-          type="number"
-          formControlName="totalLimit"
-          [min]="minLimit"
-          [max]="maxLimit"
-          class="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        />
-        @if (form.controls.totalLimit.invalid) {
-          <span class="mt-1 block text-xs text-bad">Enter a number from 1 to 100.</span>
-        }
-      </label>
-      <label class="block text-sm">
-        <span class="mb-1 block font-medium text-text">Of which new (max)</span>
-        <input
-          type="number"
-          formControlName="newLimit"
-          [min]="minLimit"
-          [max]="maxLimit"
-          class="w-full rounded border border-line bg-surface px-3 py-2 font-mono text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        />
-        @if (form.controls.newLimit.invalid) {
-          <span class="mt-1 block text-xs text-bad">Enter a number from 1 to 100.</span>
-        }
-      </label>
-    </div>
-
-    @if (store.error() && !store.session()) {
-      <p class="mt-4 text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
-    }
-
-    <div class="mt-6 flex items-center justify-end gap-3">
       <button
         type="submit"
-        class="rounded-card bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:opacity-50"
+        class="rounded-2xl bg-accent px-4 py-4 font-display text-[15px] font-bold tracking-[-0.01em] text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink disabled:cursor-default disabled:opacity-50"
         [disabled]="!canStart() || form.invalid"
       >
-        {{ starting() ? 'Starting…' : 'Start session' }}
+        {{ starting() ? t.overview.starting : t.overview.start(form.controls.totalLimit.value) }}
       </button>
-    </div>
-  </form>
-</section>
+    </form>
+  </section>
+
+  @if (atlas().length > 0) {
+    <section aria-labelledby="atlas-h" class="flex flex-col gap-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 id="atlas-h" class="font-display text-[26px] font-bold tracking-[-0.03em]">
+          {{ t.overview.atlas }}
+        </h2>
+        <span class="font-mono text-[13px] text-muted">{{
+          t.overview.atlasMeta(
+            atlasCounts().domains,
+            atlasCounts().topics,
+            atlasCounts().withContent
+          )
+        }}</span>
+      </div>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
+        @for (d of atlas(); track d.slug) {
+          <article class="flex flex-col overflow-hidden rounded-card bg-surface shadow-card">
+            <button
+              type="button"
+              class="flex flex-col gap-2.5 px-[18px] pt-[18px] pb-[22px] text-left focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-current"
+              [class]="'domain-' + d.position"
+              [attr.aria-label]="t.overview.reviewTopic(d.title)"
+              (click)="pickDomain(d.slug)"
+            >
+              <span class="font-display text-[28px] font-extrabold">{{ pad(d.position) }}</span>
+              <span class="text-[15px] leading-snug font-semibold">{{ d.title }}</span>
+            </button>
+            <ul class="flex flex-col gap-3 px-[18px] pt-4 pb-5 text-sm">
+              @for (topic of d.topics; track topic.slug) {
+                @if (topic.coverage && topic.coverage.eligible > 0) {
+                  <li>
+                    <button
+                      type="button"
+                      class="flex w-full flex-col gap-1.5 rounded-lg text-left hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+                      (click)="pickTopic(d.slug, topic.slug)"
+                    >
+                      <span class="flex w-full justify-between gap-2">
+                        <span
+                          ><span class="sr-only">{{ t.overview.reviewPrefix }} </span
+                          >{{ topic.title }}</span
+                        >
+                        <span class="font-mono text-muted"
+                          >{{ topic.coverage.seen }}/{{ topic.coverage.eligible }}</span
+                        >
+                      </span>
+                      <span class="flex h-1.5 w-full rounded-full bg-surface-2" aria-hidden="true">
+                        <span
+                          class="rounded-full"
+                          [class]="'domain-bar-' + d.position"
+                          [style.width.%]="topic.percent"
+                        ></span>
+                      </span>
+                      <span class="sr-only">{{
+                        t.overview.seenOf(topic.coverage.seen, topic.coverage.eligible)
+                      }}</span>
+                      @if (topic.coverage.due > 0) {
+                        <span
+                          class="self-start rounded-full bg-warn-soft px-2 py-0.5 text-xs font-medium text-warn"
+                          >{{ t.overview.dueNow(topic.coverage.due) }}</span
+                        >
+                      }
+                    </button>
+                  </li>
+                } @else {
+                  <li class="text-muted">{{ topic.title }} · {{ t.overview.soon }}</li>
+                }
+              }
+              @if (!d.hasContent) {
+                <li>
+                  <span
+                    class="inline-block rounded-full border border-dashed border-line px-2.5 py-1 text-xs text-muted"
+                    >{{ t.overview.inProgress }}</span
+                  >
+                </li>
+              }
+            </ul>
+          </article>
+        }
+      </div>
+    </section>
+  }
+</div>

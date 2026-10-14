@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace InterviewPrep.Application.Content;
+namespace Spine.Application.Content;
 
 /// <summary>
 /// SHA-256 over a canonical serialization (fixed property order, no whitespace). Entity hashes cover scalar

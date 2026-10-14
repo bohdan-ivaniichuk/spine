@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Content;
+using Spine.Domain.Content;
 
-namespace InterviewPrep.Application.Content;
+namespace Spine.Application.Content;
 
 /// <summary>The desired state of the content graph, built from the manifest and the topic files.</summary>
 public sealed class ImportPlan

@@ -1,30 +1,35 @@
 @if (summary(); as s) {
-  <section class="mx-auto max-w-2xl">
-    <header class="flex flex-wrap items-center justify-between gap-3">
+  @let t = i18n.t();
+  <section class="mx-auto flex max-w-3xl flex-col gap-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold tracking-tight text-text">Session complete</h1>
+        <h1
+          class="font-display text-[clamp(2rem,4vw,2.8rem)] font-extrabold tracking-[-0.04em] text-text"
+        >
+          {{ t.summary.title }}
+        </h1>
         <p class="mt-1 text-sm text-muted">{{ scope() }}</p>
       </div>
       <span
-        class="rounded-full border border-line bg-surface-2 px-3 py-0.5 text-xs font-medium text-muted"
-        >{{ s.answered }} / {{ s.questionCount }} answered</span
+        class="rounded-full bg-surface px-3 py-1 font-mono text-xs font-medium text-muted shadow-card"
+        >{{ t.summary.answeredOf(s.answered, s.questionCount) }}</span
       >
     </header>
 
-    <dl class="mt-6 grid grid-cols-3 gap-4">
-      <div class="rounded-card border border-line bg-surface p-4 shadow-card">
-        <dt class="text-xs font-medium text-muted">Answered</dt>
-        <dd class="mt-1 font-mono text-2xl font-semibold text-text">{{ s.answered }}</dd>
+    <dl class="grid grid-cols-3 gap-4">
+      <div class="rounded-card bg-surface p-5 shadow-card">
+        <dt class="text-xs font-medium text-muted">{{ t.summary.answered }}</dt>
+        <dd class="mt-1 font-display text-3xl font-extrabold text-text">{{ s.answered }}</dd>
       </div>
-      <div class="rounded-card border border-line bg-surface p-4 shadow-card">
-        <dt class="text-xs font-medium text-muted">Correct</dt>
-        <dd class="mt-1 font-mono text-2xl font-semibold text-ok">{{ s.correct }}</dd>
+      <div class="rounded-card bg-surface p-5 shadow-card">
+        <dt class="text-xs font-medium text-muted">{{ t.summary.correct }}</dt>
+        <dd class="mt-1 font-display text-3xl font-extrabold text-ok">{{ s.correct }}</dd>
       </div>
-      <div class="rounded-card border border-line bg-surface p-4 shadow-card">
-        <dt class="text-xs font-medium text-muted">Accuracy</dt>
-        <dd class="mt-1 font-mono text-2xl font-semibold text-text">
+      <div class="rounded-card bg-ink p-5 text-on-ink">
+        <dt class="text-xs font-medium text-ink-muted">{{ t.summary.accuracy }}</dt>
+        <dd class="mt-1 font-display text-3xl font-extrabold text-warm">
           @if (s.accuracy !== null) {
-            {{ s.accuracy | percent: '1.0-0' }}
+            {{ i18n.formatPercent(s.accuracy) }}
           } @else {
             —
           }
@@ -32,19 +37,21 @@
       </div>
     </dl>
 
-    <section class="mt-6 rounded-card border border-line bg-surface p-6 shadow-card">
-      <h2 class="text-base font-semibold text-text">Weak concepts</h2>
+    <section class="rounded-panel bg-surface p-6 shadow-card">
+      <h2 class="font-display text-lg font-bold tracking-[-0.02em] text-text">
+        {{ t.summary.weak }}
+      </h2>
       @if (s.weakConcepts.length === 0) {
-        <p class="mt-2 text-sm text-muted">No misses — every answer was right.</p>
+        <p class="mt-2 text-sm text-muted">{{ t.summary.noMisses }}</p>
       } @else {
         <ol class="mt-3 divide-y divide-line">
           @for (w of s.weakConcepts; track w.domain + '/' + w.topic + '/' + w.concept) {
             @let key = w.domain + '/' + w.topic + '/' + w.concept;
-            <li class="py-2.5">
+            <li class="py-3">
               <div class="flex items-center justify-between gap-4 text-sm">
                 <button
                   type="button"
-                  class="min-w-0 truncate text-left font-medium text-text hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  class="min-w-0 truncate text-left font-medium text-text hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   [attr.aria-expanded]="expanded() === key"
                   [attr.aria-controls]="expanded() === key ? 'concept-' + $index : null"
                   (click)="toggle(key)"
@@ -58,14 +65,14 @@
                   >
                 </button>
                 <span
-                  class="shrink-0 rounded-full bg-bad-soft px-2.5 py-0.5 font-mono text-xs font-semibold text-bad"
-                  >{{ w.wrong }} / {{ w.total }} wrong</span
+                  class="shrink-0 rounded-full bg-bad-soft px-2.5 py-1 font-mono text-xs font-semibold text-bad"
+                  >{{ t.summary.wrongOf(w.wrong, w.total) }}</span
                 >
               </div>
               @if (expanded() === key) {
                 <div
                   [id]="'concept-' + $index"
-                  class="mt-3 rounded-card border border-line bg-bg p-4"
+                  class="mt-3 rounded-2xl border border-line bg-bg p-4"
                 >
                   <app-concept-peek [domain]="w.domain" [topic]="w.topic" [concept]="w.concept" />
                 </div>
@@ -76,28 +83,28 @@
       }
     </section>
 
-    <p class="mt-6 text-sm text-muted">
-      Due tomorrow in this scope:
+    <p class="text-sm text-muted">
+      {{ t.summary.dueTomorrow }}
       <span class="font-mono font-semibold text-text">{{ s.dueTomorrow }}</span>
     </p>
 
     @if (store.error()) {
-      <p class="mt-4 text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
+      <p class="text-sm font-medium text-bad" role="alert">{{ store.error() }}</p>
     }
 
-    <div class="mt-6 flex flex-wrap items-center justify-end gap-3">
+    <div class="flex flex-wrap items-center justify-end gap-3">
       <a
         routerLink="/review"
-        class="rounded-card border border-line bg-surface px-5 py-2 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >Back to overview</a
+        class="rounded-2xl border border-line bg-surface px-5 py-3 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >{{ t.summary.back }}</a
       >
       <button
         type="button"
-        class="rounded-card bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+        class="rounded-2xl bg-accent px-6 py-3 font-display text-sm font-bold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
         [disabled]="store.status() === 'loading'"
         (click)="reviewAgain()"
       >
-        {{ store.status() === 'loading' ? 'Starting…' : 'Review again' }}
+        {{ store.status() === 'loading' ? t.summary.starting : t.summary.again }}
       </button>
     </div>
   </section>

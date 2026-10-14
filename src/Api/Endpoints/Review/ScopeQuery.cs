@@ -1,12 +1,14 @@
 using System.Text.RegularExpressions;
 using FluentValidation;
-using InterviewPrep.Application.Review;
-using InterviewPrep.Domain.Progress;
+using Spine.Application.Review;
+using Spine.Domain.Progress;
 
-namespace InterviewPrep.Api.Endpoints.Review;
+namespace Spine.Api.Endpoints.Review;
 
-/// <summary>Scope parameters shared by the overview (query string) and session start (body).</summary>
-public abstract class ScopeQuery
+/// <summary>
+/// Scope parameters shared by the overview (query string) and session start (body), plus the <c>lang</c> query parameter.
+/// </summary>
+public abstract class ScopeQuery : LanguageQuery
 {
     /// <summary>all (default), domain or topic.</summary>
     public string Scope { get; set; } = "all";
@@ -35,6 +37,7 @@ public static partial class ScopeRules
     /// <summary>The same rule as <c>ck_sessions_scope</c>: domain iff scope ≠ all, topic iff scope = topic.</summary>
     public static void AddScopeRules<T>(this AbstractValidator<T> validator) where T : ScopeQuery
     {
+        validator.RuleFor(r => r.Lang).MustBeSupportedLanguage();
         validator.RuleFor(r => r.Scope)
             .Must(s => ScopeTypes.Contains(s, StringComparer.Ordinal))
             .WithMessage("scope must be 'all', 'domain' or 'topic'");

@@ -1,10 +1,10 @@
 using FastEndpoints;
 using FluentValidation;
-using InterviewPrep.Application.Knowledge;
+using Spine.Application.Knowledge;
 
-namespace InterviewPrep.Api.Endpoints.Knowledge;
+namespace Spine.Api.Endpoints.Knowledge;
 
-public sealed class GetConceptRequest : LanguageQuery
+public sealed class GetConceptRequest : KnowledgeQuery
 {
     public string Domain { get; set; } = string.Empty;
     public string Topic { get; set; } = string.Empty;

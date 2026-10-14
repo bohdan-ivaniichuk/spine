@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 
-namespace InterviewPrep.Api.Tests.Review;
+namespace Spine.Api.Tests.Review;
 
 /// <summary>Thin helpers over the review endpoints shared by the four endpoint test classes.</summary>
 internal static class ReviewApi

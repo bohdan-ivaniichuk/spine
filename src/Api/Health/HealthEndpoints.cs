@@ -2,7 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace InterviewPrep.Api.Health;
+namespace Spine.Api.Health;
 
 /// <summary>/health = liveness (no checks); /health/ready = database reachable. Both answer {"status": "..."}.</summary>
 public static class HealthEndpoints

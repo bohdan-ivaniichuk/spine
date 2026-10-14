@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { I18n } from '../../shared/i18n/i18n';
 
 /** Session header: scope chip, accent track and the "7 / 20" position. */
 @Component({
@@ -7,6 +8,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProgressBar {
+  protected readonly i18n = inject(I18n);
   readonly position = input.required<number>();
   readonly total = input.required<number>();
   readonly label = input('');

@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Content;
+namespace Spine.Domain.Content;
 
 public sealed class Topic
 {

@@ -1,4 +1,4 @@
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
 /// <summary>Pure membership planning (FR-001): due first, then new, bounded by the two limits.</summary>
 public static class SessionPlanner

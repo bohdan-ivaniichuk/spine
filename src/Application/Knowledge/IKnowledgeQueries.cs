@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Content;
+using Spine.Domain.Content;
 
-namespace InterviewPrep.Application.Knowledge;
+namespace Spine.Application.Knowledge;
 
 /// <summary>Read side of the content graph. Never returns learner-specific data.</summary>
 public interface IKnowledgeQueries

@@ -1,7 +1,7 @@
-using InterviewPrep.Application.Content.Seed;
-using InterviewPrep.Domain.Content;
+using Spine.Application.Content.Seed;
+using Spine.Domain.Content;
 
-namespace InterviewPrep.Application.Content;
+namespace Spine.Application.Content;
 
 /// <summary>Builds the <see cref="ImportPlan"/> from a validated <see cref="ContentSet"/>: order, hashes, derived flags.</summary>
 public static class ImportPlanBuilder

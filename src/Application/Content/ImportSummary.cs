@@ -1,4 +1,4 @@
-namespace InterviewPrep.Application.Content;
+namespace Spine.Application.Content;
 
 public sealed class EntityCounts
 {

@@ -1,10 +1,10 @@
-<div role="radiogroup" aria-label="Answer options" class="grid gap-2">
+<div role="radiogroup" class="grid gap-2.5" [attr.aria-label]="i18n.t().session.options">
   @for (option of options(); track $index; let i = $index) {
     <button
       #row
       type="button"
       role="radio"
-      class="flex w-full items-start gap-3 rounded-card border px-4 py-3 text-left text-sm text-text transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default"
+      class="flex w-full items-center gap-3.5 rounded-[18px] border-2 px-4 py-3.5 text-left text-[15px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default"
       [class]="rowClasses(i)"
       [attr.aria-checked]="selected() === i"
       [attr.aria-keyshortcuts]="i + 1"
@@ -15,7 +15,7 @@
       (keydown)="onArrow($event, i)"
     >
       <span
-        class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border font-mono text-xs font-medium"
+        class="inline-flex size-8 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-bold"
         [class]="hintClasses(i)"
         aria-hidden="true"
         >{{ hint(i) }}</span
@@ -23,9 +23,9 @@
       <span class="min-w-0 flex-1 leading-relaxed">
         <app-prompt-markdown inline [source]="option" />
         @if (state(i) === 'correct') {
-          <span class="sr-only">(correct answer)</span>
+          <span class="sr-only">({{ i18n.t().session.correctAnswer }})</span>
         } @else if (state(i) === 'wrong') {
-          <span class="sr-only">(your answer, incorrect)</span>
+          <span class="sr-only">({{ i18n.t().session.yourWrongAnswer }})</span>
         }
       </span>
     </button>

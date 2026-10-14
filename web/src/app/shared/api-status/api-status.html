@@ -1,27 +1,29 @@
-<div class="flex items-center gap-3 text-sm">
+<div
+  class="flex flex-col items-center gap-1.5 text-center text-[10px] leading-tight text-ink-muted"
+>
   <span
     class="inline-block size-2.5 rounded-full"
-    [class.bg-accent]="health.isLoading()"
-    [class.bg-ok]="!health.isLoading() && health.hasValue()"
-    [class.bg-bad]="unreachable()"
+    [class.bg-ink-muted]="health.isLoading()"
+    [class.bg-ok-fill]="!health.isLoading() && health.hasValue()"
+    [class.bg-bad-fill]="unreachable()"
     aria-hidden="true"
   ></span>
-  <span aria-live="polite" class="text-muted">
+  <span aria-live="polite">
     @if (health.isLoading()) {
-      Checking API…
+      {{ i18n.t().app.apiChecking }}
     } @else if (health.hasValue()) {
-      API: OK
+      {{ i18n.t().app.apiOk }}
     } @else {
-      API: unreachable
+      {{ i18n.t().app.apiDown }}
     }
   </span>
   @if (unreachable()) {
     <button
       type="button"
-      class="rounded border border-line px-2 py-0.5 text-xs text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      class="rounded-full bg-ink-2 px-2 py-0.5 text-on-ink hover:bg-ink-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
       (click)="health.reload()"
     >
-      Retry
+      {{ i18n.t().app.retry }}
     </button>
   }
 </div>

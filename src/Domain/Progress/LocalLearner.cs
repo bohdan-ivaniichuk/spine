@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 /// <summary>The single seeded local learner. Stable id so later features and tests can rely on it.</summary>
 public static class LocalLearner

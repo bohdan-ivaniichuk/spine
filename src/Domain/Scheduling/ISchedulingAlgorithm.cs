@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Scheduling;
+namespace Spine.Domain.Scheduling;
 
 /// <summary>
 /// Spaced-repetition scheduling behind an interface (constitution Principle V). Implementations are pure:

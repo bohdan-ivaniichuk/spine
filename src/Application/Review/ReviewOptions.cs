@@ -1,4 +1,4 @@
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
 /// <summary>
 /// Session-size defaults, bound from <c>REVIEW_DEFAULT_TOTAL_LIMIT</c> / <c>REVIEW_DEFAULT_NEW_LIMIT</c>. The overview

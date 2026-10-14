@@ -1,12 +1,12 @@
 using System.Text.Json;
-using InterviewPrep.Application.Content;
+using Spine.Application.Content;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
-namespace InterviewPrep.Api.Tests;
+namespace Spine.Api.Tests;
 
 /// <summary>
 /// One PostgreSQL container + one in-process API per collection. The API boots exactly as in production

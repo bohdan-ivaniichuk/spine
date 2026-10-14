@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Content;
+namespace Spine.Domain.Content;
 
 /// <summary>A code kata keyed by its stable content id: &lt;domain&gt;.&lt;topic&gt;.&lt;concept&gt;.kata.&lt;n&gt;.</summary>
 public sealed class Kata

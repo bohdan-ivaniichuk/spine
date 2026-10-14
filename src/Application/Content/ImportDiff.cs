@@ -1,8 +1,8 @@
-using InterviewPrep.Application.Content.Validation;
-using InterviewPrep.Domain.Content;
-using DomainEntity = InterviewPrep.Domain.Content.Domain;
+using Spine.Application.Content.Validation;
+using Spine.Domain.Content;
+using DomainEntity = Spine.Domain.Content.Domain;
 
-namespace InterviewPrep.Application.Content;
+namespace Spine.Application.Content;
 
 /// <summary>Root additions and counts produced by <see cref="ImportDiff"/>; existing entities are mutated in place.</summary>
 public sealed class ImportChangeSet

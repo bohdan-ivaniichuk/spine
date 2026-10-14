@@ -10,7 +10,7 @@ Sync Impact Report (2026-09-06)
   edits required
 - Follow-up TODOs: none
 -->
-# InterviewPrep Constitution
+# Spine Constitution
 
 ## Purpose
 

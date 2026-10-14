@@ -1,9 +1,9 @@
-using InterviewPrep.Application.Knowledge;
-using InterviewPrep.Domain.Content;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Application.Knowledge;
+using Spine.Domain.Content;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
-namespace InterviewPrep.Infrastructure.Knowledge;
+namespace Spine.Infrastructure.Knowledge;
 
 /// <summary>
 /// Tree = three flat no-tracking queries stitched in memory (no cartesian product, no N+1);

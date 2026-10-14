@@ -1,4 +1,4 @@
-# Product Context — InterviewPrep
+# Product Context — Spine
 
 ## The user
 

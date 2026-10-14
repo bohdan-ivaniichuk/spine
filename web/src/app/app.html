@@ -1,25 +1,123 @@
-<div class="flex min-h-screen flex-col bg-bg text-text">
-  <header class="flex h-14 items-center justify-between border-b border-line bg-surface px-8">
-    <div class="flex items-center gap-6">
-      <a routerLink="/" class="text-base font-bold tracking-tight text-text">InterviewPrep</a>
-      <nav class="flex gap-4 text-sm text-muted" aria-label="Main">
-        <a routerLink="/review" routerLinkActive="text-text font-medium" class="hover:text-text"
-          >Review</a
+@let t = i18n.t();
+<a
+  href="#main"
+  class="sr-only z-50 rounded-xl bg-accent px-4 py-2 text-on-accent focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+  >{{ t.app.skip }}</a
+>
+<div class="min-h-screen bg-bg text-text lg:flex">
+  <header
+    class="m-3 flex items-center gap-3 overflow-x-auto rounded-panel bg-ink p-3 text-on-ink lg:sticky lg:top-4 lg:m-4 lg:mr-0 lg:h-[calc(100vh-2rem)] lg:w-24 lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:px-0 lg:py-5"
+  >
+    <a
+      routerLink="/"
+      class="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent font-display text-sm font-extrabold text-on-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink lg:mb-3"
+      [attr.aria-label]="t.app.home"
+      >sp</a
+    >
+
+    <nav class="flex gap-1.5 lg:flex-col" [attr.aria-label]="t.app.nav">
+      <a
+        routerLink="/review"
+        routerLinkActive="bg-accent text-on-accent"
+        ariaCurrentWhenActive="page"
+        class="flex w-[72px] flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-semibold text-ink-muted hover:text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+      >
+        <svg
+          aria-hidden="true"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-        <a routerLink="/knowledge" routerLinkActive="text-text font-medium" class="hover:text-text"
-          >Knowledge</a
+          <rect x="3" y="6" width="14" height="15" rx="2.5" />
+          <path d="M7 3h11.5A2.5 2.5 0 0 1 21 5.5V17" />
+        </svg>
+        {{ t.app.review }}
+      </a>
+      <span
+        class="flex w-[72px] cursor-default flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-medium text-ink-muted opacity-70"
+        [attr.title]="t.app.atlas + ' — ' + t.app.soon"
+      >
+        <svg
+          aria-hidden="true"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-        <a routerLink="/katas" routerLinkActive="text-text font-medium" class="hover:text-text"
-          >Katas</a
+          <path d="M9 4 3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5z" />
+          <path d="M9 4v13.5M15 6.5V20" />
+        </svg>
+        {{ t.app.atlas }}
+        <span class="rounded-full bg-ink-2 px-1.5 text-[9px] uppercase tracking-wide">{{
+          t.app.soon
+        }}</span>
+      </span>
+      <span
+        class="flex w-[72px] cursor-default flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-medium text-ink-muted opacity-70"
+        [attr.title]="t.app.katas + ' — ' + t.app.soon"
+      >
+        <svg
+          aria-hidden="true"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
+          <path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />
+        </svg>
+        {{ t.app.katas }}
+        <span class="rounded-full bg-ink-2 px-1.5 text-[9px] uppercase tracking-wide">{{
+          t.app.soon
+        }}</span>
+      </span>
+    </nav>
+
+    @if (domains().length > 0) {
+      <span aria-hidden="true" class="hidden h-px w-10 bg-ink-line lg:mt-2 lg:block"></span>
+      <nav class="flex items-center gap-1.5 lg:flex-col" [attr.aria-label]="t.app.domains">
+        <span
+          aria-hidden="true"
+          class="hidden font-mono text-[10px] tracking-[0.14em] text-ink-muted uppercase lg:block"
+          >{{ t.app.spine }}</span
+        >
+        @for (d of domains(); track d.slug) {
+          <a
+            routerLink="/review"
+            [queryParams]="{ scope: 'domain', domain: d.slug }"
+            class="flex h-[34px] w-10 shrink-0 items-center justify-center rounded-[10px] font-mono text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            [class]="'domain-' + d.position"
+            [attr.aria-label]="t.app.reviewDomain(pad(d.position), d.title)"
+            [attr.title]="d.title"
+            >{{ pad(d.position) }}</a
+          >
+        }
       </nav>
-    </div>
-    <div class="flex items-center gap-4">
-      <app-api-status />
-      <app-theme-toggle />
-    </div>
+    }
+
+    <span class="grow"></span>
+    <app-language-toggle />
+    <app-theme-toggle />
+    <app-api-status />
   </header>
-  <main class="mx-auto w-full max-w-5xl flex-1 px-8 py-10">
+
+  <main
+    id="main"
+    tabindex="-1"
+    class="min-w-0 flex-1 outline-none px-5 pb-12 pt-4 lg:px-10 lg:pt-8"
+  >
     <router-outlet />
   </main>
 </div>

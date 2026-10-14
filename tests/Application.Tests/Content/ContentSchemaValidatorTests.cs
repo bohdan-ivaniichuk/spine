@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content.Validation;
+using Spine.Application.Content.Validation;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 public class ContentSchemaValidatorTests
 {

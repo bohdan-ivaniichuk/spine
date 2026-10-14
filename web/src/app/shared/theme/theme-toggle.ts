@@ -1,17 +1,16 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { I18n } from '../i18n/i18n';
 import { Theme } from './theme';
 
-/** Header button switching between the light and dark palettes. */
+/** Rail button switching between the light and dark palettes. */
 @Component({
   selector: 'app-theme-toggle',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button
       type="button"
-      class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-muted transition-colors hover:text-text"
-      [attr.aria-label]="
-        theme.effective() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
-      "
+      class="inline-flex size-11 items-center justify-center rounded-full bg-ink-2 text-ink-muted transition-colors hover:text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+      [attr.aria-label]="theme.effective() === 'dark' ? i18n.t().app.toLight : i18n.t().app.toDark"
       [attr.aria-pressed]="theme.effective() === 'dark'"
       (click)="theme.toggle()"
     >
@@ -42,4 +41,5 @@ import { Theme } from './theme';
 })
 export class ThemeToggle {
   protected readonly theme = inject(Theme);
+  protected readonly i18n = inject(I18n);
 }

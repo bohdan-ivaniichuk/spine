@@ -1,6 +1,6 @@
-using InterviewPrep.Domain.Content;
+using Spine.Domain.Content;
 
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 /// <summary>The learner who owns progress. MVP seeds exactly one (<see cref="LocalLearner"/>).</summary>
 public sealed class Learner

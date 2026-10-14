@@ -1,4 +1,4 @@
-# System Patterns — InterviewPrep
+# System Patterns — Spine
 
 Living record of architectural patterns and decisions. Keep entries dated; when a pattern is superseded,
 say so rather than deleting.
@@ -39,7 +39,8 @@ say so rather than deleting.
   Serilog (compact JSON outside Development); FastEndpoints with `api` prefix + ProblemDetails.
 - **Web:** zoneless Angular; `httpResource` for server state; nginx maps `/api/health` → `/health/ready`.
 - **Compose:** healthchecks on `127.0.0.1`; api waits for postgres, web waits for api; content mounted
-  read-only at `/content`.
+  read-only at `/content`. Project name `spine`; the postgres volume is pinned by name to `interviewprep_postgres_data`
+  (pre-rename data), and the database/role stay `interviewprep`.
 
 ## 2026-09-06 — Visual direction (ADR 0004)
 

@@ -1,7 +1,7 @@
-using InterviewPrep.Domain.Progress;
+using Spine.Domain.Progress;
 using Microsoft.EntityFrameworkCore;
 
-namespace InterviewPrep.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence;
 
 /// <summary>Seeds the single local learner idempotently (INSERT … ON CONFLICT DO NOTHING).</summary>
 public sealed class LearnerSeeder(AppDbContext db)

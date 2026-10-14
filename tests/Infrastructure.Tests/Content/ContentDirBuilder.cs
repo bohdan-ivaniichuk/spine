@@ -2,7 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace InterviewPrep.Infrastructure.Tests.Content;
+namespace Spine.Infrastructure.Tests.Content;
 
 /// <summary>
 /// A throw-away content directory: <c>schema/</c> copied from the repo, plus whatever manifest and topic files the
@@ -22,7 +22,7 @@ internal sealed class ContentDirBuilder : IDisposable
 
     public ContentDirBuilder()
     {
-        Dir = Path.Combine(Path.GetTempPath(), "interviewprep-tests", Guid.NewGuid().ToString("N"));
+        Dir = Path.Combine(Path.GetTempPath(), "spine-tests", Guid.NewGuid().ToString("N"));
         var schemaDir = Path.Combine(Dir, "schema");
         Directory.CreateDirectory(schemaDir);
         foreach (var file in Directory.GetFiles(Path.Combine(RepoRoot, "content", "schema"), "*.json"))

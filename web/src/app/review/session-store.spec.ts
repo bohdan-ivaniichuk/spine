@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { I18n } from '../shared/i18n/i18n';
 import { SessionStore } from './session-store';
 import { feedback, question, session, summary } from './testing/fixtures';
 
@@ -14,6 +15,7 @@ describe('SessionStore', () => {
   const ID = session().id;
 
   beforeEach(() => {
+    localStorage.removeItem('spine.lang');
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
@@ -244,5 +246,50 @@ describe('SessionStore', () => {
     const resumed = await store.resume();
     expect(resumed?.id).toBe(ID);
     http.expectNone(`${SESSIONS}/current`);
+  });
+
+  it('re-reads the open session in the new language, keeping answers and position', async () => {
+    await startSession(3);
+    await checkAnswer(0, true);
+    const i18n = TestBed.inject(I18n);
+
+    i18n.set('uk');
+    TestBed.tick();
+    const uk = session(3);
+    uk.questions[0] = {
+      ...uk.questions[0],
+      prompt: 'Українською',
+      language: 'uk',
+      fallback: false,
+    };
+    http.expectOne(`${SESSIONS}/${ID}?lang=uk`).flush(uk);
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(store.current()?.prompt).toBe('Українською');
+    expect(store.answeredCount()).toBe(1);
+    expect(store.status()).toBe('checked');
+    i18n.set('en');
+    TestBed.tick();
+    http.expectOne(`${SESSIONS}/${ID}`).flush(session(3));
+  });
+
+  it('ignores a stale response when the language is switched back quickly', async () => {
+    await startSession(2);
+    const i18n = TestBed.inject(I18n);
+
+    i18n.set('uk');
+    TestBed.tick();
+    const ukRequest = http.expectOne(`${SESSIONS}/${ID}?lang=uk`);
+    i18n.set('en');
+    TestBed.tick();
+    const enRequest = http.expectOne(`${SESSIONS}/${ID}`);
+
+    enRequest.flush(session(2));
+    const late = session(2);
+    late.questions[0] = { ...late.questions[0], prompt: 'Застаріле' };
+    ukRequest.flush(late);
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(store.current()?.prompt).not.toBe('Застаріле');
   });
 });

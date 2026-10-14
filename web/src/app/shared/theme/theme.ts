@@ -3,10 +3,12 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
-const STORAGE_KEY = 'interviewprep.theme';
+const STORAGE_KEY = 'spine.theme';
+/** Key used before the rename to Spine; read once and migrated. */
+const LEGACY_KEY = 'interviewprep.theme';
 
 /**
- * Light = "Calm workspace", dark = "Developer dark" (design decision 2026-09-06).
+ * Atlas light and Atlas dark (ADR 0006).
  * `system` leaves <html> without data-theme so the CSS follows prefers-color-scheme.
  */
 @Injectable({ providedIn: 'root' })
@@ -45,7 +47,13 @@ export class Theme {
 
   private read(): ThemePreference {
     try {
-      const raw = this.document.defaultView?.localStorage?.getItem(STORAGE_KEY);
+      const storage = this.document.defaultView?.localStorage;
+      const legacy = storage?.getItem(LEGACY_KEY);
+      if (legacy && storage) {
+        storage.setItem(STORAGE_KEY, legacy);
+        storage.removeItem(LEGACY_KEY);
+      }
+      const raw = storage?.getItem(STORAGE_KEY);
       return raw === 'light' || raw === 'dark' ? raw : 'system';
     } catch {
       return 'system';

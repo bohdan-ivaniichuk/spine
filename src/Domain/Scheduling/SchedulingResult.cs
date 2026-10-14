@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Scheduling;
+namespace Spine.Domain.Scheduling;
 
 /// <summary>What a scheduling algorithm decided for one answer; applied to the review state as-is.</summary>
 public sealed record SchedulingResult(

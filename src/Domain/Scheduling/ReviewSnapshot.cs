@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Scheduling;
+namespace Spine.Domain.Scheduling;
 
 /// <summary>Immutable view of a review-state row as the scheduling algorithm sees it.</summary>
 public sealed record ReviewSnapshot(

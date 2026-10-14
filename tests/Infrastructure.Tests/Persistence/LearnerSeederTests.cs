@@ -1,8 +1,8 @@
-using InterviewPrep.Domain.Progress;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Domain.Progress;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
-namespace InterviewPrep.Infrastructure.Tests.Persistence;
+namespace Spine.Infrastructure.Tests.Persistence;
 
 [Collection(PostgresCollection.Name)]
 [Trait("Category", "Integration")]

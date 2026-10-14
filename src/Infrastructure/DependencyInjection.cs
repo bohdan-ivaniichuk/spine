@@ -1,17 +1,17 @@
-using InterviewPrep.Application.Content;
-using InterviewPrep.Application.Knowledge;
-using InterviewPrep.Application.Review;
-using InterviewPrep.Domain.Scheduling;
-using InterviewPrep.Infrastructure.Content;
-using InterviewPrep.Infrastructure.Knowledge;
-using InterviewPrep.Infrastructure.Persistence;
-using InterviewPrep.Infrastructure.Review;
+using Spine.Application.Content;
+using Spine.Application.Knowledge;
+using Spine.Application.Review;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Knowledge;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Review;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace InterviewPrep.Infrastructure;
+namespace Spine.Infrastructure;
 
 public static class DependencyInjection
 {

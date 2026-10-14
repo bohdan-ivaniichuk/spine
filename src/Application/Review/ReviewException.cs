@@ -1,4 +1,4 @@
-namespace InterviewPrep.Application.Review;
+namespace Spine.Application.Review;
 
 /// <summary>Why a review use case refused to proceed. The API maps each kind to an HTTP status; Application knows no HTTP.</summary>
 public enum ReviewError

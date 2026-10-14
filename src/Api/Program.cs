@@ -1,10 +1,10 @@
 using FastEndpoints;
 using FastEndpoints.Swagger;
-using InterviewPrep.Api.Cli;
-using InterviewPrep.Api.Errors;
-using InterviewPrep.Api.Health;
-using InterviewPrep.Infrastructure;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Api.Cli;
+using Spine.Api.Errors;
+using Spine.Api.Health;
+using Spine.Infrastructure;
+using Spine.Infrastructure.Persistence;
 using Serilog;
 using Serilog.Formatting.Compact;
 
@@ -39,7 +39,7 @@ if (builder.Environment.IsDevelopment())
     {
         o.DocumentSettings = s =>
         {
-            s.Title = "InterviewPrep API";
+            s.Title = "Spine API";
             s.Version = "v1";
         };
     });

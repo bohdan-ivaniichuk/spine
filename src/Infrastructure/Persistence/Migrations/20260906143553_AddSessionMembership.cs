@@ -2,7 +2,7 @@
 
 #nullable disable
 
-namespace InterviewPrep.Infrastructure.Persistence.Migrations
+namespace Spine.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
     public partial class AddSessionMembership : Migration

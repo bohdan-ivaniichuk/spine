@@ -1,14 +1,14 @@
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content;
-using InterviewPrep.Domain.Content;
-using InterviewPrep.Domain.Progress;
-using InterviewPrep.Infrastructure.Content;
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Application.Content;
+using Spine.Domain.Content;
+using Spine.Domain.Progress;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
-namespace InterviewPrep.Infrastructure.Tests.Content;
+namespace Spine.Infrastructure.Tests.Content;
 
 [Collection(PostgresCollection.Name)]
 [Trait("Category", "Integration")]

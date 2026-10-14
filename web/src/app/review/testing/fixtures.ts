@@ -1,3 +1,6 @@
+import { HttpTestingController } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { KnowledgeTree } from '../../knowledge/api/knowledge-tree.models';
 import {
   AnswerFeedback,
   ReviewOverview,
@@ -123,7 +126,47 @@ export function summary(overrides: Partial<SessionSummary> = {}): SessionSummary
  * Waits one macrotask (so the store's promise continuations after an HTTP flush have run) and then
  * for the zoneless fixture to render. `whenStable()` alone resolves before those continuations.
  */
-export async function settle(fixture: { whenStable(): Promise<unknown> }): Promise<void> {
+/** A one-domain tree; the shell's spine and the question card's domain chip read it. */
+export const TREE: KnowledgeTree = {
+  language: 'en',
+  domains: [
+    {
+      slug: 'dotnet',
+      title: 'C# & .NET Runtime',
+      sortOrder: 1,
+      deprecatedAt: null,
+      topics: [
+        {
+          slug: 'clr-memory',
+          title: 'Memory & GC',
+          sortOrder: 1,
+          deprecatedAt: null,
+          concepts: [],
+        },
+      ],
+    },
+  ],
+};
+
+/** Answers any pending `GET /api/knowledge/tree` (shared root resource, requested lazily). */
+export function answerTree(http: HttpTestingController, tree: KnowledgeTree = TREE): void {
+  for (const req of http.match((r) => r.url.startsWith('/api/knowledge/tree'))) {
+    req.flush(tree);
+  }
+}
+
+/**
+ * Lets pending microtasks/effects run, then waits for the fixture to be stable. With `http`, a
+ * knowledge-tree request raised meanwhile is answered first (otherwise `whenStable` never resolves).
+ */
+export async function settle(
+  fixture: { whenStable(): Promise<unknown> },
+  http?: HttpTestingController,
+): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve));
+  if (http) {
+    TestBed.tick();
+    answerTree(http);
+  }
   await fixture.whenStable();
 }

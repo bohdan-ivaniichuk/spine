@@ -1,9 +1,9 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content.Seed;
+using Spine.Application.Content.Seed;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 /// <summary>Small helpers to mutate the valid fixture JSON in memory and turn it back into a <see cref="ContentSet"/>.</summary>
 internal static class FixtureJson

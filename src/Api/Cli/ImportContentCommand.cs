@@ -1,9 +1,9 @@
-using InterviewPrep.Application.Content;
-using InterviewPrep.Infrastructure;
+using Spine.Application.Content;
+using Spine.Infrastructure;
 using Serilog;
 using Serilog.Events;
 
-namespace InterviewPrep.Api.Cli;
+namespace Spine.Api.Cli;
 
 /// <summary>
 /// `import-content [--content-dir &lt;path&gt;] [--validate-only] [--dry-run]` — see
@@ -47,7 +47,7 @@ public static class ImportContentCommand
         builder.Logging.ClearProviders();
         builder.Logging.AddSerilog(new LoggerConfiguration()
             .MinimumLevel.Warning()
-            .MinimumLevel.Override("InterviewPrep", LogEventLevel.Information)
+            .MinimumLevel.Override("Spine", LogEventLevel.Information)
             .WriteTo.Console(standardErrorFromLevel: LogEventLevel.Verbose)
             .CreateLogger(), dispose: true);
         builder.Services.AddInfrastructure(builder.Configuration);

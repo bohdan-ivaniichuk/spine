@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Progress;
+namespace Spine.Domain.Progress;
 
 /// <summary>One answer of a learner to one item at a point in time; optionally part of a session.</summary>
 public sealed class Attempt

@@ -1,4 +1,6 @@
-# InterviewPrep
+# Spine
+
+*The senior engineer's interview atlas.*
 
 A single-user, locally-run interview-preparation platform for Senior Full-stack (Angular + .NET + AI
 Engineering): knowledge graph → spaced-repetition quizzes (SM-2) → LLM-graded open answers and katas.

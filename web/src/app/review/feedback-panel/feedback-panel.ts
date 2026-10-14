@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
+import { I18n } from '../../shared/i18n/i18n';
 import { AnswerFeedback } from '../api/review.models';
 import { PromptMarkdown } from '../prompt-markdown/prompt-markdown';
 
@@ -15,5 +16,6 @@ import { PromptMarkdown } from '../prompt-markdown/prompt-markdown';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedbackPanel {
+  protected readonly i18n = inject(I18n);
   readonly feedback = input<AnswerFeedback | null>(null);
 }

@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { SessionStore } from '../session-store';
-import { feedback, question, session, settle, summary } from '../testing/fixtures';
+import { answerTree, feedback, question, session, settle, summary } from '../testing/fixtures';
 import { ReviewSession } from './review-session';
 
 describe('ReviewSession', () => {
@@ -30,6 +30,7 @@ describe('ReviewSession', () => {
   };
 
   beforeEach(async () => {
+    localStorage.removeItem('spine.lang');
     await TestBed.configureTestingModule({
       imports: [ReviewSession],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
@@ -39,21 +40,24 @@ describe('ReviewSession', () => {
     navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    answerTree(http);
+    http.verify();
+  });
 
   /** Creates the page, answers the resume request with a session and waits for the first render. */
   async function open(count = 2) {
     fixture = TestBed.createComponent(ReviewSession);
     fixture.detectChanges();
     http.expectOne(`${SESSIONS}/current`).flush(session(count));
-    await settle(fixture);
+    await settle(fixture, http);
   }
 
   it('redirects to the overview when there is no open session', async () => {
     fixture = TestBed.createComponent(ReviewSession);
     fixture.detectChanges();
     http.expectOne(`${SESSIONS}/current`).flush(null, { status: 204, statusText: 'No Content' });
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(navigate).toHaveBeenCalledWith('/review');
   });
@@ -72,7 +76,7 @@ describe('ReviewSession', () => {
     await open(2);
 
     press('2');
-    await settle(fixture);
+    await settle(fixture, http);
     expect(radios()[1].getAttribute('aria-checked')).toBe('true');
     expect(button('Check')?.disabled).toBe(false);
 
@@ -81,7 +85,7 @@ describe('ReviewSession', () => {
     const req = http.expectOne(`${SESSIONS}/${ID}/answers`);
     expect(req.request.body).toEqual({ questionId: question(1).id, selectedIndex: 1 });
     req.flush(feedback(question(1).id, 1, false));
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Incorrect');
     expect(text()).toContain('allocates on the stack');
@@ -91,7 +95,7 @@ describe('ReviewSession', () => {
     expect(button('Next')).toBeDefined();
 
     press('Enter');
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Question 2');
     expect(text()).toContain('2 / 2');
@@ -106,14 +110,14 @@ describe('ReviewSession', () => {
     press('a');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Correct');
     expect(button('Finish')).toBeDefined();
 
     button('Finish')!.click();
     http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary());
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(store.summary()?.correct).toBe(15);
     expect(navigate).toHaveBeenLastCalledWith('/review/summary');
@@ -125,7 +129,7 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
 
     const panel = root().querySelector<HTMLElement>('app-feedback-panel')!;
     expect(panel.getAttribute('tabindex')).toBe('-1');
@@ -138,9 +142,9 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
     press('Enter');
-    await settle(fixture);
+    await settle(fixture, http);
 
     const card = root().querySelector<HTMLElement>('article')!;
     expect(card.getAttribute('tabindex')).toBe('-1');
@@ -151,7 +155,7 @@ describe('ReviewSession', () => {
   it('leaves Enter to a focused link or button instead of checking or advancing', async () => {
     await open(2);
     press('1');
-    await settle(fixture);
+    await settle(fixture, http);
 
     const end = button('End session')!;
     end.focus();
@@ -170,7 +174,7 @@ describe('ReviewSession', () => {
     const onChecked = press('Enter', checked);
     expect(onChecked.defaultPrevented).toBe(true);
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
     expect(text()).toContain('Correct');
   });
 
@@ -180,11 +184,11 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
 
     const repeat = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true });
     document.dispatchEvent(repeat);
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Question 1');
     expect(button('Next')).toBeDefined();
@@ -196,7 +200,7 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
     const finish = button('Finish')!;
     finish.focus();
 
@@ -204,7 +208,7 @@ describe('ReviewSession', () => {
     http
       .expectOne(`${SESSIONS}/${ID}/finish`)
       .flush({ title: 'Service unavailable' }, { status: 503, statusText: 'Service Unavailable' });
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(document.activeElement).toBe(button('Finish'));
   });
@@ -215,13 +219,13 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
 
     button('Finish')!.click();
     http
       .expectOne(`${SESSIONS}/${ID}/finish`)
       .flush({ title: 'Service unavailable' }, { status: 503, statusText: 'Service Unavailable' });
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Question 1');
     expect(text()).toContain('Correct');
@@ -230,7 +234,7 @@ describe('ReviewSession', () => {
 
     button('Finish')!.click();
     http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary());
-    await settle(fixture);
+    await settle(fixture, http);
     expect(navigate).toHaveBeenLastCalledWith('/review/summary');
   });
 
@@ -242,18 +246,18 @@ describe('ReviewSession', () => {
         answers: [{ questionId: question(1).id, selectedIndex: 0, isCorrect: true }],
       }),
     );
-    await settle(fixture);
+    await settle(fixture, http);
     http
       .expectOne(`${SESSIONS}/${ID}/finish`)
       .flush({ title: 'Service unavailable' }, { status: 503, statusText: 'Service Unavailable' });
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(text()).toContain('Could not finish the session');
     expect(root().querySelector('[role=alert]')?.textContent).toContain('Service unavailable');
 
     button('Retry')!.click();
     http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary());
-    await settle(fixture);
+    await settle(fixture, http);
     expect(navigate).toHaveBeenLastCalledWith('/review/summary');
   });
 
@@ -263,13 +267,13 @@ describe('ReviewSession', () => {
     document.body.appendChild(input);
     try {
       press('1', input);
-      await settle(fixture);
+      await settle(fixture, http);
       expect(store.selectedIndex()).toBeNull();
 
       document.dispatchEvent(
         new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true }),
       );
-      await settle(fixture);
+      await settle(fixture, http);
       expect(store.selectedIndex()).toBeNull();
     } finally {
       input.remove();
@@ -286,10 +290,10 @@ describe('ReviewSession', () => {
     press('1');
     press('Enter');
     http.expectOne(`${SESSIONS}/${ID}/answers`).flush(feedback(question(1).id, 0, true));
-    await settle(fixture);
+    await settle(fixture, http);
 
     press('3');
-    await settle(fixture);
+    await settle(fixture, http);
     expect(store.selectedIndex()).toBe(0);
   });
 
@@ -297,12 +301,12 @@ describe('ReviewSession', () => {
     await open(1);
 
     radios()[2].click();
-    await settle(fixture);
+    await settle(fixture, http);
     button('Check')!.click();
     http
       .expectOne(`${SESSIONS}/${ID}/answers`)
       .flush({ title: 'Service unavailable' }, { status: 503, statusText: 'Service Unavailable' });
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(root().querySelector('[role=alert]')?.textContent).toContain('Service unavailable');
     expect(radios()[2].getAttribute('aria-checked')).toBe('true');
@@ -315,7 +319,7 @@ describe('ReviewSession', () => {
 
     button('End session')!.click();
     http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary({ answered: 0, correct: 0 }));
-    await settle(fixture);
+    await settle(fixture, http);
 
     expect(window.confirm).toHaveBeenCalled();
     expect(navigate).toHaveBeenLastCalledWith('/review/summary');

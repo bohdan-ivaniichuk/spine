@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 
-namespace InterviewPrep.Api.Tests;
+namespace Spine.Api.Tests;
 
 [Collection("api")]
 [Trait("Category", "Integration")]
@@ -27,7 +27,7 @@ public sealed class HealthTests(ApiFixture fixture)
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("name").GetString().ShouldBe("InterviewPrep API");
+        body.RootElement.GetProperty("name").GetString().ShouldBe("Spine API");
         body.RootElement.GetProperty("version").GetString().ShouldNotBeNullOrWhiteSpace();
         body.RootElement.GetProperty("environment").GetString().ShouldBe("Development");
     }

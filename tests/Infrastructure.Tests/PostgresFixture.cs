@@ -1,8 +1,8 @@
-using InterviewPrep.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 
-namespace InterviewPrep.Infrastructure.Tests;
+namespace Spine.Infrastructure.Tests;
 
 /// <summary>
 /// One PostgreSQL 16 container per test collection. Each test class resets the schema in <c>InitializeAsync</c>

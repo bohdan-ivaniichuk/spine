@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace InterviewPrep.Domain.Scheduling;
+namespace Spine.Domain.Scheduling;
 
 /// <summary>
 /// SM-2 with two grades. Good: repetitions + 1, interval 1 → 6 → previous × ease (whole days, rounded away from

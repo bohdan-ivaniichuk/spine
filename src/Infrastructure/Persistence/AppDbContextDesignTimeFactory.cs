@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace InterviewPrep.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence;
 
 /// <summary>
 /// Lets <c>dotnet ef</c> build the context without starting the web host. Reads

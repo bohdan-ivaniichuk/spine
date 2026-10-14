@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace InterviewPrep.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence;
 
 /// <summary>
 /// Waits for the database (bounded), then applies pending migrations once. Throws on failure so the host

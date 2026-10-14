@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content.Seed;
-using InterviewPrep.Application.Content.Validation;
+using Spine.Application.Content.Seed;
+using Spine.Application.Content.Validation;
 
-namespace InterviewPrep.Infrastructure.Content;
+namespace Spine.Infrastructure.Content;
 
 /// <summary>Reads the content directory: schemas, manifest and every &lt;domain&gt;/&lt;topic&gt;.json topic file.</summary>
 public static class ContentFileSystem

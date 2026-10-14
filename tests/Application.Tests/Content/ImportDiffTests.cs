@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content;
-using InterviewPrep.Domain.Content;
-using DomainEntity = InterviewPrep.Domain.Content.Domain;
+using Spine.Application.Content;
+using Spine.Domain.Content;
+using DomainEntity = Spine.Domain.Content.Domain;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 public class ImportDiffTests
 {

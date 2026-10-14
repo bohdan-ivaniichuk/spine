@@ -1,63 +1,105 @@
 /* Global styles. Tailwind v4 is configured via .postcssrc.json (@tailwindcss/postcss).
-   Design direction (2026-09-06): "Calm workspace" as the light theme, "Developer dark" as the dark
-   theme. Typography is shared; only the color tokens switch. Tokens are CSS variables so a theme
-   change is one attribute flip on <html data-theme="light|dark">; no attribute = follow the system. */
+   Design direction (ADR 0006, 2026-10-15): "Atlas" — light ground with ink panels, five domain
+   colors, Unbounded display + Golos Text body + JetBrains Mono (all with Cyrillic, for the UK UI).
+   Tokens are CSS variables so a theme change is one attribute flip on <html data-theme="light|dark">;
+   no attribute = follow the system. Components use token utilities only (bg-surface, text-muted …). */
 @use 'tailwindcss';
 
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 /* ---- Light (default) ---- */
 :root {
   color-scheme: light;
-  --color-bg: #f7f7f5;
+  --color-bg: #eef1f7;
   --color-surface: #ffffff;
-  --color-surface-2: #f1f1ee;
-  --color-sidebar: #fbfbfa;
-  --color-text: #1f2328;
-  --color-muted: #6b7280;
-  --color-line: #e5e5e1;
-  --color-accent: #3b6cf0;
-  --color-accent-soft: #e8eefc;
+  --color-surface-2: #f4f6fb;
+  --color-text: #0f1630;
+  --color-muted: #4e5874;
+  --color-line: #dce1ec;
+  --color-accent: #2e5bff;
+  --color-accent-text: #1d44d8;
+  --color-accent-soft: #eaf0ff;
   --color-on-accent: #ffffff;
-  --color-ok: #157a4a;
-  --color-ok-soft: #e6f6ee;
-  --color-bad: #c0362f;
-  --color-bad-soft: #fbeae8;
-  --color-code-bg: #f3f4f6;
-  --color-code-text: #1f2328;
-  --color-syntax-keyword: #8250df;
-  --color-syntax-type: #0550ae;
-  --color-syntax-string: #0a3069;
-  --color-syntax-comment: #6e7781;
-  --shadow-card: 0 1px 2px rgb(20 20 20 / 0.05), 0 8px 24px rgb(20 20 20 / 0.05);
-  --radius-card: 10px;
+  /* Answer states: blue = right, orange = wrong (differ in lightness too, not hue alone). */
+  --color-ok: #1d44d8;
+  --color-ok-soft: #eaf0ff;
+  --color-ok-fill: #2e5bff;
+  --color-on-ok-fill: #ffffff;
+  --color-bad: #a8360b;
+  --color-bad-soft: #fff0e9;
+  --color-bad-fill: #ff5b1f;
+  --color-on-bad-fill: #0f1630;
+  --color-warn: #7a4b00;
+  --color-warn-soft: #fff1d6;
+  /* Ink panels (rail, Today card, feedback) stay dark in both themes. */
+  --color-ink: #0f1630;
+  --color-ink-2: #1b2445;
+  --color-ink-line: #2c3763;
+  --color-on-ink: #ffffff;
+  --color-ink-muted: #b4bedc;
+  --color-warm: #ffb08a;
+  /* Domains 01–05 by manifest order. */
+  --color-d1: #2e5bff;
+  --color-d2: #0b7a6e;
+  --color-d3: #ff5b1f;
+  --color-d4: #6a3df0;
+  --color-d5: #c42b66;
+  --color-on-d1: #ffffff;
+  --color-on-d2: #ffffff;
+  --color-on-d3: #0f1630;
+  --color-on-d4: #ffffff;
+  --color-on-d5: #ffffff;
+  --color-code-bg: #f3f5fa;
+  --color-code-text: #0f1630;
+  --color-inline-code: #e8ecf6;
+  --shadow-card: 0 1px 2px rgb(15 22 48 / 0.04), 0 12px 32px rgb(15 22 48 / 0.06);
+  --radius-card: 22px;
+  --radius-panel: 30px;
 }
 
 /* ---- Dark ---- */
 @mixin dark-tokens {
   color-scheme: dark;
-  --color-bg: #0f141a;
-  --color-surface: #161c24;
-  --color-surface-2: #1c242e;
-  --color-sidebar: #0b0f14;
-  --color-text: #e6edf3;
-  --color-muted: #8b98a8;
-  --color-line: #2a3441;
-  --color-accent: #7dd3fc;
-  --color-accent-soft: #12303f;
-  --color-on-accent: #0f141a;
-  --color-ok: #7ee787;
-  --color-ok-soft: #12301c;
-  --color-bad: #ff7b72;
-  --color-bad-soft: #3a1b1b;
-  --color-code-bg: #0b0f14;
-  --color-code-text: #e6edf3;
-  --color-syntax-keyword: #ff7b72;
-  --color-syntax-type: #79c0ff;
-  --color-syntax-string: #a5d6ff;
-  --color-syntax-comment: #8b949e;
+  --color-bg: #0a0f1e;
+  --color-surface: #131a2e;
+  --color-surface-2: #1a2239;
+  --color-text: #e8ecf8;
+  --color-muted: #a3adca;
+  --color-line: #263052;
+  --color-accent: #7b96ff;
+  --color-accent-text: #a5b7ff;
+  --color-accent-soft: #1b2552;
+  --color-on-accent: #0a0f1e;
+  --color-ok: #a5b7ff;
+  --color-ok-soft: #18224a;
+  --color-ok-fill: #7b96ff;
+  --color-on-ok-fill: #0a0f1e;
+  --color-bad: #ffab8a;
+  --color-bad-soft: #3a1f16;
+  --color-bad-fill: #ff7a45;
+  --color-on-bad-fill: #0a0f1e;
+  --color-warn: #f5c46b;
+  --color-warn-soft: #33270f;
+  --color-ink: #1a2347;
+  --color-ink-2: #243060;
+  --color-ink-line: #35427c;
+  --color-on-ink: #ffffff;
+  --color-ink-muted: #bcc5e2;
+  --color-warm: #ffb08a;
+  --color-d1: #5b7cff;
+  --color-d2: #12a593;
+  --color-d3: #ff7a45;
+  --color-d4: #8b67ff;
+  --color-d5: #e0558a;
+  --color-on-d1: #0a0f1e;
+  --color-on-d2: #0a0f1e;
+  --color-on-d3: #0a0f1e;
+  --color-on-d4: #0a0f1e;
+  --color-on-d5: #0a0f1e;
+  --color-code-bg: #0b1122;
+  --color-code-text: #e8ecf8;
+  --color-inline-code: #232c48;
   --shadow-card: none;
-  --radius-card: 6px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -69,28 +111,53 @@
   @include dark-tokens;
 }
 
-/* Expose the tokens to Tailwind utilities: bg-bg, text-muted, border-line, bg-accent-soft, font-mono … */
+/* Expose the tokens to Tailwind utilities: bg-bg, text-muted, bg-ink, text-on-ink, bg-d1 … */
 @theme inline {
   --color-bg: var(--color-bg);
   --color-surface: var(--color-surface);
   --color-surface-2: var(--color-surface-2);
-  --color-sidebar: var(--color-sidebar);
   --color-text: var(--color-text);
   --color-muted: var(--color-muted);
   --color-line: var(--color-line);
   --color-accent: var(--color-accent);
+  --color-accent-text: var(--color-accent-text);
   --color-accent-soft: var(--color-accent-soft);
   --color-on-accent: var(--color-on-accent);
   --color-ok: var(--color-ok);
   --color-ok-soft: var(--color-ok-soft);
+  --color-ok-fill: var(--color-ok-fill);
+  --color-on-ok-fill: var(--color-on-ok-fill);
   --color-bad: var(--color-bad);
   --color-bad-soft: var(--color-bad-soft);
+  --color-bad-fill: var(--color-bad-fill);
+  --color-on-bad-fill: var(--color-on-bad-fill);
+  --color-warn: var(--color-warn);
+  --color-warn-soft: var(--color-warn-soft);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-ink-line: var(--color-ink-line);
+  --color-on-ink: var(--color-on-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-warm: var(--color-warm);
+  --color-d1: var(--color-d1);
+  --color-d2: var(--color-d2);
+  --color-d3: var(--color-d3);
+  --color-d4: var(--color-d4);
+  --color-d5: var(--color-d5);
+  --color-on-d1: var(--color-on-d1);
+  --color-on-d2: var(--color-on-d2);
+  --color-on-d3: var(--color-on-d3);
+  --color-on-d4: var(--color-on-d4);
+  --color-on-d5: var(--color-on-d5);
   --color-code-bg: var(--color-code-bg);
   --color-code-text: var(--color-code-text);
-  --font-sans: 'Manrope', 'Helvetica Neue', Arial, sans-serif;
+  --color-inline-code: var(--color-inline-code);
+  --font-sans: 'Golos Text', 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Unbounded', 'Golos Text', sans-serif;
   --font-mono: 'JetBrains Mono', Menlo, Consolas, monospace;
   --shadow-card: var(--shadow-card);
   --radius-card: var(--radius-card);
+  --radius-panel: var(--radius-panel);
 }
 
 html {
@@ -100,7 +167,18 @@ html {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Reading rhythm for Markdown notes (feature 003 renders into .prose-note). */
+/* Domain swatches by manifest position (1-based): `domain-1` … `domain-5`, cycling after five. */
+@for $i from 1 through 5 {
+  .domain-#{$i} {
+    background: var(--color-d#{$i});
+    color: var(--color-on-d#{$i});
+  }
+  .domain-bar-#{$i} {
+    background: var(--color-d#{$i});
+  }
+}
+
+/* Reading rhythm for Markdown notes (feature 004 renders into .prose-note). */
 .prose-note {
   max-width: 68ch;
   line-height: 1.65;
@@ -115,14 +193,14 @@ html {
   code {
     font-family: var(--font-mono);
     font-size: 0.92em;
-    background: var(--color-surface-2);
+    background: var(--color-inline-code);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: 6px;
   }
   pre {
     background: var(--color-code-bg);
     color: var(--color-code-text);
-    border-radius: var(--radius-card);
+    border-radius: 16px;
     padding: 16px 18px;
     overflow-x: auto;
   }

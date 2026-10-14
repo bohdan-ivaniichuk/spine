@@ -1,8 +1,8 @@
-using InterviewPrep.Application.Review;
+using Spine.Application.Review;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.HttpResults;
 
-namespace InterviewPrep.Api.Errors;
+namespace Spine.Api.Errors;
 
 /// <summary>
 /// The one place where <see cref="ReviewError"/> becomes an HTTP status. Writes RFC 7807 <c>application/problem+json</c>

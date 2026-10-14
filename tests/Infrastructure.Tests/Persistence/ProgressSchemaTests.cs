@@ -1,13 +1,13 @@
-using InterviewPrep.Application.Content;
-using InterviewPrep.Domain.Progress;
-using InterviewPrep.Infrastructure.Content;
-using InterviewPrep.Infrastructure.Persistence;
-using InterviewPrep.Infrastructure.Tests.Content;
+using Spine.Application.Content;
+using Spine.Domain.Progress;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
-namespace InterviewPrep.Infrastructure.Tests.Persistence;
+namespace Spine.Infrastructure.Tests.Persistence;
 
 /// <summary>Principle IV: progress is separate from content and the schema itself enforces item consistency.</summary>
 [Collection(PostgresCollection.Name)]

@@ -17,6 +17,7 @@ describe('SessionSummary', () => {
   const text = () => (root().textContent ?? '').replace(/\s+/g, ' ');
 
   beforeEach(async () => {
+    localStorage.removeItem('spine.lang');
     await TestBed.configureTestingModule({
       imports: [SessionSummary],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],

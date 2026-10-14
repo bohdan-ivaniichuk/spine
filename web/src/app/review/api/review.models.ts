@@ -1,5 +1,6 @@
 /**
- * Review API shapes — one-to-one with `specs/002-review-session/contracts/review-api.md`.
+ * Review API shapes — `specs/002-review-session/contracts/review-api.md` plus the language fields and
+ * coverage of `specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md`.
  * camelCase JSON, dates as ISO-8601 strings; `correct` never appears (the server keeps it).
  */
 
@@ -32,6 +33,9 @@ export interface SessionQuestion {
   domain: Ref;
   topic: Ref;
   concept: Ref;
+  /** Language actually served for prompt/options; `fallback` = UK requested, EN shown. */
+  language?: 'en' | 'uk';
+  fallback?: boolean;
 }
 
 export interface SessionAnswer {
@@ -61,6 +65,8 @@ export interface AnswerFeedback {
   explanation: string;
   nextDueAt: string;
   intervalDays: number;
+  language?: 'en' | 'uk';
+  fallback?: boolean;
 }
 
 export interface SessionLimits {
@@ -112,15 +118,28 @@ export interface StartSessionRequest extends ScopeQuery {
   newLimit?: number;
 }
 
+/** Per-topic counts for the atlas tiles (`GET /api/review/coverage`). */
+export interface TopicCoverage {
+  domain: string;
+  topic: string;
+  eligible: number;
+  seen: number;
+  due: number;
+}
+
+export interface Coverage {
+  topics: TopicCoverage[];
+}
+
 /** Human-readable scope for the progress chip, the overview banner and the summary. */
-export function scopeLabel(scope: ReviewScope): string {
+export function scopeLabel(scope: ReviewScope, allLabel = 'All domains'): string {
   switch (scope.type) {
     case 'domain':
       return scope.domainTitle ?? scope.domain ?? 'Domain';
     case 'topic':
       return `${scope.domainTitle ?? scope.domain ?? ''} › ${scope.topicTitle ?? scope.topic ?? ''}`;
     default:
-      return 'All domains';
+      return allLabel;
   }
 }
 

@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using InterviewPrep.Application.Knowledge;
+using Spine.Application.Knowledge;
 
-namespace InterviewPrep.Api.Tests.Knowledge;
+namespace Spine.Api.Tests.Knowledge;
 
 [Collection("api")]
 [Trait("Category", "Integration")]

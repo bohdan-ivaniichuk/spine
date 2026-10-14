@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content.Seed;
+using Spine.Application.Content.Seed;
 
-namespace InterviewPrep.Application.Tests.Content;
+namespace Spine.Application.Tests.Content;
 
 /// <summary>
 /// Builds a <see cref="ContentSet"/> the way the real importer will: schemas from the repo's

@@ -20,7 +20,9 @@ import { Inline, parsePromptMarkdown } from './prompt-markdown.parser';
       <span>
         @for (part of inlines(); track $index) {
           @if (part.kind === 'code') {
-            <code class="rounded bg-surface-2 px-1 font-mono text-[0.92em]">{{ part.text }}</code>
+            <code class="rounded-md bg-inline-code px-1.5 font-mono text-[0.88em]">{{
+              part.text
+            }}</code>
           } @else {
             {{ part.text }}
           }
@@ -30,14 +32,14 @@ import { Inline, parsePromptMarkdown } from './prompt-markdown.parser';
       @for (block of blocks(); track $index) {
         @if (block.kind === 'code') {
           <pre
-            class="my-3 overflow-x-auto rounded-card bg-code-bg p-4 font-mono text-sm leading-relaxed text-code-text"
+            class="my-3 overflow-x-auto rounded-2xl bg-code-bg p-4 font-mono text-sm leading-relaxed text-code-text"
             [attr.data-language]="block.language || null"
           ><code>{{ block.code }}</code></pre>
         } @else {
           <p class="my-2 whitespace-pre-line leading-relaxed">
             @for (part of block.inlines; track $index) {
               @if (part.kind === 'code') {
-                <code class="rounded bg-surface-2 px-1 font-mono text-[0.92em]">{{
+                <code class="rounded-md bg-inline-code px-1.5 font-mono text-[0.88em]">{{
                   part.text
                 }}</code>
               } @else {

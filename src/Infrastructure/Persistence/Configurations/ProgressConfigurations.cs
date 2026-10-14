@@ -1,9 +1,9 @@
-using InterviewPrep.Domain.Content;
-using InterviewPrep.Domain.Progress;
+using Spine.Domain.Content;
+using Spine.Domain.Progress;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace InterviewPrep.Infrastructure.Persistence.Configurations;
+namespace Spine.Infrastructure.Persistence.Configurations;
 
 internal sealed class LearnerConfiguration : IEntityTypeConfiguration<Learner>
 {

@@ -1,4 +1,4 @@
-# web — InterviewPrep Angular shell
+# web — Spine Angular shell
 
 Angular 22 (zoneless, standalone, signals), Tailwind 4, Vitest. Served by nginx in Docker with `/api`
 proxied to the API.

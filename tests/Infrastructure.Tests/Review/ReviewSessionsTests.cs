@@ -1,20 +1,20 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using InterviewPrep.Application.Content;
-using InterviewPrep.Application.Review;
-using InterviewPrep.Domain.Progress;
-using InterviewPrep.Domain.Scheduling;
-using InterviewPrep.Infrastructure.Content;
-using InterviewPrep.Infrastructure.Persistence;
-using InterviewPrep.Infrastructure.Review;
-using InterviewPrep.Infrastructure.Tests.Content;
+using Spine.Application.Content;
+using Spine.Application.Review;
+using Spine.Domain.Progress;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Review;
+using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
-namespace InterviewPrep.Infrastructure.Tests.Review;
+namespace Spine.Infrastructure.Tests.Review;
 
 /// <summary>
 /// Session building, answering and finishing against a real PostgreSQL with a pinned clock. Default content has four
@@ -198,7 +198,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         feedback.ShouldBe(new AnswerFeedbackDto(
             TopicTemplate.Mcq1, Correct, true, Correct,
             "B is right because of the layout rules; A, C and D describe other cases.",
-            Start.AddDays(1), 1));
+            Start.AddDays(1), 1, "en", false));
 
         await using var db = fixture.CreateContext();
         var attempt = await db.Attempts.SingleAsync();

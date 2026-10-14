@@ -1,4 +1,4 @@
-namespace InterviewPrep.Domain.Content;
+namespace Spine.Domain.Content;
 
 /// <summary>Top-level knowledge area (e.g. dotnet, angular). Ordered and titled by the manifest.</summary>
 public sealed class Domain

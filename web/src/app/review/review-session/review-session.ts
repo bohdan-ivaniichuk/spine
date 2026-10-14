@@ -5,10 +5,12 @@ import {
   ElementRef,
   OnInit,
   afterRenderEffect,
+  computed,
   inject,
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { I18n } from '../../shared/i18n/i18n';
 import { FeedbackPanel } from '../feedback-panel/feedback-panel';
 import { OptionList } from '../option-list/option-list';
 import { ProgressBar } from '../progress-bar/progress-bar';
@@ -18,7 +20,9 @@ import { OVERVIEW_ROUTE, SessionStore } from '../session-store';
 const DIGIT_KEYS = ['1', '2', '3', '4'];
 const LETTER_KEYS = ['a', 'b', 'c', 'd'];
 
-/** One question at a time: progress, card, options, feedback, Check / Next / End session. */
+export type RailState = 'correct' | 'wrong' | 'current' | 'todo';
+
+/** One question at a time: session rail, progress, card, options, feedback, Check / Next / End session. */
 @Component({
   selector: 'app-review-session',
   imports: [ProgressBar, QuestionCard, OptionList, FeedbackPanel],
@@ -28,12 +32,27 @@ const LETTER_KEYS = ['a', 'b', 'c', 'd'];
 })
 export class ReviewSession implements OnInit {
   protected readonly store = inject(SessionStore);
+  protected readonly i18n = inject(I18n);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
   private readonly feedbackPanel = viewChild(FeedbackPanel, { read: ElementRef<HTMLElement> });
   private readonly card = viewChild<ElementRef<HTMLElement>>('card');
   /** Id of the question whose feedback holds focus; cleared once focus moves to the next card. */
   private checkedQuestionId: string | null = null;
+
+  /** The session list on the left: concept titles with ✓ / ✗ / position. */
+  protected readonly rail = computed(() => {
+    const answered = this.store.answered();
+    const currentId = this.store.current()?.id;
+    return this.store.questions().map((q, i) => {
+      const answer = answered.get(q.id);
+      let state: RailState = q.id === currentId ? 'current' : 'todo';
+      if (answer) {
+        state = answer.isCorrect ? 'correct' : 'wrong';
+      }
+      return { id: q.id, title: q.concept.title, position: i + 1, state };
+    });
+  });
 
   constructor() {
     // The Check button is replaced by Next and the radios get disabled, so focus would fall to
@@ -89,9 +108,7 @@ export class ReviewSession implements OnInit {
     const answered = this.store.answeredCount();
     const total = this.store.total();
     const confirmed =
-      this.document.defaultView?.confirm(
-        `End the session now? ${answered} of ${total} answered; the summary will reflect those.`,
-      ) ?? true;
+      this.document.defaultView?.confirm(this.i18n.t().session.endConfirm(answered, total)) ?? true;
     if (confirmed) {
       void this.store.finish();
     }

@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using InterviewPrep.Application.Knowledge;
+using Spine.Application.Knowledge;
 
-namespace InterviewPrep.Api.Tests.Knowledge;
+namespace Spine.Api.Tests.Knowledge;
 
 /// <summary>Runs against its own container so the database is guaranteed empty.</summary>
 [Trait("Category", "Integration")]

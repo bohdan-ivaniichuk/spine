@@ -7,7 +7,7 @@ describe('Theme', () => {
   let root: HTMLElement;
 
   beforeEach(() => {
-    localStorage.removeItem('interviewprep.theme');
+    localStorage.removeItem('spine.theme');
     document.documentElement.removeAttribute('data-theme');
     TestBed.configureTestingModule({});
     theme = TestBed.inject(Theme);
@@ -27,11 +27,11 @@ describe('Theme', () => {
     const after = before === 'dark' ? 'light' : 'dark';
     expect(theme.effective()).toBe(after);
     expect(root.getAttribute('data-theme')).toBe(after);
-    expect(localStorage.getItem('interviewprep.theme')).toBe(after);
+    expect(localStorage.getItem('spine.theme')).toBe(after);
   });
 
   it('restores a stored preference on start', () => {
-    localStorage.setItem('interviewprep.theme', 'dark');
+    localStorage.setItem('spine.theme', 'dark');
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({});
     const fresh = TestBed.inject(Theme);

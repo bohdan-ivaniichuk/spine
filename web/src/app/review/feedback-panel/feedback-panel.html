@@ -1,20 +1,27 @@
 @if (feedback(); as fb) {
+  @let t = i18n.t();
   <section
-    class="rounded-card border p-4 text-sm text-text"
-    [class]="fb.isCorrect ? 'border-ok bg-ok-soft' : 'border-bad bg-bad-soft'"
+    class="flex flex-col gap-3 rounded-[24px] bg-ink p-6 text-on-ink"
     [attr.data-result]="fb.isCorrect ? 'correct' : 'incorrect'"
   >
-    <p
-      class="border-l-4 pl-3 text-base font-semibold text-text"
-      [class]="fb.isCorrect ? 'border-ok' : 'border-bad'"
+    <div class="flex flex-wrap items-center gap-3">
+      <p
+        class="font-display text-[22px] font-extrabold tracking-[-0.03em]"
+        [class]="fb.isCorrect ? 'text-on-ink' : 'text-warm'"
+      >
+        <span aria-hidden="true" class="mr-2">{{ fb.isCorrect ? '✓' : '✗' }}</span
+        >{{ fb.isCorrect ? t.feedback.correct : t.feedback.incorrect }}
+      </p>
+      <span class="grow"></span>
+      <span class="rounded-full bg-ink-2 px-3 py-1.5 font-mono text-xs text-ink-muted">{{
+        t.feedback.nextIn(fb.intervalDays)
+      }}</span>
+    </div>
+    <div
+      class="text-[15px] leading-relaxed text-ink-muted [&_code]:bg-ink-2 [&_code]:text-on-ink"
+      [attr.lang]="fb.language ?? null"
     >
-      {{ fb.isCorrect ? 'Correct' : 'Incorrect' }}
-    </p>
-    <div class="mt-1">
       <app-prompt-markdown [source]="fb.explanation" />
     </div>
-    <p class="mt-2 text-xs text-muted">
-      Next review in {{ fb.intervalDays }} {{ fb.intervalDays === 1 ? 'day' : 'days' }}
-    </p>
   </section>
 }
