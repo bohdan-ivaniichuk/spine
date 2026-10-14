@@ -159,3 +159,12 @@ scripts/validate-content.sh
 - **`secrets-scan` blocks any connection string with a literal password.** Keep passwords out of every
   committed file: compose interpolates `${POSTGRES_PASSWORD}`, local runs export `PGPASSWORD` or
   `ConnectionStrings__Default` from `.env`.
+
+<!-- lockflight:begin -->
+## Lockflight
+
+This project is gated by Lockflight. Protected files (`lockflight.yaml`, `.lockflight/`, Claude Code settings, hooks, agents,
+skills and commands, build and package config, each unit's control files) are changed by a person or a `lockflight` command,
+not by the agent; the guard blocks the rest. Approvals, baselines and `redgreen reset` are human decisions: ask the user.
+Start Claude Code at this directory so these settings load. `lockflight doctor` shows what is missing.
+<!-- lockflight:end -->

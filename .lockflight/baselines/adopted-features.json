@@ -1,0 +1,7 @@
+{
+  "schema": "lockflight.baseline.features/v1",
+  "features": [
+    "001-foundation",
+    "002-review-session"
+  ]
+}

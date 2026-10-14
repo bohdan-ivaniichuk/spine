@@ -6,7 +6,10 @@
 version: 1
 
 # Extra paths the agent must not change.
-protected: []
+protected:
+  - "**/docker-compose.override.yml"
+  - "**/.env"
+  - "**/appsettings.Local.json"
 
 # Stop gate: run build + tests when the agent ends a turn (at most 540 s, below the plugin's Stop hook timeout).
 # Off in the lite profile; turn it on once you know how long your build and tests take.
