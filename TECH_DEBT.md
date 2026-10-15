@@ -10,8 +10,8 @@ Add items as they are discovered; remove them when fixed (with the commit).
 |---|---|---|
 | Critical | 0 | — |
 | High | 0 | — |
-| Medium | 3 | Light-theme contrast below AA; Start/Answer race; retried commit can 409 |
-| Low | 10 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
+| Medium | 4 | Light-theme contrast below AA; Start/Answer race; retried commit can 409; npm audit advisories |
+| Low | 12 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
 
 ## 1. Content pipeline
 
@@ -103,3 +103,28 @@ validator as the importer (`import-content --validate-only`)._
   researcher). Decide between the wrapper and loading `monaco-editor` directly in a `@defer` block
   during feature 004.
 - **Effort:** XS (decide at 004 planning)
+
+### 3.2 [MEDIUM] `npm audit` reports 9 advisories in the Angular toolchain
+- **Files:** `web/package-lock.json`
+- **Problem:** 3 critical (`@angular/build` → `piscina`, `proxy-addr`), 4 high (`@angular/cli` →
+  `@modelcontextprotocol/sdk`, `@angular/router` SSR DoS, `source-map-js`), 2 moderate (`fast-uri`,
+  `ip-address`). None come from the 004 additions (`markdown-it`, `highlight.js`); all are dev/build-time
+  or SSR paths this app does not use, but the router one is a runtime package.
+- **Fix:** bump Angular to the patched 22.x and re-run `npm audit` (checked 2026-10-15).
+- **Effort:** S
+
+### 3.3 [LOW] Lockflight trace sees only .NET tests
+- **Files:** `specs/004-knowledge-atlas-notes/`
+- **Problem:** `lockflight trace` reports FR-001…007, FR-011, FR-013…015 of 004 as "not covered" because
+  they are verified by Vitest specs, which Lockflight does not run or trace.
+- **Fix:** a Lockflight-side mapping for non-.NET evidence, or accept and record the gap per feature.
+- **Effort:** — (engine change)
+
+## 4. Knowledge atlas (feature 004)
+
+### 4.1 [LOW] Internal links inside notes reload the app
+- **Files:** `web/src/app/knowledge/concept-note/`
+- **Problem:** notes render plain `<a href>`; an `/atlas/...` link does a full reload.
+- **Fix:** delegated click handler in `ConceptNote` → `router.navigateByUrl` for same-origin clicks, once
+  notes cross-link.
+- **Effort:** XS

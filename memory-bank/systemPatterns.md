@@ -70,3 +70,15 @@ say so rather than deleting.
 - Spec Kit feature folders under `specs/NNN-*`; `specs/000-taxonomy.md` is content scope, not a feature.
 - Hooks: blocking secrets scan + local-file guard; confirm on commit/push; format after edit.
 - Subagents run in fresh context; reviewers are read-only and report by severity.
+
+## Readiness and scopes (004)
+
+- Readiness is derived from `review_states` (never stored) in the review module, not the knowledge read
+  model: `IReadinessQueries` → `GET /api/review/readiness`; pure math in `ReadinessCalculator`, rule in
+  `Domain/Progress/ReadinessRule` (interval ≥ 7 days).
+- Sessions and readiness share `Infrastructure/Review/ReviewQueryables.Eligible` — "schedulable" means the
+  same thing in both. Scope types: all / domain / topic / concept (`ck_sessions_scope` mirrors
+  `ReviewScope.IsValid` and `ScopeRules`).
+- Web `knowledge/`: `AtlasLayout` provides a per-visit `ReadinessStore`; the concept page is a lazy route
+  (renderer deps stay out of the initial bundle); cross-feature UI lives in `shared/` (badges, i18n).
+

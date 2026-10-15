@@ -16,16 +16,20 @@ export const topicScope: ReviewScope = {
   type: 'topic',
   domain: 'dotnet',
   topic: 'clr-memory',
+  concept: null,
   domainTitle: 'C# & .NET Runtime',
   topicTitle: 'Memory & GC',
+  conceptTitle: null,
 };
 
 export const allScope: ReviewScope = {
   type: 'all',
   domain: null,
   topic: null,
+  concept: null,
   domainTitle: null,
   topicTitle: null,
+  conceptTitle: null,
 };
 
 export function question(n: number, overrides: Partial<SessionQuestion> = {}): SessionQuestion {

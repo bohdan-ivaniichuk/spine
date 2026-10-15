@@ -57,11 +57,17 @@
           </div>
         } @else if (scopeQuery() === undefined) {
           <p class="text-ink-muted">
-            {{
-              form.controls.scopeType.value === 'topic'
-                ? t.overview.pickTopic
-                : t.overview.pickDomain
-            }}
+            @switch (form.controls.scopeType.value) {
+              @case ('topic') {
+                {{ t.overview.pickTopic }}
+              }
+              @case ('concept') {
+                {{ t.overview.pickConcept }}
+              }
+              @default {
+                {{ t.overview.pickDomain }}
+              }
+            }
           </p>
         } @else if (overview.hasValue()) {
           @let o = overview.value();
@@ -117,6 +123,7 @@
             <option value="all">{{ t.overview.scopeAll }}</option>
             <option value="domain">{{ t.overview.scopeDomain }}</option>
             <option value="topic">{{ t.overview.scopeTopic }}</option>
+            <option value="concept">{{ t.overview.scopeConcept }}</option>
           </select>
         </label>
 
@@ -135,7 +142,9 @@
           </label>
         }
 
-        @if (form.controls.scopeType.value === 'topic') {
+        @if (
+          form.controls.scopeType.value === 'topic' || form.controls.scopeType.value === 'concept'
+        ) {
           <label class="grid gap-1.5 text-xs text-ink-muted">
             {{ t.overview.topic }}
             <select
@@ -145,6 +154,23 @@
               <option value="">{{ t.overview.chooseTopic }}</option>
               @for (topic of topics(); track topic.slug) {
                 <option [value]="topic.slug">{{ topic.title }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (form.controls.scopeType.value === 'concept') {
+          <label class="grid gap-1.5 text-xs text-ink-muted">
+            {{ t.overview.concept }}
+            <select
+              formControlName="concept"
+              class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-3 text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            >
+              <option value="">{{ t.overview.chooseConcept }}</option>
+              @for (concept of concepts(); track concept.slug) {
+                <option [value]="concept.slug" [attr.lang]="concept.titleFallback ? 'en' : null">
+                  {{ concept.title }}
+                </option>
               }
             </select>
           </label>
@@ -219,7 +245,10 @@
               (click)="pickDomain(d.slug)"
             >
               <span class="font-display text-[28px] font-extrabold">{{ pad(d.position) }}</span>
-              <span class="text-[15px] leading-snug font-semibold">{{ d.title }}</span>
+              <span class="text-[15px] leading-snug font-semibold"
+                ><span [attr.lang]="d.titleFallback ? 'en' : null">{{ d.title }}</span>
+                <app-en-badge [fallback]="d.titleFallback"
+              /></span>
             </button>
             <ul class="flex flex-col gap-3 px-[18px] pt-4 pb-5 text-sm">
               @for (topic of d.topics; track topic.slug) {
@@ -233,8 +262,11 @@
                       <span class="flex w-full justify-between gap-2">
                         <span
                           ><span class="sr-only">{{ t.overview.reviewPrefix }} </span
-                          >{{ topic.title }}</span
-                        >
+                          ><span [attr.lang]="topic.titleFallback ? 'en' : null">{{
+                            topic.title
+                          }}</span>
+                          <app-en-badge [fallback]="topic.titleFallback"
+                        /></span>
                         <span class="font-mono text-muted"
                           >{{ topic.coverage.seen }}/{{ topic.coverage.eligible }}</span
                         >
@@ -258,7 +290,10 @@
                     </button>
                   </li>
                 } @else {
-                  <li class="text-muted">{{ topic.title }} · {{ t.overview.soon }}</li>
+                  <li class="text-muted">
+                    <span [attr.lang]="topic.titleFallback ? 'en' : null">{{ topic.title }}</span>
+                    <app-en-badge [fallback]="topic.titleFallback" /> · {{ t.overview.soon }}
+                  </li>
                 }
               }
               @if (!d.hasContent) {

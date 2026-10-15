@@ -3,7 +3,15 @@ namespace Spine.Application.Review;
 // Shapes are the Angular contract (specs/002-review-session/contracts/review-api.md, extended by
 // specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md); property names serialize camelCase.
 
-public sealed record ScopeDto(string Type, string? Domain, string? Topic, string? DomainTitle, string? TopicTitle);
+/// <summary><c>Concept</c> and <c>ConceptTitle</c> are set only for the <c>concept</c> scope (feature 004).</summary>
+public sealed record ScopeDto(
+    string Type,
+    string? Domain,
+    string? Topic,
+    string? DomainTitle,
+    string? TopicTitle,
+    string? Concept = null,
+    string? ConceptTitle = null);
 
 public sealed record RefDto(string Slug, string Title);
 
@@ -76,3 +84,15 @@ public sealed record SessionSummaryDto(
 public sealed record TopicCoverageDto(string Domain, string Topic, int Eligible, int Seen, int Due);
 
 public sealed record ReviewCoverageDto(IReadOnlyList<TopicCoverageDto> Topics);
+
+/// <summary>
+/// Readiness of the local learner (specs/004-knowledge-atlas-notes/contracts/readiness-api.md). <c>State</c> is
+/// <c>not-started</c> | <c>in-progress</c> | <c>ready</c>; <c>Percent</c> is null when no concept counts.
+/// </summary>
+public sealed record ConceptReadinessDto(string Concept, string State, int Questions, int ReadyQuestions);
+
+public sealed record TopicReadinessDto(string Topic, int Ready, int Counted, int? Percent, IReadOnlyList<ConceptReadinessDto> Concepts);
+
+public sealed record DomainReadinessDto(string Domain, int Ready, int Counted, int? Percent, IReadOnlyList<TopicReadinessDto> Topics);
+
+public sealed record ReadinessDto(IReadOnlyList<DomainReadinessDto> Domains);

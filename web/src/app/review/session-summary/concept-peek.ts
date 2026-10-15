@@ -5,7 +5,8 @@ import { I18n, withLang } from '../../shared/i18n/i18n';
 import { PromptMarkdown } from '../prompt-markdown/prompt-markdown';
 
 /**
- * A weak concept's note shown in place on the summary, until feature 003 routes concept pages.
+ * A weak concept's note shown in place on the summary (a quick peek; the full note lives on the
+ * Atlas concept page, `/atlas/{domain}/{topic}/{concept}`).
  * The prompt Markdown subset renders fences and inline code; heading markers and bold asterisks are
  * stripped so the note reads cleanly without a full Markdown renderer.
  */

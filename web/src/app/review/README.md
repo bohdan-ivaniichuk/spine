@@ -16,7 +16,7 @@ card at a time with instant feedback, summary with weak concepts. Codes against
 | `review-session/`                                                    | The card page; `document:keydown` shortcuts — `1`–`4` / `A`–`D` select, `Enter` checks then advances                                                          |
 | `question-card/`, `option-list/`, `feedback-panel/`, `progress-bar/` | Leaf components, token-only styling (ADR 0004)                                                                                                                |
 | `prompt-markdown/`                                                   | Dependency-free parser for fenced + inline code; renders through interpolation only (no `innerHTML`)                                                          |
-| `session-summary/`                                                   | Counts, accuracy, weak concepts (links to the 003 route `/knowledge/{domain}/{topic}/{concept}`), Review again                                                |
+| `session-summary/`                                                   | Counts, accuracy, weak concepts (note peek in place), Review again (keeps the scope, incl. concept)                                                           |
 | `testing/fixtures.ts`                                                | Contract-shaped fixtures shared by the specs                                                                                                                  |
 
 ## Behaviour notes

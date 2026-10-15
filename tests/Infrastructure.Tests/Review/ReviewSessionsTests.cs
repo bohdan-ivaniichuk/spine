@@ -130,6 +130,59 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     }
 
     [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Concept_scope_only_contains_that_concepts_live_mcqs_and_carries_its_title()
+    {
+        await AddAsyncTopicAsync();
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Database.ExecuteSqlAsync($"UPDATE questions SET deprecated_at = {Start} WHERE id = {TopicTemplate.Mcq2}");
+        }
+
+        var scope = ReviewScope.ForConcept("dotnet", "clr-memory", TopicTemplate.StackVsHeap);
+        var overview = await _sut.GetOverviewAsync(scope);
+        var session = await _sut.StartAsync(scope, 20, 10);
+
+        Assert.Equal(1, overview.TotalEligible);
+        Assert.Equal([TopicTemplate.Mcq1], session.Questions.Select(q => q.Id));
+        var expected = new ScopeDto("concept", "dotnet", "clr-memory", "C# & .NET Runtime", "Memory & GC", TopicTemplate.StackVsHeap, "Stack vs Heap");
+        Assert.Equal(expected, session.Scope);
+        Assert.Equal(expected, (await _sut.GetCurrentAsync())!.Scope);
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Unknown_or_deprecated_concept_is_ScopeNotFound()
+    {
+        var unknownConcept = ReviewScope.ForConcept("dotnet", "clr-memory", "nope");
+        var wrongTopic = ReviewScope.ForConcept("dotnet", "nope", TopicTemplate.StackVsHeap);
+        var deprecated = ReviewScope.ForConcept("dotnet", "clr-memory", TopicTemplate.SpanMemory);
+
+        (await Should.ThrowAsync<ReviewException>(() => _sut.GetOverviewAsync(unknownConcept))).Kind.ShouldBe(ReviewError.ScopeNotFound);
+        (await Should.ThrowAsync<ReviewException>(() => _sut.StartAsync(wrongTopic, 20, 10))).Kind.ShouldBe(ReviewError.ScopeNotFound);
+
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Database.ExecuteSqlAsync($"UPDATE concepts SET deprecated_at = {Start} WHERE slug = {TopicTemplate.SpanMemory}");
+        }
+
+        (await Should.ThrowAsync<ReviewException>(() => _sut.StartAsync(deprecated, 20, 10))).Kind.ShouldBe(ReviewError.ScopeNotFound);
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Starting_a_concept_session_finishes_the_open_one()
+    {
+        var first = await _sut.StartAsync(ReviewScope.All, 2, 2);
+
+        var second = await _sut.StartAsync(ReviewScope.ForConcept("dotnet", "clr-memory", TopicTemplate.SpanMemory), 20, 10);
+
+        Assert.Equal(second.Id, (await _sut.GetCurrentAsync())!.Id);
+        Assert.NotNull((await _sut.GetAsync(first.Id))!.FinishedAt);
+        Assert.Equal([TopicTemplate.SpanMcq1, TopicTemplate.SpanMcq2], second.Questions.Select(q => q.Id));
+    }
+
+    [Fact]
     public async Task Invalid_scope_shape_is_rejected_before_touching_the_database()
     {
         await Should.ThrowAsync<ArgumentException>(() => _sut.GetOverviewAsync(new ReviewScope(SessionScopeType.Topic, "dotnet", null)));

@@ -1,6 +1,6 @@
 /**
- * Shape of `GET /api/knowledge/concepts/{domain}/{topic}/{concept}` (feature 001), as far as the
- * review summary needs it. Feature 003 extends it for the concept page.
+ * Shape of `GET /api/knowledge/concepts/{domain}/{topic}/{concept}` (feature 001), used by the
+ * review summary's concept peek and the Atlas concept page (feature 004).
  */
 export interface KnowledgeConcept {
   domain: { slug: string; title: string };

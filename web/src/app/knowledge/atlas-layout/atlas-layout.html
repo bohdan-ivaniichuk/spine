@@ -1,0 +1,30 @@
+@let t = i18n.t();
+<div #top tabindex="-1" class="mx-auto flex max-w-[1180px] flex-col gap-6 outline-none">
+  <nav [attr.aria-label]="t.atlas.breadcrumb">
+    <ol class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+      @for (crumb of crumbs(); track $index) {
+        <li
+          class="flex min-w-0 items-center gap-1.5 not-first:before:text-muted not-first:before:content-['›'] not-first:before:mr-0.5"
+        >
+          @if (crumb.link) {
+            <a
+              class="rounded-md break-words text-muted hover:text-accent-text hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              [routerLink]="crumb.link"
+              [attr.lang]="crumb.fallback ? 'en' : null"
+              >{{ crumb.label }}</a
+            >
+          } @else {
+            <span
+              aria-current="page"
+              class="font-semibold break-words text-text"
+              [attr.lang]="crumb.fallback ? 'en' : null"
+              >{{ crumb.label }}</span
+            >
+          }
+          <app-en-badge [fallback]="crumb.fallback" />
+        </li>
+      }
+    </ol>
+  </nav>
+  <router-outlet />
+</div>

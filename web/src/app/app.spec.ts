@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { App } from './app';
 import { I18n } from './shared/i18n/i18n';
 import { TREE, answerTree } from './review/testing/fixtures';
@@ -11,7 +11,14 @@ describe('App', () => {
     localStorage.removeItem('spine.lang');
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([
+          { path: 'atlas', children: [] },
+          { path: 'atlas/:domain', children: [] },
+        ]),
+      ],
     }).compileComponents();
   });
 
@@ -59,5 +66,36 @@ describe('App', () => {
     TestBed.inject(I18n).set('en');
     TestBed.tick();
     answerTree(http);
+  });
+
+  it('links the rail "Atlas" item to /atlas without "soon" and marks it active inside the Atlas', async () => {
+    const { fixture, root } = await render();
+
+    const atlas = root.querySelector<HTMLAnchorElement>('nav[aria-label="Main"] a[href="/atlas"]')!;
+    expect(atlas).not.toBeNull();
+    expect(atlas.textContent).toContain('Atlas');
+    expect(atlas.textContent).not.toContain('soon');
+    expect(atlas.getAttribute('aria-current')).toBeNull();
+
+    await TestBed.inject(Router).navigateByUrl('/atlas');
+    await fixture.whenStable();
+
+    expect(atlas.getAttribute('aria-current')).toBe('page');
+    expect(atlas.className).toContain('bg-accent');
+  });
+
+  it('highlights the domain tab of the Atlas domain being browsed (tabs still open Review)', async () => {
+    const { fixture, root } = await render();
+    const tab = () => root.querySelector<HTMLAnchorElement>('nav[aria-label="Domains"] a')!;
+
+    await TestBed.inject(Router).navigateByUrl('/atlas');
+    await fixture.whenStable();
+    expect(tab().className).not.toContain('ring-2');
+
+    await TestBed.inject(Router).navigateByUrl('/atlas/dotnet');
+    await fixture.whenStable();
+    expect(tab().className).toContain('ring-2');
+    expect(tab().className).toContain('domain-1');
+    expect(tab().getAttribute('href')).toBe('/review?scope=domain&domain=dotnet');
   });
 });

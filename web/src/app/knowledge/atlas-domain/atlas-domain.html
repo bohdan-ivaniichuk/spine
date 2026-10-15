@@ -1,0 +1,82 @@
+@let t = i18n.t();
+@if (view(); as d) {
+  <header class="mb-8 flex flex-wrap items-center gap-4">
+    <span
+      class="flex size-16 shrink-0 items-center justify-center rounded-[20px] font-display text-2xl font-extrabold"
+      [class]="'domain-' + d.position"
+      aria-hidden="true"
+      >{{ d.number }}</span
+    >
+    <div class="flex min-w-0 flex-[1_1_16rem] flex-col gap-1">
+      <h1
+        class="font-display text-[clamp(1.6rem,3.5vw,2.4rem)] leading-tight font-extrabold tracking-[-0.04em] break-words text-text"
+      >
+        <span class="sr-only">{{ t.atlas.domainNumber(d.number) }}: </span
+        ><span [attr.lang]="d.titleFallback ? 'en' : null">{{ d.title }}</span>
+        <app-en-badge [fallback]="d.titleFallback" />
+      </h1>
+      <p class="font-mono text-sm text-muted">{{ t.atlas.conceptCount(d.conceptCount) }}</p>
+    </div>
+    <a
+      routerLink="/review"
+      [queryParams]="{ scope: 'domain', domain: d.slug }"
+      class="rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >{{ t.atlas.reviewDomain }}</a
+    >
+    <app-readiness-bar
+      class="w-full max-w-[32rem]"
+      [readiness]="readiness.domain(d.slug)"
+      [position]="d.position"
+    />
+  </header>
+
+  <section aria-labelledby="atlas-topics-h">
+    <h2 id="atlas-topics-h" class="sr-only">{{ t.atlas.topics }}</h2>
+    <ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))] gap-4">
+      @for (topic of d.topics; track topic.slug) {
+        <li>
+          @if (topic.conceptCount > 0) {
+            <a
+              class="flex h-full flex-col gap-3 rounded-card bg-surface p-5 shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              [routerLink]="['/atlas', d.slug, topic.slug]"
+            >
+              <span class="h-1.5 w-10 rounded-full" [class]="'domain-bar-' + d.position"></span>
+              <span class="text-[17px] leading-snug font-semibold break-words"
+                ><span [attr.lang]="topic.titleFallback ? 'en' : null">{{ topic.title }}</span>
+                <app-en-badge [fallback]="topic.titleFallback"
+              /></span>
+              <span class="font-mono text-xs text-muted">{{
+                t.atlas.conceptCount(topic.conceptCount)
+              }}</span>
+              <app-readiness-bar
+                class="mt-auto"
+                [readiness]="readiness.topic(d.slug, topic.slug)"
+                [position]="d.position"
+              />
+            </a>
+          } @else {
+            <div
+              role="link"
+              aria-disabled="true"
+              class="flex h-full flex-col gap-3 rounded-card border border-dashed border-line p-5 text-muted"
+              [attr.title]="t.atlas.soonHint"
+            >
+              <span class="h-1.5 w-10 rounded-full bg-line"></span>
+              <span class="text-[17px] leading-snug font-semibold break-words"
+                ><span [attr.lang]="topic.titleFallback ? 'en' : null">{{ topic.title }}</span>
+                <app-en-badge [fallback]="topic.titleFallback"
+              /></span>
+              <span class="self-start rounded-full border border-dashed border-line px-2 text-xs">{{
+                t.atlas.soon
+              }}</span>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+  </section>
+} @else if (loaded()) {
+  <app-atlas-not-found />
+} @else {
+  <app-atlas-status />
+}

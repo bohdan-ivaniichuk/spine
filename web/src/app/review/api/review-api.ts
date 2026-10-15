@@ -22,6 +22,9 @@ export function overviewUrl(query: ScopeQuery, lang: Lang = 'en'): string {
   if (query.topic) {
     params = params.set('topic', query.topic);
   }
+  if (query.concept) {
+    params = params.set('concept', query.concept);
+  }
   return withLang(`${BASE}/overview?${params.toString()}`, lang);
 }
 

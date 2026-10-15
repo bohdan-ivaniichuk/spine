@@ -38,9 +38,11 @@
         </svg>
         {{ t.app.review }}
       </a>
-      <span
-        class="flex w-[72px] cursor-default flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-medium text-ink-muted opacity-70"
-        [attr.title]="t.app.atlas + ' — ' + t.app.soon"
+      <a
+        routerLink="/atlas"
+        routerLinkActive="bg-accent text-on-accent"
+        ariaCurrentWhenActive="page"
+        class="flex w-[72px] flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-semibold text-ink-muted hover:text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
       >
         <svg
           aria-hidden="true"
@@ -57,10 +59,7 @@
           <path d="M9 4v13.5M15 6.5V20" />
         </svg>
         {{ t.app.atlas }}
-        <span class="rounded-full bg-ink-2 px-1.5 text-[9px] uppercase tracking-wide">{{
-          t.app.soon
-        }}</span>
-      </span>
+      </a>
       <span
         class="flex w-[72px] cursor-default flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-medium text-ink-muted opacity-70"
         [attr.title]="t.app.katas + ' — ' + t.app.soon"
@@ -98,7 +97,11 @@
             routerLink="/review"
             [queryParams]="{ scope: 'domain', domain: d.slug }"
             class="flex h-[34px] w-10 shrink-0 items-center justify-center rounded-[10px] font-mono text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
-            [class]="'domain-' + d.position"
+            [class]="
+              'domain-' +
+              d.position +
+              (atlasDomain() === d.slug ? ' ring-2 ring-on-ink ring-offset-2 ring-offset-ink' : '')
+            "
             [attr.aria-label]="t.app.reviewDomain(pad(d.position), d.title)"
             [attr.title]="d.title"
             >{{ pad(d.position) }}</a

@@ -5,6 +5,7 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { BehaviorSubject } from 'rxjs';
 import { I18n } from '../../shared/i18n/i18n';
 import { KnowledgeTree } from '../../knowledge/api/knowledge-tree.models';
+import { treeConcept } from '../../knowledge/testing/atlas-fixtures';
 import { Coverage, Session } from '../api/review.models';
 import { SessionStore } from '../session-store';
 import { overview, session, settle } from '../testing/fixtures';
@@ -64,6 +65,26 @@ const ukTree: KnowledgeTree = {
         }
       : { ...d, titleFallback: true },
   ),
+};
+
+/** `tree` with concepts under clr-memory (one deprecated) for the concept scope. */
+const conceptTree: KnowledgeTree = {
+  ...tree,
+  domains: tree.domains.map((d) => ({
+    ...d,
+    topics: d.topics.map((t) =>
+      t.slug === 'clr-memory'
+        ? {
+            ...t,
+            concepts: [
+              treeConcept('stack-vs-heap', { title: 'Stack vs heap', sortOrder: 1 }),
+              treeConcept('retired', { sortOrder: 2, deprecatedAt: '2026-01-01T00:00:00+00:00' }),
+              treeConcept('gc-modes', { title: 'GC modes', sortOrder: 3 }),
+            ],
+          }
+        : t,
+    ),
+  })),
 };
 
 const coverage: Coverage = {
@@ -372,8 +393,11 @@ describe('ReviewOverview', () => {
     expect(tiles[0].textContent).toContain('C# та середовище виконання .NET');
     expect(tiles[0].textContent).toContain("Пам'ять і GC");
     expect(tiles[0].textContent).not.toContain('C# & .NET Runtime');
-    // `angular` has no Ukrainian title: it falls back to English, intentionally without a badge here.
-    expect(tiles[1].textContent).toContain('Angular');
+    expect(tiles[0].querySelector('[lang=en]')).toBeNull();
+    // `angular` has no Ukrainian title: it falls back to English with the EN badge and lang="en".
+    expect(tiles[1].querySelector('[lang=en]')?.textContent).toContain('Angular');
+    expect(tiles[1].querySelector('app-en-badge')?.textContent).toContain('EN');
+    expect(tiles[0].querySelector('app-en-badge')?.textContent?.trim() ?? '').toBe('');
     // Domain scope without a picked domain issues no overview request (afterEach verifies).
     setSelect('scopeType', 'domain');
     await settle(fixture);
@@ -381,5 +405,109 @@ describe('ReviewOverview', () => {
       'C# та середовище виконання .NET',
     );
     TestBed.inject(I18n).set('en');
+  });
+
+  it('marks fallback topic titles in the atlas tiles with the EN badge under Ukrainian', async () => {
+    TestBed.inject(I18n).set('uk');
+    fixture = TestBed.createComponent(ReviewOverview);
+    fixture.detectChanges();
+    TestBed.tick();
+    http.expectOne('/api/knowledge/tree?lang=uk').flush({
+      ...ukTree,
+      domains: ukTree.domains.map((d) => ({
+        ...d,
+        topics: d.topics.map((t) => ({ ...t, title: 'Memory & GC', titleFallback: true })),
+      })),
+    });
+    http
+      .expectOne('/api/review/sessions/current?lang=uk')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    http.expectOne('/api/review/overview?scope=all&lang=uk').flush(overview());
+    http.expectOne('/api/review/coverage?lang=uk').flush(coverage);
+    await settle(fixture);
+
+    const topic = root().querySelector('article li button')!;
+    expect(topic.querySelector('[lang=en]')?.textContent).toContain('Memory & GC');
+    expect(topic.querySelector('app-en-badge')?.textContent).toContain('EN');
+    TestBed.inject(I18n).set('en');
+  });
+
+  it('presets ?scope=concept&domain=&topic=&concept= and the concept select follows the topic', async () => {
+    queryParams.next(
+      convertToParamMap({
+        scope: 'concept',
+        domain: 'dotnet',
+        topic: 'clr-memory',
+        concept: 'gc-modes',
+      }),
+    );
+    fixture = TestBed.createComponent(ReviewOverview);
+    fixture.detectChanges();
+    TestBed.tick();
+    http.expectOne('/api/knowledge/tree').flush(conceptTree);
+    http
+      .expectOne('/api/review/sessions/current')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne(
+        '/api/review/overview?scope=concept&domain=dotnet&topic=clr-memory&concept=gc-modes',
+      )
+      .flush(overview({ newCount: 3, totalEligible: 3 }));
+    http.expectOne('/api/review/coverage').flush(coverage);
+    await settle(fixture);
+
+    expect(select('scopeType').value).toBe('concept');
+    expect(select('topic').value).toBe('clr-memory');
+    expect(select('concept').value).toBe('gc-modes');
+    expect(Array.from(select('concept').options).map((o) => o.value)).toEqual([
+      '',
+      'stack-vs-heap',
+      'gc-modes',
+    ]);
+    expect(text()).toContain('3 new questions');
+
+    const start = vi.spyOn(store, 'start').mockResolvedValue();
+    startButton().click();
+    expect(start).toHaveBeenCalledWith({
+      scope: 'concept',
+      domain: 'dotnet',
+      topic: 'clr-memory',
+      concept: 'gc-modes',
+      totalLimit: 20,
+      newLimit: 10,
+    });
+
+    // Clearing the topic clears and disables the concept; no request for an incomplete scope.
+    setSelect('topic', '');
+    await settle(fixture);
+    expect(select('concept').value).toBe('');
+    expect(select('concept').disabled).toBe(true);
+    expect(text()).toContain('Pick a domain, a topic and a concept');
+    expect(navigate).toHaveBeenLastCalledWith(
+      [],
+      expect.objectContaining({ queryParams: { scope: 'concept', domain: 'dotnet' } }),
+    );
+
+    setSelect('topic', 'clr-memory');
+    await settle(fixture);
+    expect(select('concept').disabled).toBe(false);
+    setSelect('concept', 'stack-vs-heap');
+    http
+      .expectOne(
+        '/api/review/overview?scope=concept&domain=dotnet&topic=clr-memory&concept=stack-vs-heap',
+      )
+      .flush(overview());
+    await settle(fixture);
+    expect(navigate).toHaveBeenLastCalledWith(
+      [],
+      expect.objectContaining({
+        queryParams: {
+          scope: 'concept',
+          domain: 'dotnet',
+          topic: 'clr-memory',
+          concept: 'stack-vs-heap',
+        },
+      }),
+    );
   });
 });

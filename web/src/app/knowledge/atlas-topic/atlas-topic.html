@@ -1,0 +1,88 @@
+@let t = i18n.t();
+@if (view(); as v) {
+  <header class="mb-8 flex flex-col gap-3">
+    <a
+      class="inline-flex items-center gap-2 self-start rounded-full py-0.5 pr-3 pl-0.5 text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      [routerLink]="['/atlas', v.domain.slug]"
+    >
+      <span
+        class="inline-flex h-6 min-w-8 items-center justify-center rounded-full px-2 font-mono text-[11px] font-bold"
+        [class]="'domain-' + v.domain.position"
+        aria-hidden="true"
+        >{{ v.domain.number }}</span
+      >
+      <span class="text-muted" [attr.lang]="v.domain.titleFallback ? 'en' : null">{{
+        v.domain.title
+      }}</span>
+    </a>
+    <h1
+      class="font-display text-[clamp(1.6rem,3.5vw,2.4rem)] leading-tight font-extrabold tracking-[-0.04em] break-words text-text"
+    >
+      <span [attr.lang]="v.topic.titleFallback ? 'en' : null">{{ v.topic.title }}</span>
+      <app-en-badge [fallback]="v.topic.titleFallback" />
+    </h1>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <p class="font-mono text-sm text-muted">{{ t.atlas.conceptCount(v.concepts.length) }}</p>
+      @if (v.concepts.length > 0) {
+        <a
+          routerLink="/review"
+          [queryParams]="{ scope: 'topic', domain: v.domain.slug, topic: v.topic.slug }"
+          class="rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >{{ t.atlas.reviewTopic }}</a
+        >
+      }
+    </div>
+    <app-readiness-bar
+      class="w-full max-w-[32rem]"
+      [readiness]="readiness.topic(v.domain.slug, v.topic.slug)"
+      [position]="v.domain.position"
+    />
+  </header>
+
+  @if (v.concepts.length > 0) {
+    <section aria-labelledby="atlas-concepts-h">
+      <h2 id="atlas-concepts-h" class="sr-only">{{ t.atlas.concepts }}</h2>
+      <ol class="flex flex-col gap-2.5">
+        @for (c of v.concepts; track c.slug; let i = $index) {
+          <li data-testid="atlas-concept">
+            <a
+              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-surface px-5 py-4 shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              [routerLink]="['/atlas', v.domain.slug, v.topic.slug, c.slug]"
+            >
+              <span class="w-6 shrink-0 font-mono text-xs text-muted" aria-hidden="true">{{
+                i + 1
+              }}</span>
+              <span class="min-w-0 flex-[1_1_14rem] font-semibold break-words"
+                ><span [attr.lang]="c.titleFallback ? 'en' : null">{{ c.title }}</span></span
+              >
+              <span class="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <app-readiness-chip
+                  [readiness]="readiness.concept(v.domain.slug, v.topic.slug, c.slug)"
+                />
+                <app-en-badge [fallback]="c.titleFallback" />
+                <app-unreviewed-badge [reviewed]="c.reviewed" />
+                <span
+                  class="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-line px-2 font-mono font-bold text-text"
+                  [attr.title]="levelName(c.level)"
+                  ><span aria-hidden="true">{{ c.level }}</span
+                  ><span class="sr-only">{{ t.atlas.level(levelName(c.level)) }}</span></span
+                >
+                <span class="font-mono">{{ t.atlas.questionCount(c.questionCount) }}</span>
+              </span>
+            </a>
+          </li>
+        }
+      </ol>
+    </section>
+  } @else {
+    <p
+      class="inline-flex rounded-full border border-dashed border-line px-3 py-1.5 text-sm text-muted"
+    >
+      {{ t.atlas.soon }} — {{ t.atlas.topicSoon }}
+    </p>
+  }
+} @else if (loaded()) {
+  <app-atlas-not-found />
+} @else {
+  <app-atlas-status />
+}

@@ -15,6 +15,8 @@ import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angula
 import { ActivatedRoute, Router } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 import { KnowledgeTreeSource } from '../../knowledge/api/knowledge-tree.source';
+import { liveConcepts } from '../../knowledge/api/knowledge-tree.models';
+import { EnBadge } from '../../shared/badges/en-badge';
 import { I18n } from '../../shared/i18n/i18n';
 import { coverageUrl, overviewUrl } from '../api/review-api';
 import {
@@ -29,12 +31,14 @@ import { SESSION_ROUTE, SessionStore } from '../session-store';
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 100;
 
-const SCOPES: readonly ReviewScopeType[] = ['all', 'domain', 'topic'];
+const SCOPES: readonly ReviewScopeType[] = ['all', 'domain', 'topic', 'concept'];
 
 /** One atlas tile: a domain with its topics and their coverage. */
 export interface AtlasTopic {
   slug: string;
   title: string;
+  /** English title served while Ukrainian is selected (EN badge). */
+  titleFallback: boolean;
   coverage: TopicCoverage | null;
   /** Seen share 0–100 for the bar. */
   percent: number;
@@ -43,6 +47,8 @@ export interface AtlasTopic {
 export interface AtlasDomain {
   slug: string;
   title: string;
+  /** English title served while Ukrainian is selected (EN badge). */
+  titleFallback: boolean;
   position: number;
   topics: AtlasTopic[];
   hasContent: boolean;
@@ -55,7 +61,7 @@ export interface AtlasDomain {
  */
 @Component({
   selector: 'app-review-overview',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, EnBadge],
   templateUrl: './review-overview.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -71,6 +77,7 @@ export class ReviewOverview implements OnInit {
     scopeType: this.fb.control<ReviewScopeType>('all'),
     domain: '',
     topic: '',
+    concept: '',
     totalLimit: [20, [Validators.required, Validators.min(MIN_LIMIT), Validators.max(MAX_LIMIT)]],
     newLimit: [10, [Validators.required, Validators.min(MIN_LIMIT), Validators.max(MAX_LIMIT)]],
   });
@@ -94,6 +101,10 @@ export class ReviewOverview implements OnInit {
       case 'topic':
         return value.domain && value.topic
           ? { scope: 'topic', domain: value.domain, topic: value.topic }
+          : undefined;
+      case 'concept':
+        return value.domain && value.topic && value.concept
+          ? { scope: 'concept', domain: value.domain, topic: value.topic, concept: value.concept }
           : undefined;
     }
   });
@@ -134,11 +145,18 @@ export class ReviewOverview implements OnInit {
             coverage && coverage.eligible > 0
               ? Math.round((coverage.seen / coverage.eligible) * 100)
               : 0;
-          return { slug: t.slug, title: t.title, coverage, percent };
+          return {
+            slug: t.slug,
+            title: t.title,
+            titleFallback: t.titleFallback,
+            coverage,
+            percent,
+          };
         });
       return {
         slug: d.slug,
         title: d.title,
+        titleFallback: d.titleFallback,
         position: d.position,
         topics,
         hasContent: topics.some((t) => (t.coverage?.eligible ?? 0) > 0),
@@ -161,6 +179,13 @@ export class ReviewOverview implements OnInit {
   protected readonly topics = computed(() => {
     const domain = this.domains().find((d) => d.slug === this.formValue().domain);
     return domain?.topics.filter((t) => !t.deprecatedAt) ?? [];
+  });
+
+  /** Live concepts of the chosen topic, in sort order (the concept scope's picker). */
+  protected readonly concepts = computed(() => {
+    const value = this.formValue();
+    const topic = this.topics().find((t) => t.slug === value.topic);
+    return topic ? liveConcepts(topic) : [];
   });
 
   protected readonly apiUnreachable = computed(
@@ -199,9 +224,15 @@ export class ReviewOverview implements OnInit {
         : 'all';
       const domain = params.get('domain') ?? '';
       const topic = params.get('topic') ?? '';
+      const concept = params.get('concept') ?? '';
       const value = this.form.getRawValue();
-      if (value.scopeType !== scope || value.domain !== domain || value.topic !== topic) {
-        this.applyScope(scope, domain, topic);
+      if (
+        value.scopeType !== scope ||
+        value.domain !== domain ||
+        value.topic !== topic ||
+        value.concept !== concept
+      ) {
+        this.applyScope(scope, domain, topic, concept);
       }
     });
     this.form.valueChanges
@@ -217,6 +248,9 @@ export class ReviewOverview implements OnInit {
     this.form.controls.domain.valueChanges
       .pipe(takeUntilDestroyed(destroyRef))
       .subscribe(() => this.form.controls.topic.setValue(''));
+    this.form.controls.topic.valueChanges
+      .pipe(takeUntilDestroyed(destroyRef))
+      .subscribe(() => this.form.controls.concept.setValue(''));
 
     // Topic is only choosable once the chosen domain's topics are known; keep the control's own
     // disabled state in sync so model and view agree.
@@ -226,6 +260,14 @@ export class ReviewOverview implements OnInit {
         topic.enable({ emitEvent: false });
       } else {
         topic.disable({ emitEvent: false });
+      }
+    });
+    effect(() => {
+      const concept = this.form.controls.concept;
+      if (this.concepts().length > 0) {
+        concept.enable({ emitEvent: false });
+      } else {
+        concept.disable({ emitEvent: false });
       }
     });
 
@@ -266,13 +308,17 @@ export class ReviewOverview implements OnInit {
     return String(position).padStart(2, '0');
   }
 
-  private applyScope(scope: ReviewScopeType, domain: string, topic: string): void {
-    // domain first (its valueChanges clears topic), then topic.
+  private applyScope(scope: ReviewScopeType, domain: string, topic: string, concept = ''): void {
+    // domain first (its valueChanges clears topic), then topic (clears concept), then concept.
     this.form.controls.scopeType.setValue(scope);
     this.form.controls.domain.setValue(scope === 'all' ? '' : domain);
-    if (scope === 'topic') {
+    if (scope === 'topic' || scope === 'concept') {
       this.form.controls.topic.enable({ emitEvent: false });
       this.form.controls.topic.setValue(topic);
+    }
+    if (scope === 'concept') {
+      this.form.controls.concept.enable({ emitEvent: false });
+      this.form.controls.concept.setValue(concept);
     }
   }
 
@@ -301,6 +347,7 @@ function scopeParams(value: {
   scopeType: ReviewScopeType;
   domain: string;
   topic: string;
+  concept: string;
 }): Record<string, string> {
   if (value.scopeType === 'all') {
     return {};
@@ -309,8 +356,11 @@ function scopeParams(value: {
   if (value.domain) {
     params['domain'] = value.domain;
   }
-  if (value.scopeType === 'topic' && value.topic) {
+  if ((value.scopeType === 'topic' || value.scopeType === 'concept') && value.topic) {
     params['topic'] = value.topic;
+  }
+  if (value.scopeType === 'concept' && value.concept) {
+    params['concept'] = value.concept;
   }
   return params;
 }

@@ -1,0 +1,109 @@
+@let t = i18n.t();
+@switch (state()) {
+  @case ('not-found') {
+    <app-atlas-not-found />
+  }
+  @case ('error') {
+    <div class="flex flex-wrap items-center gap-3" role="alert">
+      <p class="font-medium text-bad">{{ t.atlas.conceptError }}</p>
+      <button
+        type="button"
+        class="rounded-xl bg-surface px-3 py-1.5 text-sm font-medium text-text shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        (click)="resource.reload()"
+      >
+        {{ t.app.retry }}
+      </button>
+    </div>
+  }
+  @case ('loading') {
+    <p class="text-muted" aria-live="polite">{{ t.atlas.conceptLoading }}</p>
+  }
+  @case ('ready') {
+    @let c = page()!;
+    <article class="flex flex-col gap-8" [attr.aria-busy]="resource.isLoading()">
+      <header class="flex flex-col gap-4">
+        <h1
+          class="font-display text-[clamp(1.7rem,4vw,2.6rem)] leading-tight font-extrabold tracking-[-0.04em] break-words text-text"
+        >
+          <span [attr.lang]="c.fallback ? 'en' : null">{{ c.title }}</span>
+        </h1>
+        <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <app-readiness-chip [readiness]="readiness.concept(domain(), topic(), concept())" />
+          <app-en-badge [fallback]="c.fallback" />
+          <app-unreviewed-badge [reviewed]="c.reviewed" />
+          <span
+            class="inline-flex h-6 items-center rounded-full border border-line px-2.5 font-medium text-text"
+            >{{ t.atlas.level(levelName(c.level)) }}</span
+          >
+          <span class="inline-flex h-6 items-center rounded-full bg-surface-2 px-2.5 font-mono">{{
+            t.atlas.questionCount(c.questionCount)
+          }}</span>
+          <span class="inline-flex h-6 items-center rounded-full bg-surface-2 px-2.5 font-mono">{{
+            t.atlas.kataCount(c.kataCount)
+          }}</span>
+        </div>
+        @if (c.questionCount > 0) {
+          <a
+            routerLink="/review"
+            [queryParams]="{
+              scope: 'concept',
+              domain: domain(),
+              topic: topic(),
+              concept: concept(),
+            }"
+            class="self-start rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >{{ t.atlas.reviewConcept }}</a
+          >
+        }
+      </header>
+
+      <div class="rounded-card bg-surface px-5 py-6 shadow-card sm:px-8 sm:py-8">
+        @if (note(); as markdown) {
+          <app-concept-note [markdown]="markdown" [lang]="c.language" />
+        } @else {
+          <p class="text-muted">{{ t.atlas.noNote }}</p>
+        }
+      </div>
+
+      @let n = neighbours();
+      @if (n.previous || n.next) {
+        <nav class="grid grid-cols-1 gap-3 sm:grid-cols-2" [attr.aria-label]="t.atlas.neighbours">
+          @if (n.previous; as prev) {
+            <a
+              rel="prev"
+              class="flex min-w-0 flex-col gap-1 rounded-2xl bg-surface px-5 py-4 shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              [routerLink]="['/atlas', domain(), topic(), prev.slug]"
+            >
+              <span class="text-xs text-muted"
+                ><span aria-hidden="true">← </span>{{ t.atlas.previous }}</span
+              >
+              <span
+                class="font-semibold break-words"
+                [attr.lang]="prev.titleFallback ? 'en' : null"
+                >{{ prev.title }}</span
+              >
+            </a>
+          } @else {
+            <span class="hidden sm:block"></span>
+          }
+          @if (n.next; as next) {
+            <a
+              rel="next"
+              class="flex min-w-0 flex-col items-end gap-1 rounded-2xl bg-surface px-5 py-4 text-right shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              [routerLink]="['/atlas', domain(), topic(), next.slug]"
+            >
+              <span class="text-xs text-muted"
+                >{{ t.atlas.next }}<span aria-hidden="true"> →</span></span
+              >
+              <span
+                class="font-semibold break-words"
+                [attr.lang]="next.titleFallback ? 'en' : null"
+                >{{ next.title }}</span
+              >
+            </a>
+          }
+        </nav>
+      }
+    </article>
+  }
+}

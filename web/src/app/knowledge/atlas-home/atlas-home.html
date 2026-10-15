@@ -1,0 +1,95 @@
+@let t = i18n.t();
+<header class="mb-8 flex flex-col gap-3">
+  <h1
+    class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-extrabold tracking-[-0.045em] text-text"
+  >
+    {{ t.atlas.title }}
+  </h1>
+  <p class="max-w-[38rem] text-lg leading-relaxed text-muted">{{ t.atlas.lead }}</p>
+</header>
+
+@if (loaded()) {
+  <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))] gap-4">
+    @for (d of domains(); track d.slug) {
+      <article
+        data-testid="atlas-domain"
+        class="flex flex-col overflow-hidden rounded-card bg-surface shadow-card"
+      >
+        <header
+          class="relative flex flex-col gap-2 px-5 pt-5 pb-6 has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-4 has-[:focus-visible]:outline-current"
+          [class]="'domain-' + d.position"
+        >
+          <span class="font-display text-[28px] leading-none font-extrabold" aria-hidden="true">{{
+            d.number
+          }}</span>
+          <h2 class="text-[17px] leading-snug font-semibold break-words">
+            <a
+              class="outline-none after:absolute after:inset-0 hover:underline"
+              [routerLink]="['/atlas', d.slug]"
+              ><span class="sr-only">{{ t.atlas.domainNumber(d.number) }}: </span
+              ><span [attr.lang]="d.titleFallback ? 'en' : null">{{ d.title }}</span></a
+            >
+            <app-en-badge [fallback]="d.titleFallback" />
+          </h2>
+          <span class="font-mono text-xs opacity-90">{{
+            t.atlas.conceptCount(d.conceptCount)
+          }}</span>
+        </header>
+        <app-readiness-bar
+          class="px-5 pt-4"
+          [readiness]="readiness.domain(d.slug)"
+          [position]="d.position"
+        />
+        <ul class="flex flex-col gap-1 px-3 pt-3 pb-4 text-sm" [attr.aria-label]="t.atlas.topics">
+          @for (topic of d.topics; track topic.slug) {
+            <li>
+              @if (topic.conceptCount > 0) {
+                <a
+                  class="flex flex-col gap-1.5 rounded-xl px-2 py-1.5 text-text hover:bg-surface-2 hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
+                  [routerLink]="['/atlas', d.slug, topic.slug]"
+                >
+                  <span class="flex items-baseline justify-between gap-3">
+                    <span class="min-w-0 break-words"
+                      ><span [attr.lang]="topic.titleFallback ? 'en' : null">{{
+                        topic.title
+                      }}</span>
+                      <app-en-badge [fallback]="topic.titleFallback"
+                    /></span>
+                    <span class="shrink-0 font-mono text-xs text-muted"
+                      ><span aria-hidden="true">{{ topic.conceptCount }}</span
+                      ><span class="sr-only">{{
+                        t.atlas.conceptCount(topic.conceptCount)
+                      }}</span></span
+                    >
+                  </span>
+                  <app-readiness-bar
+                    [readiness]="readiness.topic(d.slug, topic.slug)"
+                    [position]="d.position"
+                  />
+                </a>
+              } @else {
+                <span
+                  role="link"
+                  aria-disabled="true"
+                  class="flex items-baseline justify-between gap-3 px-2 py-1.5 text-muted"
+                  [attr.title]="t.atlas.soonHint"
+                >
+                  <span class="min-w-0 break-words"
+                    ><span [attr.lang]="topic.titleFallback ? 'en' : null">{{ topic.title }}</span>
+                    <app-en-badge [fallback]="topic.titleFallback"
+                  /></span>
+                  <span
+                    class="shrink-0 rounded-full border border-dashed border-line px-2 text-xs"
+                    >{{ t.atlas.soon }}</span
+                  >
+                </span>
+              }
+            </li>
+          }
+        </ul>
+      </article>
+    }
+  </div>
+} @else {
+  <app-atlas-status />
+}

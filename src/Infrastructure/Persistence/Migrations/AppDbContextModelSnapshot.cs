@@ -731,6 +731,10 @@ namespace Spine.Infrastructure.Persistence.Migrations
                         .HasColumnName("question_ids")
                         .HasDefaultValueSql("'{}'");
 
+                    b.Property<string>("ScopeConceptSlug")
+                        .HasColumnType("text")
+                        .HasColumnName("scope_concept_slug");
+
                     b.Property<string>("ScopeDomainSlug")
                         .HasColumnType("text")
                         .HasColumnName("scope_domain_slug");
@@ -767,9 +771,9 @@ namespace Spine.Infrastructure.Persistence.Migrations
 
                     b.ToTable("sessions", null, t =>
                         {
-                            t.HasCheckConstraint("ck_sessions_scope", "(scope_type = 'all' AND scope_domain_slug IS NULL AND scope_topic_slug IS NULL) OR (scope_type = 'domain' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NULL) OR (scope_type = 'topic' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL)");
+                            t.HasCheckConstraint("ck_sessions_scope", "(scope_type = 'all' AND scope_domain_slug IS NULL AND scope_topic_slug IS NULL AND scope_concept_slug IS NULL) OR (scope_type = 'domain' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NULL AND scope_concept_slug IS NULL) OR (scope_type = 'topic' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL AND scope_concept_slug IS NULL) OR (scope_type = 'concept' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL AND scope_concept_slug IS NOT NULL)");
 
-                            t.HasCheckConstraint("ck_sessions_scope_type", "scope_type IN ('all','domain','topic')");
+                            t.HasCheckConstraint("ck_sessions_scope_type", "scope_type IN ('all','domain','topic','concept')");
                         });
                 });
 

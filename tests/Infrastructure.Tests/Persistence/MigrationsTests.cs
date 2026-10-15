@@ -27,7 +27,7 @@ public sealed class MigrationsTests(PostgresFixture fixture) : IAsyncLifetime
         await Migrate(db);
 
         (await db.Database.GetPendingMigrationsAsync()).ShouldBeEmpty();
-        (await db.Database.GetAppliedMigrationsAsync()).Count().ShouldBe(3);
+        (await db.Database.GetAppliedMigrationsAsync()).ShouldBe(db.Database.GetMigrations());
     }
 
     [Fact]

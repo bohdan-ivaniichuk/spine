@@ -111,6 +111,44 @@ public sealed class ProgressSchemaTests(PostgresFixture fixture) : IAsyncLifetim
     }
 
     [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Concept_scope_session_with_all_three_slugs_is_accepted()
+    {
+        await using var db = fixture.CreateContext();
+        var now = DateTimeOffset.UtcNow;
+
+        await db.Database.ExecuteSqlAsync(
+            $"""
+             INSERT INTO sessions (id, user_id, started_at, finished_at, scope_type, scope_domain_slug, scope_topic_slug, scope_concept_slug, answered_count, correct_count, created_at)
+             VALUES ({Guid.NewGuid()}, {LocalLearner.Id}, {now}, NULL, 'concept', 'dotnet', 'clr-memory', 'stack-vs-heap', NULL, NULL, {now})
+             """);
+
+        Assert.Equal(1, await db.Sessions.CountAsync());
+    }
+
+    [Theory]
+    [Trait("Requirement", "FR-012")]
+    [InlineData("concept", "dotnet", "clr-memory", null)]
+    [InlineData("concept", "dotnet", null, "stack-vs-heap")]
+    [InlineData("topic", "dotnet", "clr-memory", "stack-vs-heap")]
+    [InlineData("domain", "dotnet", null, "stack-vs-heap")]
+    [InlineData("all", null, null, "stack-vs-heap")]
+    public async Task Concept_slug_is_required_for_concept_scope_and_rejected_elsewhere(string type, string? domain, string? topic, string? concept)
+    {
+        await using var db = fixture.CreateContext();
+        var now = DateTimeOffset.UtcNow;
+
+        var ex = await Should.ThrowAsync<PostgresException>(() => db.Database.ExecuteSqlAsync(
+            $"""
+             INSERT INTO sessions (id, user_id, started_at, finished_at, scope_type, scope_domain_slug, scope_topic_slug, scope_concept_slug, answered_count, correct_count, created_at)
+             VALUES ({Guid.NewGuid()}, {LocalLearner.Id}, {now}, NULL, {type}, {domain}, {topic}, {concept}, NULL, NULL, {now})
+             """));
+
+        Assert.Equal(CheckViolation, ex.SqlState);
+        Assert.Equal("ck_sessions_scope", ex.ConstraintName);
+    }
+
+    [Fact]
     public async Task Content_tables_have_no_user_id_column()
     {
         await using var db = fixture.CreateContext();

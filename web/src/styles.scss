@@ -52,6 +52,15 @@
   --color-code-bg: #f3f5fa;
   --color-code-text: #0f1630;
   --color-inline-code: #e8ecf6;
+  /* Syntax highlight (concept notes), each >= 4.5:1 on --color-code-bg (lowest: comment 5.4). */
+  --color-code-keyword: #5b2fd6;
+  --color-code-string: #0a6b60;
+  --color-code-comment: #5a6480;
+  --color-code-type: #1d44d8;
+  --color-code-number: #a8360b;
+  --color-code-title: #9c1f52;
+  --color-code-attr: #7a4b00;
+  --color-code-meta: #4e5874;
   --shadow-card: 0 1px 2px rgb(15 22 48 / 0.04), 0 12px 32px rgb(15 22 48 / 0.06);
   --radius-card: 22px;
   --radius-panel: 30px;
@@ -99,6 +108,15 @@
   --color-code-bg: #0b1122;
   --color-code-text: #e8ecf8;
   --color-inline-code: #232c48;
+  /* Each >= 4.5:1 on the dark --color-code-bg (lowest: comment 7.4). */
+  --color-code-keyword: #b9a2ff;
+  --color-code-string: #5fd4c3;
+  --color-code-comment: #97a2c3;
+  --color-code-type: #9fb3ff;
+  --color-code-number: #ffab8a;
+  --color-code-title: #f394bb;
+  --color-code-attr: #f5c46b;
+  --color-code-meta: #a3adca;
   --shadow-card: none;
 }
 
@@ -178,21 +196,89 @@ html {
   }
 }
 
-/* Reading rhythm for Markdown notes (feature 004 renders into .prose-note). */
-.prose-note {
-  max-width: 68ch;
-  line-height: 1.65;
-  h2 {
-    margin-top: 1.5em;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+/* Concept notes (feature 004): Markdown rendered by note-markdown.ts into `.note`. Code blocks and
+   tables scroll inside themselves so the page never scrolls sideways at phone width. */
+.note {
+  max-width: 72ch;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  color: var(--color-text);
+
+  > :first-child {
+    margin-top: 0;
   }
-  p {
-    margin: 0.75em 0;
+  > :last-child {
+    margin-bottom: 0;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    margin: 1.8em 0 0.6em;
+  }
+  h1,
+  h2 {
+    font-size: 1.35rem;
+  }
+  h3 {
+    font-size: 1.1rem;
+  }
+  h4 {
+    font-size: 1rem;
+  }
+  p,
+  ul,
+  ol,
+  blockquote {
+    margin: 0.8em 0;
+  }
+  ul,
+  ol {
+    padding-left: 1.4em;
+  }
+  ul {
+    list-style: disc;
+  }
+  ol {
+    list-style: decimal;
+  }
+  li {
+    margin: 0.3em 0;
+  }
+  li::marker {
+    color: var(--color-muted);
+  }
+  strong {
+    font-weight: 650;
+  }
+  a {
+    color: var(--color-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  a:focus-visible,
+  pre:focus-visible,
+  .note-table:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  blockquote {
+    border-left: 3px solid var(--color-line);
+    padding-left: 1em;
+    color: var(--color-muted);
+  }
+  hr {
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    margin: 2em 0;
   }
   code {
     font-family: var(--font-mono);
-    font-size: 0.92em;
+    font-size: 0.9em;
     background: var(--color-inline-code);
     padding: 1px 5px;
     border-radius: 6px;
@@ -200,12 +286,97 @@ html {
   pre {
     background: var(--color-code-bg);
     color: var(--color-code-text);
+    border: 1px solid var(--color-line);
     border-radius: 16px;
     padding: 16px 18px;
+    margin: 1.1em 0;
     overflow-x: auto;
+    line-height: 1.55;
+    font-size: 0.875rem;
   }
   pre code {
     background: transparent;
     padding: 0;
+    font-size: inherit;
+  }
+  .note-table {
+    overflow-x: auto;
+    margin: 1.1em 0;
+    border: 1px solid var(--color-line);
+    border-radius: 14px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92em;
+  }
+  th,
+  td {
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--color-line);
+  }
+  th {
+    background: var(--color-surface-2);
+    font-weight: 600;
+  }
+  tr:last-child td {
+    border-bottom: 0;
+  }
+
+  /* highlight.js classes → Atlas code tokens. */
+  .hljs-keyword,
+  .hljs-built_in,
+  .hljs-literal,
+  .hljs-selector-tag,
+  .hljs-doctag {
+    color: var(--color-code-keyword);
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-subst,
+  .hljs-char.escape_ {
+    color: var(--color-code-string);
+  }
+  .hljs-comment,
+  .hljs-quote {
+    color: var(--color-code-comment);
+    font-style: italic;
+  }
+  .hljs-type,
+  .hljs-title.class_,
+  .hljs-title.class_.inherited__ {
+    color: var(--color-code-type);
+  }
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-variable,
+  .hljs-template-variable {
+    color: var(--color-code-number);
+  }
+  .hljs-title,
+  .hljs-title.function_,
+  .hljs-section,
+  .hljs-name,
+  .hljs-tag {
+    color: var(--color-code-title);
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-params {
+    color: var(--color-code-attr);
+  }
+  .hljs-meta,
+  .hljs-operator,
+  .hljs-punctuation {
+    color: var(--color-code-meta);
+  }
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong {
+    font-weight: 700;
   }
 }

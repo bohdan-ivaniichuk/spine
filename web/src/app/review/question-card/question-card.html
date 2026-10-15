@@ -23,21 +23,8 @@
         t.session.isNew
       }}</span>
     }
-    @if (q.fallback) {
-      <span
-        class="rounded-full border border-line px-2.5 py-1 font-mono font-bold text-muted"
-        [attr.title]="t.session.fallbackHint"
-        [attr.aria-label]="t.session.fallbackHint"
-        >{{ t.session.fallback }}</span
-      >
-    }
-    @if (!q.reviewed) {
-      <span
-        class="rounded-full bg-warn-soft px-2.5 py-1 font-medium text-warn"
-        [attr.title]="t.session.unreviewedHint"
-        >{{ t.session.unreviewed }}</span
-      >
-    }
+    <app-en-badge [fallback]="q.fallback ?? false" />
+    <app-unreviewed-badge [reviewed]="q.reviewed" />
   </span>
 </header>
 <div

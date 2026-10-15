@@ -98,6 +98,46 @@ public sealed class SessionsEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Concept_scope_starts_a_session_of_that_concept_only()
+    {
+        var response = await fixture.Client.PostAsJsonAsync(ReviewApi.Sessions,
+            new { scope = "concept", domain = "dotnet", topic = "clr-memory", concept = "gc-modes", totalLimit = 20, newLimit = 20 });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var session = (await response.Content.ReadFromJsonAsync<SessionDto>(ApiFixture.Json)).ShouldNotBeNull();
+        session.Questions.Count.ShouldBe(4);
+        session.Questions.ShouldAllBe(q => q.Concept.Slug == "gc-modes");
+        session.Scope.ShouldBe(new ScopeDto("concept", "dotnet", "clr-memory", "C# & .NET Runtime", "Memory & GC", "gc-modes", "GC modes"));
+    }
+
+    [Theory]
+    [Trait("Requirement", "FR-012")]
+    [InlineData("""{"scope":"concept","domain":"dotnet","topic":"clr-memory"}""")]
+    [InlineData("""{"scope":"concept","domain":"dotnet","concept":"gc-modes"}""")]
+    [InlineData("""{"scope":"topic","domain":"dotnet","topic":"clr-memory","concept":"gc-modes"}""")]
+    [InlineData("""{"scope":"concept","domain":"dotnet","topic":"clr-memory","concept":"GC Modes"}""")]
+    [InlineData("""{"scope":"concept","domain":"dotnet","topic":"clr-memory","concept":"gc-modes-"}""")]
+    [InlineData("""{"scope":"concept","domain":"dotnet","topic":"clr-memory","concept":" "}""")]
+    [InlineData("""{"scope":"all","concept":"gc-modes"}""")]
+    [InlineData("""{"scope":"domain","domain":"dotnet","concept":"gc-modes"}""")]
+    public async Task Concept_slug_is_validated_against_the_scope(string json)
+    {
+        var response = await fixture.Client.PostAsync(ReviewApi.Sessions, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        await ReviewApi.ShouldBeProblemAsync(response, HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Unknown_concept_is_a_404_problem()
+    {
+        var response = await fixture.Client.PostAsJsonAsync(ReviewApi.Sessions, new { scope = "concept", domain = "dotnet", topic = "clr-memory", concept = "nope" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Unknown_scope_is_a_404_problem()
     {
         var response = await fixture.Client.PostAsJsonAsync(ReviewApi.Sessions, new { scope = "domain", domain = "nope" });

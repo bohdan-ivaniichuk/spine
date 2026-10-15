@@ -115,6 +115,7 @@ public sealed class ReviewSessions(
                 ScopeType = scope.Type,
                 ScopeDomainSlug = scope.Domain,
                 ScopeTopicSlug = scope.Topic,
+                ScopeConceptSlug = scope.Concept,
                 QuestionIds = plan,
                 TotalLimit = totalLimit,
                 NewLimit = newLimit,
@@ -353,32 +354,9 @@ public sealed class ReviewSessions(
 
     // ---- queries ----
 
-    private IQueryable<Question> Eligible(ReviewScope scope)
-    {
-        var query = db.Questions.AsNoTracking().Where(q =>
-            q.Type == QuestionType.Mcq
-            && q.DeprecatedAt == null
-            && q.Concept!.DeprecatedAt == null
-            && q.Concept.Topic!.DeprecatedAt == null
-            && q.Concept.Topic.Domain!.DeprecatedAt == null);
-        if (scope.Domain is { } domain)
-        {
-            query = query.Where(q => q.Concept!.Topic!.Domain!.Slug == domain);
-        }
+    private IQueryable<Question> Eligible(ReviewScope scope) => db.Eligible(scope);
 
-        if (scope.Topic is { } topic)
-        {
-            query = query.Where(q => q.Concept!.Topic!.Slug == topic);
-        }
-
-        return query;
-    }
-
-    private IQueryable<ReviewState> States()
-    {
-        var userId = LocalLearner.Id;
-        return db.ReviewStates.AsNoTracking().Where(r => r.UserId == userId && r.ItemType == ItemType.Question);
-    }
+    private IQueryable<ReviewState> States() => db.QuestionStates();
 
     /// <summary>Due dates of every eligible question in scope that has a review state.</summary>
     private IQueryable<DateTimeOffset> DueAtOf(ReviewScope scope) =>
@@ -529,6 +507,32 @@ public sealed class ReviewSessions(
                         LocalizedTitle.Of(language, row.Title, row.TitleUk));
                 }
 
+            case SessionScopeType.Concept:
+                {
+                    var row = await db.Concepts.AsNoTracking()
+                        .Where(c => c.Slug == scope.Concept && c.Topic!.Slug == scope.Topic && c.Topic.Domain!.Slug == scope.Domain)
+                        .Where(c => c.DeprecatedAt == null && c.Topic!.DeprecatedAt == null && c.Topic.Domain!.DeprecatedAt == null)
+                        .Select(c => new
+                        {
+                            DomainTitle = c.Topic!.Domain!.Title,
+                            DomainTitleUk = c.Topic.Domain.TitleUk,
+                            TopicTitle = c.Topic.Title,
+                            TopicTitleUk = c.Topic.TitleUk,
+                            Requested = c.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault(),
+                            En = c.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
+                        })
+                        .SingleOrDefaultAsync(ct)
+                        ?? throw new ReviewException(ReviewError.ScopeNotFound, $"No concept '{scope.Domain}/{scope.Topic}/{scope.Concept}'.");
+                    return new ScopeDto(
+                        "concept",
+                        scope.Domain,
+                        scope.Topic,
+                        LocalizedTitle.Of(language, row.DomainTitle, row.DomainTitleUk),
+                        LocalizedTitle.Of(language, row.TopicTitle, row.TopicTitleUk),
+                        scope.Concept,
+                        row.Requested ?? row.En ?? scope.Concept);
+                }
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(scope), scope.Type, null);
         }
@@ -558,10 +562,25 @@ public sealed class ReviewSessions(
             topicTitle = topic is null ? null : LocalizedTitle.Of(language, topic.Title, topic.TitleUk);
         }
 
-        return new ScopeDto(type, session.ScopeDomainSlug, session.ScopeTopicSlug, domainTitle, topicTitle);
+        string? conceptTitle = null;
+        if (session.ScopeConceptSlug is not null)
+        {
+            var concept = await db.Concepts.AsNoTracking()
+                .Where(c => c.Slug == session.ScopeConceptSlug && c.Topic!.Slug == session.ScopeTopicSlug && c.Topic.Domain!.Slug == session.ScopeDomainSlug)
+                .Select(c => new
+                {
+                    Requested = c.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault(),
+                    En = c.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
+                })
+                .SingleOrDefaultAsync(ct);
+            conceptTitle = concept is null ? null : concept.Requested ?? concept.En ?? session.ScopeConceptSlug;
+        }
+
+        return new ScopeDto(type, session.ScopeDomainSlug, session.ScopeTopicSlug, domainTitle, topicTitle, session.ScopeConceptSlug, conceptTitle);
     }
 
-    private static ReviewScope ScopeOf(Session session) => new(session.ScopeType, session.ScopeDomainSlug, session.ScopeTopicSlug);
+    private static ReviewScope ScopeOf(Session session) =>
+        new(session.ScopeType, session.ScopeDomainSlug, session.ScopeTopicSlug, session.ScopeConceptSlug);
 
     // ---- helpers ----
 

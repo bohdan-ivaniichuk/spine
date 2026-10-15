@@ -92,11 +92,12 @@ internal sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
     {
         e.ToTable("sessions", t =>
         {
-            t.HasCheckConstraint("ck_sessions_scope_type", "scope_type IN ('all','domain','topic')");
+            t.HasCheckConstraint("ck_sessions_scope_type", "scope_type IN ('all','domain','topic','concept')");
             t.HasCheckConstraint("ck_sessions_scope",
-                "(scope_type = 'all' AND scope_domain_slug IS NULL AND scope_topic_slug IS NULL) OR " +
-                "(scope_type = 'domain' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NULL) OR " +
-                "(scope_type = 'topic' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL)");
+                "(scope_type = 'all' AND scope_domain_slug IS NULL AND scope_topic_slug IS NULL AND scope_concept_slug IS NULL) OR " +
+                "(scope_type = 'domain' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NULL AND scope_concept_slug IS NULL) OR " +
+                "(scope_type = 'topic' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL AND scope_concept_slug IS NULL) OR " +
+                "(scope_type = 'concept' AND scope_domain_slug IS NOT NULL AND scope_topic_slug IS NOT NULL AND scope_concept_slug IS NOT NULL)");
         });
         e.HasKey(x => x.Id);
         e.Property(x => x.Id).ValueGeneratedNever();

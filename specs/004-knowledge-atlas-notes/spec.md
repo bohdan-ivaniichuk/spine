@@ -23,6 +23,13 @@ from 001 (tree + concept page) and extend them with lang and readiness."
   progress"; one with no review state at all is "not started".
 - Q: Is a review session scoped to a single concept in scope? → A: Yes, in 004 — a new session scope
   "concept" next to all / domain / topic.
+- Q: Which questions count for readiness, given that review sessions only schedule multiple-choice
+  questions until feature 005? → A: Only the questions the review flow can schedule (today:
+  non-deprecated multiple-choice questions). A concept with none of them counts as a concept without
+  questions. When later features schedule more question types, readiness covers them automatically.
+- Q: The scheduler never raises ease after a wrong answer, so "ease ≥ 2.5" would mark a question
+  not ready forever after one miss. Which rule? → A: Interval only: a question is ready when its
+  review state has an interval ≥ 7 days (amends the first answer above; ease is not used).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -176,12 +183,13 @@ topic's questions; repeat from a domain and from a concept.
   items served in English while Ukrainian is selected MUST carry the "EN" badge.
 - **FR-007**: Unreviewed concepts MUST carry the "unreviewed" badge wherever they are listed or shown.
 - **FR-008**: The system MUST compute per concept a readiness state — not started / in progress /
-  ready — where "ready" means every question of the concept has a review state with ease ≥ 2.5 and
-  interval ≥ 7 days, "in progress" means at least one review state exists but the concept is not ready, and
-  "not started" means no review state exists; concepts
-  without questions have no state.
+  ready — where "ready" means every schedulable question of the concept (today: every non-deprecated
+  multiple-choice question) has a review state with an interval ≥ 7 days, "in progress" means at least
+  one review state exists but the concept is not ready, and "not started" means no review state exists;
+  concepts without schedulable questions have no state.
 - **FR-009**: The system MUST show readiness per topic and per domain as the percentage of their
-  concepts with questions that are ready, and no percentage when no such concept exists.
+  concepts with schedulable questions that are ready (rounded down, so 100% only when all are
+  ready), and no percentage when no such concept exists.
 - **FR-010**: Readiness MUST be computed from the single local learner's review states only and MUST
   NOT depend on the selected language.
 - **FR-011**: Users MUST be able to start a review session scoped to a domain or a topic from its view,
@@ -227,5 +235,6 @@ topic's questions; repeat from a domain and from a concept.
 - Kata pages, LLM grading and weak-spot reviews are out of scope (features 005 and 006); kata counts
   are shown only as numbers.
 - No search, bookmarks or "mark as read" in this feature.
-- Readiness uses the fixed thresholds ease ≥ 2.5 and interval ≥ 7 days; they are not user-configurable.
+- Readiness uses the fixed threshold interval ≥ 7 days (three correct answers in a row since the last
+  miss with the current scheduler); it is not user-configurable.
 - Single local learner; no authentication.

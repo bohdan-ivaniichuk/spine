@@ -1,5 +1,8 @@
 # Contract — Review API (feature 002)
 
+> Scope types were extended in feature 004 with `concept` (`scope=concept&domain&topic&concept`) — see
+> [specs/004-knowledge-atlas-notes/contracts/review-scope-concept.md](../../004-knowledge-atlas-notes/contracts/review-scope-concept.md).
+
 Route prefix `api`, camelCase JSON, RFC 7807 ProblemDetails for every error. The Angular feature codes against this file only.
 
 ## Endpoints and DTOs (FastEndpoints, `api` prefix, camelCase JSON, ProblemDetails)

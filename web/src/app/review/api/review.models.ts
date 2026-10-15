@@ -1,17 +1,21 @@
 /**
  * Review API shapes — `specs/002-review-session/contracts/review-api.md` plus the language fields and
- * coverage of `specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md`.
+ * coverage of `specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md` and the `concept` scope of
+ * `specs/004-knowledge-atlas-notes/contracts/review-scope-concept.md`.
  * camelCase JSON, dates as ISO-8601 strings; `correct` never appears (the server keeps it).
  */
 
-export type ReviewScopeType = 'all' | 'domain' | 'topic';
+export type ReviewScopeType = 'all' | 'domain' | 'topic' | 'concept';
 
 export interface ReviewScope {
   type: ReviewScopeType;
   domain: string | null;
   topic: string | null;
+  /** Set only for the `concept` scope. */
+  concept: string | null;
   domainTitle: string | null;
   topicTitle: string | null;
+  conceptTitle: string | null;
 }
 
 export interface Ref {
@@ -111,6 +115,8 @@ export interface ScopeQuery {
   scope: ReviewScopeType;
   domain?: string;
   topic?: string;
+  /** Only with `scope: 'concept'` (the API rejects it for other scopes). */
+  concept?: string;
 }
 
 export interface StartSessionRequest extends ScopeQuery {
@@ -138,6 +144,8 @@ export function scopeLabel(scope: ReviewScope, allLabel = 'All domains'): string
       return scope.domainTitle ?? scope.domain ?? 'Domain';
     case 'topic':
       return `${scope.domainTitle ?? scope.domain ?? ''} › ${scope.topicTitle ?? scope.topic ?? ''}`;
+    case 'concept':
+      return `${scope.domainTitle ?? scope.domain ?? ''} › ${scope.topicTitle ?? scope.topic ?? ''} › ${scope.conceptTitle ?? scope.concept ?? ''}`;
     default:
       return allLabel;
   }
@@ -149,8 +157,11 @@ export function toScopeQuery(scope: ReviewScope): ScopeQuery {
   if (scope.type !== 'all' && scope.domain) {
     query.domain = scope.domain;
   }
-  if (scope.type === 'topic' && scope.topic) {
+  if ((scope.type === 'topic' || scope.type === 'concept') && scope.topic) {
     query.topic = scope.topic;
+  }
+  if (scope.type === 'concept' && scope.concept) {
+    query.concept = scope.concept;
   }
   return query;
 }

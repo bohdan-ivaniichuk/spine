@@ -40,6 +40,23 @@ public sealed class OverviewEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    [Trait("Requirement", "FR-012")]
+    public async Task Concept_overview_counts_only_that_concept()
+    {
+        var response = await fixture.Client.GetAsync(ReviewApi.Overview + "?scope=concept&domain=dotnet&topic=clr-memory&concept=span-memory");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = body.RootElement;
+        root.GetProperty("totalEligible").GetInt32().ShouldBe(4);
+        root.GetProperty("newCount").GetInt32().ShouldBe(4);
+        var scope = root.GetProperty("scope");
+        scope.GetProperty("type").GetString().ShouldBe("concept");
+        scope.GetProperty("concept").GetString().ShouldBe("span-memory");
+        scope.GetProperty("conceptTitle").GetString().ShouldBe("Span<T>, Memory<T> and zero-allocation code");
+    }
+
+    [Fact]
     public async Task Scope_defaults_to_all()
     {
         var response = await fixture.Client.GetAsync(ReviewApi.Overview);
