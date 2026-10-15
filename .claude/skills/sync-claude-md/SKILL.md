@@ -25,7 +25,7 @@ skill does not bootstrap.
 
 ## Canonical location
 
-The single source of truth is the **repo-root** `CLAUDE.md` of InterviewPrep (the session's project
+The single source of truth is the **repo-root** `CLAUDE.md` of Spine (the session's project
 root). There are intentionally no per-folder CLAUDE.md files under `src/` or `web/`. Always reconcile
 that file.
 

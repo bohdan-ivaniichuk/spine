@@ -27,7 +27,7 @@ then integration.
 ## Rename
 
 - [X] T020 `InterviewPrep.*` → `Spine.*`: solution, projects, namespaces, Dockerfiles, compose project (data volume kept), docs, memory-bank; storage keys `spine.*`
-- [ ] T021 User: protected files (`Directory.Build.props` RootNamespace, `.claude/**` texts)
+- [X] T021 User: protected files (`Directory.Build.props` RootNamespace, `.claude/**` texts)
 
 ## Integration
 

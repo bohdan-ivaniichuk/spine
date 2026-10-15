@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://interviewprep.local/schema/content.schema.json",
-  "title": "InterviewPrep content seed file",
+  "$id": "https://spine.local/schema/content.schema.json",
+  "title": "Spine content seed file",
   "description": "One file per taxonomy topic: content/<domain>/<topic>.json. Slugs and ids are stable identifiers; never rename, deprecate instead.",
   "type": "object",
   "additionalProperties": false,

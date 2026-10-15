@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://interviewprep.local/schema/manifest.schema.json",
-  "title": "InterviewPrep content manifest",
+  "$id": "https://spine.local/schema/manifest.schema.json",
+  "title": "Spine content manifest",
   "description": "content/manifest.json — the ordered list of domains and topics with their titles. Mirrors specs/000-taxonomy.md. Topic files must reference a (domain, topic) pair listed here. `title` is English (canonical, required); `titles.uk` is the optional Ukrainian title served for lang=uk.",
   "type": "object",
   "additionalProperties": false,

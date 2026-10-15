@@ -6,7 +6,7 @@
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 files=(activeContext.md progress.md systemPatterns.md)
 
-echo "InterviewPrep memory-bank (live files only — activeContext, progress, systemPatterns). Static files (projectbrief, productContext, techContext) are available on demand via Read."
+echo "Spine memory-bank (live files only — activeContext, progress, systemPatterns). Static files (projectbrief, productContext, techContext) are available on demand via Read."
 echo
 
 for f in "${files[@]}"; do

@@ -36,8 +36,9 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 1. User: `~/.lockflight/bin/lockflight approve spec` for 004 (`dotnet lockflight` fails — the pinned
    `lockflight.cli` dev version is not on NuGet). Then plan → tasks → approve tasks → red/green.
 2. User: review sprint-1 content, flip `reviewed`; then `uk` pass for reviewed items.
-3. User: protected-file edits for the rename (003 T021), including the `RootNamespace` patch in the
-   scratchpad — until then fix the namespace of every new EF migration by hand.
+3. Done: 003 T021 — `RootNamespace` is `$(MSBuildProjectName)` (new EF migrations get `Spine.*`),
+   agents/hooks/skills and schema `$id`/titles say Spine. Remaining `interviewprep` mentions are
+   intentional: DB/role/volume names, ADR history, the legacy theme storage key.
 4. Content: Angular (3) and AI engineering (5) domains.
 
 **Waiting on the user**
