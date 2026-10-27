@@ -1,0 +1,11 @@
+{
+  "schema": "lockflight.approval/v1",
+  "feature": "004-knowledge-atlas-notes",
+  "phase": "spec",
+  "artifacts": {
+    "spec.md": "68c122200b2c2dbb4a4b93a4e202eba1038a9eccd98e3c0673c1c9e6b0cdea80"
+  },
+  "approvedBy": "108990247+bohdan-ivaniichuk@users.noreply.github.com",
+  "at": "2026-10-15T09:19:25.7299420+00:00",
+  "engineVersion": "0.2.0-dev.20261015085333"
+}
