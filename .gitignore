@@ -8,6 +8,7 @@ docker-compose.override.yml
 
 # ── Per-user / local-only Claude state ──
 .claude/settings.local.json
+.claude/worktrees/
 
 # ── Personal scratch space (only its README is tracked) ──
 /working/*
