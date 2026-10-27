@@ -82,6 +82,7 @@ describe('SessionStore', () => {
 
     expect(store.status()).toBe('error');
     expect(store.error()).toContain('Nothing to review');
+    expect(store.startError()).toContain('Nothing to review');
     expect(store.session()).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -291,5 +292,76 @@ describe('SessionStore', () => {
     await new Promise((resolve) => setTimeout(resolve));
 
     expect(store.current()?.prompt).not.toBe('Застаріле');
+  });
+
+  it('start sends the weak mode', async () => {
+    const pending = store.start({ scope: 'all', mode: 'weak', totalLimit: 15 });
+    const req = http.expectOne(SESSIONS);
+    expect(req.request.body).toEqual({ scope: 'all', mode: 'weak', totalLimit: 15 });
+    req.flush(session(2, { mode: 'weak' }), { status: 201, statusText: 'Created' });
+    await pending;
+
+    expect(store.mode()).toBe('weak');
+  });
+
+  it('a refused weak start (409 "Nothing to drill") reports it and keeps the open session', async () => {
+    await startSession(2);
+    const pending = store.start({ scope: 'all', mode: 'weak' });
+    http
+      .expectOne(SESSIONS)
+      .flush({ title: 'Nothing to drill', status: 409 }, { status: 409, statusText: 'Conflict' });
+    await pending;
+
+    expect(store.startError()).toContain('Nothing to drill');
+    expect(store.session()?.id).toBe(ID);
+    // The resumed session is not blocked or decorated by the refused start.
+    expect(store.status()).toBe('ready');
+    expect(store.error()).toBeNull();
+    expect(await store.resume()).toBe(store.session());
+    expect(store.error()).toBeNull();
+
+    store.clearError();
+    expect(store.startError()).toBeNull();
+  });
+
+  it('reviewAgain keeps the weak mode of the finished session', async () => {
+    await startSession(1);
+    await checkAnswer(0, false);
+    store.next();
+    http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary({ mode: 'weak' }));
+    await vi.waitFor(() => expect(store.status()).toBe('finished'));
+
+    const pending = store.reviewAgain();
+    const req = http.expectOne(SESSIONS);
+    expect(req.request.body).toEqual({
+      scope: 'topic',
+      domain: 'dotnet',
+      topic: 'clr-memory',
+      mode: 'weak',
+      totalLimit: 20,
+    });
+    req.flush(session(1, { mode: 'weak' }), { status: 201, statusText: 'Created' });
+    await pending;
+  });
+
+  it('drillWeak starts a weak session over the summary scope, keeping only the total limit', async () => {
+    await startSession(1);
+    await checkAnswer(0, false);
+    store.next();
+    http.expectOne(`${SESSIONS}/${ID}/finish`).flush(summary());
+    await vi.waitFor(() => expect(store.status()).toBe('finished'));
+
+    const pending = store.drillWeak();
+    const req = http.expectOne(SESSIONS);
+    expect(req.request.body).toEqual({
+      scope: 'topic',
+      domain: 'dotnet',
+      topic: 'clr-memory',
+      mode: 'weak',
+      totalLimit: 20,
+    });
+    req.flush(session(1, { mode: 'weak' }), { status: 201, statusText: 'Created' });
+    await pending;
+    expect(store.mode()).toBe('weak');
   });
 });

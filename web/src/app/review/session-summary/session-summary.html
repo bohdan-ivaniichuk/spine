@@ -8,7 +8,17 @@
         >
           {{ t.summary.title }}
         </h1>
-        <p class="mt-1 text-sm text-muted">{{ scope() }}</p>
+        <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+          <span>{{ scope() }}</span>
+          @if (s.mode === 'weak') {
+            <span
+              data-testid="weak-chip"
+              class="inline-flex rounded-full bg-bad-soft px-2.5 py-0.5 text-xs font-semibold text-bad"
+              [attr.title]="t.session.weakHint"
+              >{{ t.session.weak }}<span class="sr-only">: {{ t.session.weakHint }}</span></span
+            >
+          }
+        </p>
       </div>
       <span
         class="rounded-full bg-surface px-3 py-1 font-mono text-xs font-medium text-muted shadow-card"
@@ -64,10 +74,18 @@
                     >{{ w.domain }}/{{ w.topic }}</span
                   >
                 </button>
-                <span
-                  class="shrink-0 rounded-full bg-bad-soft px-2.5 py-1 font-mono text-xs font-semibold text-bad"
-                  >{{ t.summary.wrongOf(w.wrong, w.total) }}</span
-                >
+                <span class="flex shrink-0 items-center gap-3">
+                  <a
+                    class="rounded text-xs font-semibold text-accent-text hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    [routerLink]="['/atlas', w.domain, w.topic, w.concept]"
+                    [attr.aria-label]="t.summary.openNoteFor(w.title)"
+                    >{{ t.summary.openNote }}</a
+                  >
+                  <span
+                    class="rounded-full bg-bad-soft px-2.5 py-1 font-mono text-xs font-semibold text-bad"
+                    >{{ t.summary.wrongOf(w.wrong, w.total) }}</span
+                  >
+                </span>
               </div>
               @if (expanded() === key) {
                 <div
@@ -98,6 +116,17 @@
         class="rounded-2xl border border-line bg-surface px-5 py-3 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >{{ t.summary.back }}</a
       >
+      @if (s.answered > s.correct) {
+        <button
+          type="button"
+          class="rounded-2xl border border-line bg-surface px-5 py-3 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+          [attr.title]="t.summary.drillHint"
+          [disabled]="store.status() === 'loading'"
+          (click)="drillWeak()"
+        >
+          {{ t.summary.drill }}
+        </button>
+      }
       <button
         type="button"
         class="rounded-2xl bg-accent px-6 py-3 font-display text-sm font-bold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { I18n } from '../../shared/i18n/i18n';
 
-/** Session header: scope chip, accent track and the "7 / 20" position. */
+/** Session header: scope chip (plus a weak-spots chip in weak mode), accent track and the "7 / 20" position. */
 @Component({
   selector: 'app-progress-bar',
   templateUrl: './progress-bar.html',
@@ -12,6 +12,8 @@ export class ProgressBar {
   readonly position = input.required<number>();
   readonly total = input.required<number>();
   readonly label = input('');
+  /** Marks a weak-spots drill (FR-004). */
+  readonly weak = input(false);
 
   protected readonly percent = computed(() => {
     const total = this.total();

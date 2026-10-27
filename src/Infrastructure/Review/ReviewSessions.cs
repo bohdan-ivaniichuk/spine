@@ -49,6 +49,7 @@ public sealed class ReviewSessions(
         var dueCount = await DueIds(scope, now).CountAsync(ct);
         var newCount = await NewIds(scope).CountAsync(ct);
         var nextDueAt = await DueAtOf(scope).Where(dueAt => dueAt > now).Select(dueAt => (DateTimeOffset?)dueAt).MinAsync(ct);
+        var weakCount = await db.WeakQuestions(scope).CountAsync(ct);
 
         return new ReviewOverviewDto(
             scopeDto,
@@ -57,19 +58,60 @@ public sealed class ReviewSessions(
             totalEligible,
             nextDueAt,
             new SessionDefaultsDto(options.Value.DefaultTotalLimit, options.Value.DefaultNewLimit),
-            new SessionLimitsDto(ReviewOptions.MinLimit, ReviewOptions.MaxLimit));
+            new SessionLimitsDto(ReviewOptions.MinLimit, ReviewOptions.MaxLimit),
+            weakCount);
     }
 
     public async Task<SessionDto> StartAsync(ReviewScope scope, int totalLimit, int newLimit, Language language = Language.En, CancellationToken ct = default)
     {
-        if (!ReviewOptions.IsWithinBounds(totalLimit))
-        {
-            throw new ArgumentOutOfRangeException(nameof(totalLimit), totalLimit, $"Must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.");
-        }
-
         if (!ReviewOptions.IsWithinBounds(newLimit))
         {
             throw new ArgumentOutOfRangeException(nameof(newLimit), newLimit, $"Must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.");
+        }
+
+        return await StartCoreAsync(scope, SessionMode.Regular, totalLimit, newLimit, language, async now =>
+        {
+            var dueIds = await DueIds(scope, now).Take(totalLimit).ToListAsync(ct);
+            var newIds = await NewIds(scope).Take(Math.Min(newLimit, totalLimit)).ToListAsync(ct);
+            var plan = SessionPlanner.Plan(dueIds, newIds, totalLimit, newLimit);
+            return plan.Length > 0
+                ? plan
+                : throw new ReviewException(ReviewError.NothingToReview, "Nothing is due and there are no new questions in this scope.");
+        }, ct);
+    }
+
+    public Task<SessionDto> StartWeakAsync(ReviewScope scope, int totalLimit, Language language = Language.En, CancellationToken ct = default) =>
+        // The new-question limit means nothing in weak mode (a weak question always has a review state); the default is
+        // stored so "Review again" round-trips a valid value.
+        StartCoreAsync(scope, SessionMode.Weak, totalLimit, options.Value.DefaultNewLimit, language, async _ =>
+        {
+            var weakIds = await db.WeakQuestions(scope)
+                .OrderByDescending(w => w.MissedAt).ThenBy(w => w.QuestionId)
+                .Select(w => w.QuestionId)
+                .Take(totalLimit)
+                .ToListAsync(ct);
+            var plan = SessionPlanner.PlanWeak(weakIds, totalLimit);
+            return plan.Length > 0
+                ? plan
+                : throw new ReviewException(ReviewError.NothingToDrill, "No question in this scope has a wrong last answer.");
+        }, ct);
+
+    /// <summary>
+    /// The transactional part of every start: lock, plan (which throws to refuse), close the open session, insert.
+    /// A refusal rolls back, so nothing is closed and an open session stays resumable.
+    /// </summary>
+    private async Task<SessionDto> StartCoreAsync(
+        ReviewScope scope,
+        SessionMode mode,
+        int totalLimit,
+        int newLimit,
+        Language language,
+        Func<DateTimeOffset, Task<string[]>> plan,
+        CancellationToken ct)
+    {
+        if (!ReviewOptions.IsWithinBounds(totalLimit))
+        {
+            throw new ArgumentOutOfRangeException(nameof(totalLimit), totalLimit, $"Must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.");
         }
 
         await ResolveScopeAsync(scope, language, ct);
@@ -87,18 +129,11 @@ public sealed class ReviewSessions(
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({StartSessionLockKey})", ct);
 
             // Row-lock the open sessions before reading the plan, so an in-flight Answer on them commits first and its
-            // review-state change is visible to the due/new queries below (and Answer/Finish wait for this close).
-            // On the empty-plan path the transaction rolls back and the locks are released with nothing closed.
+            // review-state change is visible to the planning queries below (and Answer/Finish wait for this close).
+            // On the refusal path the transaction rolls back and the locks are released with nothing closed.
             await db.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE user_id = {userId} AND finished_at IS NULL FOR UPDATE", ct);
 
-            var dueIds = await DueIds(scope, now).Take(totalLimit).ToListAsync(ct);
-            var newIds = await NewIds(scope).Take(Math.Min(newLimit, totalLimit)).ToListAsync(ct);
-            var plan = SessionPlanner.Plan(dueIds, newIds, totalLimit, newLimit);
-            if (plan.Length == 0)
-            {
-                // Nothing starts, so nothing is closed either: the open session (if any) stays resumable.
-                throw new ReviewException(ReviewError.NothingToReview, "Nothing is due and there are no new questions in this scope.");
-            }
+            var questionIds = await plan(now);
 
             var open = await db.Sessions.Where(s => s.UserId == userId && s.FinishedAt == null).ToListAsync(ct);
             foreach (var session in open)
@@ -112,11 +147,12 @@ public sealed class ReviewSessions(
                 UserId = userId,
                 StartedAt = now,
                 CreatedAt = now,
+                Mode = mode,
                 ScopeType = scope.Type,
                 ScopeDomainSlug = scope.Domain,
                 ScopeTopicSlug = scope.Topic,
                 ScopeConceptSlug = scope.Concept,
-                QuestionIds = plan,
+                QuestionIds = questionIds,
                 TotalLimit = totalLimit,
                 NewLimit = newLimit,
             };
@@ -469,7 +505,8 @@ public sealed class ReviewSessions(
             session.NewLimit,
             questions,
             answers,
-            skipped);
+            skipped,
+            session.Mode.ToDbValue());
     }
 
     // ---- scope ----

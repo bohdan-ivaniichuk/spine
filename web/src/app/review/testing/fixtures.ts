@@ -51,6 +51,7 @@ export function session(count = 3, overrides: Partial<Session> = {}): Session {
   return {
     id: '019200aa-0000-7000-8000-000000000001',
     scope: topicScope,
+    mode: 'regular',
     startedAt: '2026-09-06T10:00:00+00:00',
     finishedAt: null,
     totalLimit: 20,
@@ -87,6 +88,7 @@ export function overview(overrides: Partial<ReviewOverview> = {}): ReviewOvervie
     newCount: 28,
     totalEligible: 28,
     nextDueAt: null,
+    weakCount: 0,
     defaults: { totalLimit: 20, newLimit: 10 },
     limits: { min: 1, max: 100 },
     ...overrides,
@@ -97,6 +99,7 @@ export function summary(overrides: Partial<SessionSummary> = {}): SessionSummary
   return {
     sessionId: '019200aa-0000-7000-8000-000000000001',
     scope: topicScope,
+    mode: 'regular',
     startedAt: '2026-09-06T10:00:00+00:00',
     finishedAt: '2026-09-06T10:12:00+00:00',
     questionCount: 20,

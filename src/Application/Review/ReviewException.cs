@@ -5,6 +5,7 @@ public enum ReviewError
 {
     ScopeNotFound,
     NothingToReview,
+    NothingToDrill,
     SessionNotFound,
     SessionFinished,
     QuestionNotInSession,

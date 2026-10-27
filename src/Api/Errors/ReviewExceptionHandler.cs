@@ -15,6 +15,7 @@ public sealed class ReviewExceptionHandler : IExceptionHandler
     {
         ReviewError.ScopeNotFound => (StatusCodes.Status404NotFound, "Scope not found"),
         ReviewError.NothingToReview => (StatusCodes.Status409Conflict, "Nothing to review"),
+        ReviewError.NothingToDrill => (StatusCodes.Status409Conflict, "Nothing to drill"),
         ReviewError.SessionNotFound => (StatusCodes.Status404NotFound, "Session not found"),
         ReviewError.SessionFinished => (StatusCodes.Status409Conflict, "Session already finished"),
         ReviewError.QuestionNotInSession => (StatusCodes.Status422UnprocessableEntity, "Question not in session"),

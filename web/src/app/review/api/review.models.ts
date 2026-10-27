@@ -1,11 +1,18 @@
 /**
  * Review API shapes — `specs/002-review-session/contracts/review-api.md` plus the language fields and
  * coverage of `specs/003-atlas-redesign-i18n/contracts/review-api-i18n.md` and the `concept` scope of
- * `specs/004-knowledge-atlas-notes/contracts/review-scope-concept.md`.
+ * `specs/004-knowledge-atlas-notes/contracts/review-scope-concept.md` and the session `mode` of
+ * `specs/006-weak-spots/contracts/review-mode.md`.
  * camelCase JSON, dates as ISO-8601 strings; `correct` never appears (the server keeps it).
  */
 
 export type ReviewScopeType = 'all' | 'domain' | 'topic' | 'concept';
+
+/**
+ * `regular`: due and new questions (the default). `weak`: questions whose most recent answer was
+ * wrong, newest miss first, regardless of due dates (`newLimit` is ignored).
+ */
+export type ReviewMode = 'regular' | 'weak';
 
 export interface ReviewScope {
   type: ReviewScopeType;
@@ -51,6 +58,7 @@ export interface SessionAnswer {
 export interface Session {
   id: string;
   scope: ReviewScope;
+  mode: ReviewMode;
   startedAt: string;
   finishedAt: string | null;
   totalLimit: number;
@@ -84,6 +92,8 @@ export interface ReviewOverview {
   newCount: number;
   totalEligible: number;
   nextDueAt: string | null;
+  /** Questions in scope whose last answer was wrong (independent of mode). */
+  weakCount: number;
   defaults: SessionLimits;
   limits: { min: number; max: number };
 }
@@ -100,6 +110,7 @@ export interface WeakConcept {
 export interface SessionSummary {
   sessionId: string;
   scope: ReviewScope;
+  mode: ReviewMode;
   startedAt: string;
   finishedAt: string;
   questionCount: number;
@@ -120,6 +131,8 @@ export interface ScopeQuery {
 }
 
 export interface StartSessionRequest extends ScopeQuery {
+  /** Omitted for `regular` (the server default). */
+  mode?: ReviewMode;
   totalLimit?: number;
   newLimit?: number;
 }

@@ -71,4 +71,19 @@ public sealed class SessionPlannerTests
         Should.Throw<ArgumentOutOfRangeException>(() => SessionPlanner.Plan([], [], -1, 0));
         Should.Throw<ArgumentOutOfRangeException>(() => SessionPlanner.Plan([], [], 1, -1));
     }
+
+    [Fact]
+    [Trait("Requirement", "FR-002")]
+    public void PlanWeak_keeps_the_given_order_and_caps_at_the_total()
+    {
+        Assert.Equal(["c", "a"], SessionPlanner.PlanWeak(["c", "a", "b"], 2));
+        Assert.Equal(["c", "a", "b"], SessionPlanner.PlanWeak(["c", "a", "b"], 20));
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-005")]
+    public void PlanWeak_with_nothing_weak_is_empty()
+    {
+        Assert.Empty(SessionPlanner.PlanWeak([], 20));
+    }
 }

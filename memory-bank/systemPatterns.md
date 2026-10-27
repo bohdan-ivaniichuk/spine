@@ -81,4 +81,7 @@ say so rather than deleting.
   `ReviewScope.IsValid` and `ScopeRules`).
 - Web `knowledge/`: `AtlasLayout` provides a per-visit `ReadinessStore`; the concept page is a lazy route
   (renderer deps stay out of the initial bundle); cross-feature UI lives in `shared/` (badges, i18n).
+- Weakness (006) is read from `attempts` (latest answer wrong), never from SM-2 fields; session `mode` sits next to
+  scope on `sessions`. Every start goes through `ReviewSessions.StartCoreAsync` (advisory lock → open-session
+  `FOR UPDATE` → plan, which throws to refuse → close open → insert).
 

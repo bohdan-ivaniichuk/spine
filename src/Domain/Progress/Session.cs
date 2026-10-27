@@ -1,7 +1,7 @@
 namespace Spine.Domain.Progress;
 
 /// <summary>
-/// A review sitting: scope (all / one domain / one topic / one concept), the ordered membership frozen at start, the limits used,
+/// A review sitting: mode (regular / weak), scope (all / one domain / one topic / one concept), the ordered membership frozen at start, the limits used,
 /// and summary counts filled at finish.
 /// </summary>
 public sealed class Session
@@ -10,6 +10,7 @@ public sealed class Session
     public Guid UserId { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? FinishedAt { get; set; }
+    public SessionMode Mode { get; set; }
     public SessionScopeType ScopeType { get; set; }
     public string? ScopeDomainSlug { get; set; }
     public string? ScopeTopicSlug { get; set; }

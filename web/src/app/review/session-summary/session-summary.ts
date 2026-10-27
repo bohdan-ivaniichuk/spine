@@ -12,7 +12,10 @@ import { scopeLabel } from '../api/review.models';
 import { OVERVIEW_ROUTE, SessionStore } from '../session-store';
 import { ConceptPeek } from './concept-peek';
 
-/** How the session went: counts, accuracy, weak concepts ranked by misses, due tomorrow. */
+/**
+ * How the session went: counts, accuracy, weak concepts ranked by misses (note peek in place, full
+ * note in the Atlas), due tomorrow; "Drill these" starts a weak session over the same scope.
+ */
 @Component({
   selector: 'app-session-summary',
   imports: [RouterLink, ConceptPeek],
@@ -46,5 +49,9 @@ export class SessionSummary implements OnInit {
 
   protected reviewAgain(): void {
     void this.store.reviewAgain();
+  }
+
+  protected drillWeak(): void {
+    void this.store.drillWeak();
   }
 }

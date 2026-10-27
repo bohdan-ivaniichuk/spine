@@ -3,6 +3,17 @@ import { Messages } from './messages.en';
 
 const questions = (n: number) =>
   plural('uk', n, { one: 'питання', few: 'питання', many: 'питань', other: 'питання' });
+const days = (n: number) =>
+  plural('uk', n, { one: 'день', few: 'дні', many: 'днів', other: 'дня' });
+const answers = (n: number) =>
+  plural('uk', n, { one: 'відповідь', few: 'відповіді', many: 'відповідей', other: 'відповіді' });
+const toDrill = (n: number) =>
+  plural('uk', n, {
+    one: 'питання на відпрацювання',
+    few: 'питання на відпрацювання',
+    many: 'питань на відпрацювання',
+    other: 'питання на відпрацювання',
+  });
 
 /** Ukrainian UI copy. Technical terms (SM-2, .NET, API) stay in English (constitution III). */
 export const UK: Messages = {
@@ -13,6 +24,7 @@ export const UK: Messages = {
     nav: 'Головне',
     review: 'Повторення',
     atlas: 'Атлас',
+    weak: 'Слабкі місця',
     katas: 'Ката',
     soon: 'скоро',
     spine: 'Корінець',
@@ -32,6 +44,7 @@ export const UK: Messages = {
     session: 'Сесія повторення',
     summary: 'Підсумок сесії',
     atlas: 'Атлас',
+    weak: 'Слабкі місця',
   },
   scope: {
     all: 'Усі домени',
@@ -56,6 +69,15 @@ export const UK: Messages = {
         many: 'нових питань',
         other: 'нових питання',
       }),
+    mode: 'Режим сесії',
+    modeRegular: 'За розкладом',
+    modeWeak: 'Слабкі місця',
+    toDrill,
+    weakHint: 'Питання, на які ви востаннє відповіли неправильно, — спершу найсвіжіші помилки.',
+    nothingToDrill:
+      'Нічого відпрацьовувати — у цьому обсязі немає питань з останньою неправильною відповіддю.',
+    drill: (n: number) =>
+      `Відпрацювати · ${n} ${plural('uk', n, { one: 'картка', few: 'картки', many: 'карток', other: 'картки' })}`,
     scope: 'Обсяг',
     scopeAll: 'Усі домени',
     scopeDomain: 'Один домен',
@@ -124,6 +146,8 @@ export const UK: Messages = {
     level: (name: string) => `Рівень: ${name}`,
     levels: { M: 'Middle', S: 'Senior', L: 'Lead' },
     isNew: 'нове',
+    weak: 'Слабкі місця',
+    weakHint: 'Відпрацювання слабких місць: питання, на які ви востаннє відповіли неправильно',
   },
   badges: {
     unreviewed: 'не перевірено',
@@ -176,6 +200,26 @@ export const UK: Messages = {
     reviewTopic: 'Повторити тему',
     reviewConcept: 'Повторити концепт',
   },
+  weak: {
+    title: 'Слабкі місця',
+    lead: (d: number, min: number) =>
+      `Ваші найслабші концепти й теми за останні ${d} ${days(d)} — спершу з найнижчою точністю. Ураховуються лише ті, що мають щонайменше ${min} ${answers(min)} за цей період.`,
+    drillAll: 'Відпрацювати всі слабкі місця',
+    concepts: 'Найслабші концепти',
+    topics: 'Найслабші теми',
+    accuracy: 'точність',
+    wrongOf: (wrong: number, n: number) => `${wrong} з ${n} неправильно`,
+    lastAnswered: (when: string) => `остання відповідь ${when}`,
+    toDrill: (n: number) => `${n} ${toDrill(n)}`,
+    noneToDrill: 'останні відповіді всі правильні',
+    drill: 'Відпрацювати',
+    emptyTitle: 'Слабких місць поки немає',
+    emptyLead: (d: number, min: number) =>
+      `Слабкі місця з’являються після повторень: концепт потрапляє сюди, коли має щонайменше ${min} ${answers(min)} за останні ${d} ${days(d)}.`,
+    toReview: 'До повторення',
+    loading: 'Завантажую слабкі місця…',
+    loadError: 'Не вдалося завантажити слабкі місця.',
+  },
   feedback: {
     correct: 'Правильно',
     incorrect: 'Неправильно',
@@ -194,6 +238,11 @@ export const UK: Messages = {
     dueTomorrow: 'Завтра до повторення в цьому обсязі:',
     back: 'До огляду',
     again: 'Ще раз',
+    drill: 'Відпрацювати помилки',
+    drillHint:
+      'Сесія слабких місць у цьому обсязі: питання, на які ви востаннє відповіли неправильно',
+    openNote: 'Відкрити нотатку',
+    openNoteFor: (title: string) => `Відкрити нотатку: ${title}`,
     starting: 'Запускаю…',
     conceptMeta: (domain: string, topic: string, level: string, n: number) =>
       `${domain} · ${topic} · рівень ${level} · ${n} ${questions(n)}`,

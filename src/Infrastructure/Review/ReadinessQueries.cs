@@ -32,15 +32,7 @@ public sealed class ReadinessQueries(AppDbContext db) : IReadinessQueries
             .Select(c => new { c.Id, c.TopicId, c.Slug })
             .ToListAsync(ct);
 
-        // One grouped query: schedulable questions left-joined to the learner's review state (unique per item).
-        var counts = await (
-            from q in db.Eligible(ReviewScope.All)
-            join r in db.QuestionStates() on q.Id equals r.QuestionId into states
-            from r in states.DefaultIfEmpty()
-            select new { q.ConceptId, Stated = r != null, Ready = r != null && r.IntervalDays >= ReadinessRule.MinIntervalDays })
-            .GroupBy(x => x.ConceptId)
-            .Select(g => new { ConceptId = g.Key, Questions = g.Count(), Stated = g.Count(x => x.Stated), Ready = g.Count(x => x.Ready) })
-            .ToDictionaryAsync(x => x.ConceptId, ct);
+        var counts = await db.ConceptReadinessCounts().ToDictionaryAsync(x => x.ConceptId, ct);
 
         var conceptsByTopic = concepts.ToLookup(c => c.TopicId);
         var topicsByDomain = topics.ToLookup(t => t.DomainId);

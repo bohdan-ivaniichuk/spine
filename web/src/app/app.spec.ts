@@ -17,6 +17,7 @@ describe('App', () => {
         provideRouter([
           { path: 'atlas', children: [] },
           { path: 'atlas/:domain', children: [] },
+          { path: 'weak', children: [] },
         ]),
       ],
     }).compileComponents();
@@ -97,5 +98,25 @@ describe('App', () => {
     expect(tab().className).toContain('ring-2');
     expect(tab().className).toContain('domain-1');
     expect(tab().getAttribute('href')).toBe('/review?scope=domain&domain=dotnet');
+  });
+
+  it('links the rail "Weak spots" item to /weak between Atlas and Katas and marks it active there', async () => {
+    const { fixture, root } = await render();
+
+    const main = root.querySelector('nav[aria-label="Main"]')!;
+    const weak = main.querySelector<HTMLAnchorElement>('a[href="/weak"]')!;
+    expect(weak).not.toBeNull();
+    expect(weak.textContent).toContain('Weak spots');
+    const items = Array.from(main.children).map((el) => el.textContent?.trim() ?? '');
+    const at = (label: string) => items.findIndex((x) => x.startsWith(label));
+    expect(at('Atlas')).toBeLessThan(at('Weak spots'));
+    expect(at('Weak spots')).toBeLessThan(at('Katas'));
+    expect(weak.getAttribute('aria-current')).toBeNull();
+
+    await TestBed.inject(Router).navigateByUrl('/weak');
+    await fixture.whenStable();
+
+    expect(weak.getAttribute('aria-current')).toBe('page');
+    expect(weak.className).toContain('bg-accent');
   });
 });

@@ -40,7 +40,8 @@ public sealed record SessionDto(
     int NewLimit,
     IReadOnlyList<SessionQuestionDto> Questions,
     IReadOnlyList<SessionAnswerDto> Answers,
-    IReadOnlyList<string> SkippedQuestionIds);
+    IReadOnlyList<string> SkippedQuestionIds,
+    string Mode = "regular");
 
 public sealed record AnswerFeedbackDto(
     string QuestionId,
@@ -64,7 +65,8 @@ public sealed record ReviewOverviewDto(
     int TotalEligible,
     DateTimeOffset? NextDueAt,
     SessionDefaultsDto Defaults,
-    SessionLimitsDto Limits);
+    SessionLimitsDto Limits,
+    int WeakCount = 0);
 
 public sealed record WeakConceptDto(string Domain, string Topic, string Concept, string Title, int Wrong, int Total);
 
@@ -78,7 +80,8 @@ public sealed record SessionSummaryDto(
     int Correct,
     double? Accuracy,
     IReadOnlyList<WeakConceptDto> WeakConcepts,
-    int DueTomorrow);
+    int DueTomorrow,
+    string Mode = "regular");
 
 /// <summary>Per-topic progress of the local learner. Due &lt;= seen &lt;= eligible.</summary>
 public sealed record TopicCoverageDto(string Domain, string Topic, int Eligible, int Seen, int Due);
@@ -96,3 +99,34 @@ public sealed record TopicReadinessDto(string Topic, int Ready, int Counted, int
 public sealed record DomainReadinessDto(string Domain, int Ready, int Counted, int? Percent, IReadOnlyList<TopicReadinessDto> Topics);
 
 public sealed record ReadinessDto(IReadOnlyList<DomainReadinessDto> Domains);
+
+/// <summary>
+/// The local learner's weakest concepts and topics (specs/006-weak-spots/contracts/weak-spots-api.md). Slugs and figures
+/// only; accuracy is 0..1.
+/// </summary>
+public sealed record ConceptWeaknessDto(
+    string Domain,
+    string Topic,
+    string Concept,
+    int Answers,
+    int Wrong,
+    double Accuracy,
+    DateTimeOffset LastAnsweredAt,
+    int WeakQuestions,
+    ConceptReadinessDto? Readiness);
+
+public sealed record TopicWeaknessDto(
+    string Domain,
+    string Topic,
+    int Answers,
+    int Wrong,
+    double Accuracy,
+    DateTimeOffset LastAnsweredAt,
+    int WeakQuestions);
+
+public sealed record WeakSpotsDto(
+    DateTimeOffset Since,
+    int WindowDays,
+    int MinAnswers,
+    IReadOnlyList<ConceptWeaknessDto> Concepts,
+    IReadOnlyList<TopicWeaknessDto> Topics);

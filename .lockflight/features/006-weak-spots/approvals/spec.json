@@ -1,0 +1,11 @@
+{
+  "schema": "lockflight.approval/v1",
+  "feature": "006-weak-spots",
+  "phase": "spec",
+  "artifacts": {
+    "spec.md": "880c562624a2b2fdb654d85bb35970c0e986450685e97f2714d30ab32d5e1440"
+  },
+  "approvedBy": "108990247+bohdan-ivaniichuk@users.noreply.github.com",
+  "at": "2026-10-27T22:32:37.6033350+00:00",
+  "engineVersion": "0.2.0-alpha.6.dev.20261027212647"
+}

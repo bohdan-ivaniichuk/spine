@@ -60,6 +60,29 @@
         </svg>
         {{ t.app.atlas }}
       </a>
+      <a
+        routerLink="/weak"
+        routerLinkActive="bg-accent text-on-accent"
+        ariaCurrentWhenActive="page"
+        class="flex w-[72px] flex-col items-center gap-1.5 rounded-2xl py-2.5 text-center text-[11px] leading-tight font-semibold text-ink-muted hover:text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+      >
+        <svg
+          aria-hidden="true"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="1" />
+        </svg>
+        {{ t.app.weak }}
+      </a>
       <span
         class="flex w-[72px] cursor-default flex-col items-center gap-1.5 rounded-2xl py-2.5 text-[11px] font-medium text-ink-muted opacity-70"
         [attr.title]="t.app.katas + ' — ' + t.app.soon"

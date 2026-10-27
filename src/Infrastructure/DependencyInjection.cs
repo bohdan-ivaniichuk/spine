@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddSingleton<ISchedulingAlgorithm, Sm2Algorithm>();
         services.AddScoped<IReviewSessions, ReviewSessions>();
         services.AddScoped<IReadinessQueries, ReadinessQueries>();
+        services.AddScoped<IWeakSpotsQueries, WeakSpotsQueries>();
         services.AddOptions<ReviewOptions>().Configure(o =>
         {
             o.DefaultTotalLimit = configuration.GetValue(ReviewOptions.TotalLimitKey, o.DefaultTotalLimit);

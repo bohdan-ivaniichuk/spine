@@ -29,4 +29,14 @@ public static class SessionPlanner
 
         return plan;
     }
+
+    /// <summary>Weak-mode membership (FR-002): the weak questions in the given order, capped at the total limit.</summary>
+    /// <param name="weakIdsOrdered">Question ids whose last answer was wrong, newest miss first.</param>
+    public static string[] PlanWeak(IReadOnlyList<string> weakIdsOrdered, int totalLimit)
+    {
+        ArgumentNullException.ThrowIfNull(weakIdsOrdered);
+        ArgumentOutOfRangeException.ThrowIfNegative(totalLimit);
+
+        return [.. weakIdsOrdered.Take(totalLimit)];
+    }
 }

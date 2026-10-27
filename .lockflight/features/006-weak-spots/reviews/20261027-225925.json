@@ -1,0 +1,56 @@
+{
+  "schema": "lockflight.review/v2",
+  "run": "20261027-225925",
+  "at": "2026-10-27T22:59:25.0690810+00:00",
+  "feature": "006-weak-spots",
+  "base": {
+    "ref": "main",
+    "commit": "d71348ad1cf65c1aa8ecfcb62941d426189be833",
+    "target": "main",
+    "mergeBase": "d71348ad1cf65c1aa8ecfcb62941d426189be833",
+    "isMergeBase": true
+  },
+  "head": "487e3b6aca8090cb67aa3f74b22c44f4a279b585",
+  "diffSha256": "f18e393654b4e785fedb5323a55cf090d6e88e0dbd032992ea21e30ca48765d1",
+  "promptSha256": "d7ba469a4d091b6a5a090fec7de26afa6d5a0efdcbbb96fa8923cc1a8e0c17ba",
+  "model": "opus",
+  "budgetUsd": 3.00,
+  "settings": {
+    "model": "opus",
+    "maxUsd": 3.00,
+    "target": null,
+    "source": "default"
+  },
+  "claudeCodeVersion": "2.1.312 (Claude Code)",
+  "usage": {
+    "inputTokens": 20,
+    "outputTokens": 3845,
+    "cacheReadInputTokens": 698985,
+    "cacheCreationInputTokens": 92903
+  },
+  "estimatedCostUsd": 0.960001,
+  "claudeDurationMs": 38539,
+  "wallTimeMs": 39321,
+  "ofRecord": true,
+  "notOfRecord": [],
+  "verdict": "approve",
+  "summary": "I reviewed the weak-mode backend (session start, weak-question query, ranking, statistics, migration, error mapping) and the web weak-spots view, the summary links and the drill flows against FR-001 to FR-015. I found no blocker or major defects.\n\nWeak sessions:\n- They take only eligible (non-deprecated MCQ) questions whose latest attempt was wrong, newest miss first.\n- They are capped by the total limit, respect every scope, and run through the shared start/advisory-lock path.\n- They are refused with a 409 \"Nothing to drill\" and no session row when nothing in scope qualifies.\n- The mode is stored, with a check constraint and a database default that matches the CLR default.\n\nRanking: the comparison by accuracy (cross-multiplied), then wrong answers descending, then most recent answer, matches FR-008/009. The minimum of 3 answers and the caps of 20 concepts and 10 topics are applied, and topics qualify on their concepts' combined answers.\n\nWeb and summary: the overview shows the weak count; summary concepts link to /atlas; the summary drill and \"Review again\" keep the session's scope in weak mode; the empty state links to Review.\n\nOnly one minor issue: the 30-day window boundary.",
+  "findings": [
+    {
+      "id": "d8016d616879",
+      "dimension": "general",
+      "severity": "minor",
+      "outcome": "reported",
+      "reproductionResult": "none",
+      "state": null,
+      "carried": false,
+      "file": "src/Infrastructure/Review/WeakSpotsQueries.cs",
+      "line": 19,
+      "requirement": "FR-007 / US2 scenario 3: answers older than 30 days are ignored",
+      "title": "30-day window start is rounded down to the minute, so answers slightly older than 30 days are counted",
+      "evidence": "`since` is built from `now` with the seconds set to zero, then 30 days are subtracted. Example: at 12:00:45, `since` is 30 days ago at 12:00:00. An answer from 30 days ago at 12:00:10 is 30 days and 35 seconds old, but it still passes `a.AnsweredAt >= since` and counts toward answers, wrong answers and accuracy. The error is at most 59 seconds, but it breaks the stated rule and can make a hand calculation (SC-002) disagree near the boundary. Fix: use `now.AddDays(-WeaknessRule.WindowDays)`, or round the window start up to the next minute instead of down.",
+      "reproduction": null,
+      "earlierReproductions": []
+    }
+  ]
+}

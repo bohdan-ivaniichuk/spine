@@ -21,6 +21,7 @@ import { I18n } from '../../shared/i18n/i18n';
 import { coverageUrl, overviewUrl } from '../api/review-api';
 import {
   Coverage,
+  ReviewMode,
   ReviewOverview as ReviewOverviewDto,
   ReviewScopeType,
   ScopeQuery,
@@ -57,7 +58,8 @@ export interface AtlasDomain {
 /**
  * The review home: a hero, the ink "Today" card (scope + size picker with live due/new counts) and
  * the atlas of domains with per-topic coverage. Scope can be preset by `?scope=&domain=&topic=`
- * (the spine rail's domain tabs) or by clicking a domain/topic in the atlas.
+ * (the spine rail's domain tabs) or by clicking a domain/topic in the atlas; `?mode=weak` selects the
+ * weak-spots drill (questions last answered wrong) instead of due and new questions.
  */
 @Component({
   selector: 'app-review-overview',
@@ -74,6 +76,7 @@ export class ReviewOverview implements OnInit {
   private readonly treeSource = inject(KnowledgeTreeSource);
 
   protected readonly form = this.fb.group({
+    mode: this.fb.control<ReviewMode>('regular'),
     scopeType: this.fb.control<ReviewScopeType>('all'),
     domain: '',
     topic: '',
@@ -82,6 +85,7 @@ export class ReviewOverview implements OnInit {
     newLimit: [10, [Validators.required, Validators.min(MIN_LIMIT), Validators.max(MAX_LIMIT)]],
   });
 
+  protected readonly modes: readonly ReviewMode[] = ['regular', 'weak'];
   protected readonly minLimit = MIN_LIMIT;
   protected readonly maxLimit = MAX_LIMIT;
 
@@ -89,6 +93,8 @@ export class ReviewOverview implements OnInit {
     this.form.valueChanges.pipe(map(() => this.form.getRawValue())),
     { initialValue: this.form.getRawValue() },
   );
+
+  protected readonly weak = computed(() => this.formValue().mode === 'weak');
 
   /** `undefined` while the scope is incomplete (domain/topic not chosen yet) → no request. */
   protected readonly scopeQuery = computed<ScopeQuery | undefined>(() => {
@@ -201,10 +207,43 @@ export class ReviewOverview implements OnInit {
   /** True while this page's own Start request runs (the store's status also covers the resume probe). */
   protected readonly starting = signal(false);
 
+  /** Weak mode: nothing in scope has a wrong last answer. */
+  protected readonly nothingToDrill = computed(
+    () => this.overview.hasValue() && this.overview.value().weakCount === 0,
+  );
+
+  /** The last refused Start of this page (e.g. 409 "Nothing to drill"); cleared by the next one. */
+  /**
+   * The last refused Start of this page with whether it was weak mode's 409. Reset whenever the
+   * scope or the mode changes: the refusal was about the previous choice.
+   */
+  private readonly refusal = linkedSignal<
+    string,
+    { message: string; nothingToDrill: boolean } | null
+  >({
+    source: () => `${this.formValue().mode}|${JSON.stringify(this.scopeQuery() ?? null)}`,
+    computation: () => null,
+  });
+
+  /**
+   * The alert under the form. A "Nothing to drill" refusal is said once: inline with the refreshed
+   * count (no alert) unless the refreshed count still shows weak questions.
+   */
+  protected readonly alert = computed<string | null>(() => {
+    const refusal = this.refusal();
+    if (refusal) {
+      const inline = this.overview.isLoading() || this.nothingToDrill();
+      return refusal.nothingToDrill && inline ? null : refusal.message;
+    }
+    // Errors of the store's own (resume) when no session is open; start refusals are handled above.
+    const error = this.store.error();
+    return error && !this.store.session() && !this.store.startError() ? error : null;
+  });
+
   protected readonly canStart = computed(
     () =>
       this.overview.hasValue() &&
-      !this.nothingToReview() &&
+      !(this.weak() ? this.nothingToDrill() : this.nothingToReview()) &&
       !this.starting() &&
       this.scopeQuery() !== undefined,
   );
@@ -222,6 +261,7 @@ export class ReviewOverview implements OnInit {
       const scope: ReviewScopeType = SCOPES.includes(raw as ReviewScopeType)
         ? (raw as ReviewScopeType)
         : 'all';
+      const mode: ReviewMode = params.get('mode') === 'weak' ? 'weak' : 'regular';
       const domain = params.get('domain') ?? '';
       const topic = params.get('topic') ?? '';
       const concept = params.get('concept') ?? '';
@@ -233,6 +273,10 @@ export class ReviewOverview implements OnInit {
         value.concept !== concept
       ) {
         this.applyScope(scope, domain, topic, concept);
+      }
+      // After the scope, so the URL written back never carries the new mode with a stale scope.
+      if (this.form.controls.mode.value !== mode) {
+        this.form.controls.mode.setValue(mode);
       }
     });
     this.form.valueChanges
@@ -260,6 +304,15 @@ export class ReviewOverview implements OnInit {
         topic.enable({ emitEvent: false });
       } else {
         topic.disable({ emitEvent: false });
+      }
+    });
+    // Weak sessions ignore the new-question limit: hide it and keep it out of the validity.
+    effect(() => {
+      const newLimit = this.form.controls.newLimit;
+      if (this.weak()) {
+        newLimit.disable({ emitEvent: false });
+      } else {
+        newLimit.enable({ emitEvent: false });
       }
     });
     effect(() => {
@@ -322,7 +375,13 @@ export class ReviewOverview implements OnInit {
     }
   }
 
+  protected setMode(mode: ReviewMode): void {
+    this.form.controls.mode.setValue(mode);
+  }
+
   protected resume(): void {
+    // A refused start must not follow the learner into the resumed session.
+    this.store.clearError();
     void this.router.navigateByUrl(SESSION_ROUTE);
   }
 
@@ -333,24 +392,42 @@ export class ReviewOverview implements OnInit {
       return;
     }
     const { totalLimit, newLimit } = this.form.getRawValue();
+    const weak = this.weak();
     this.starting.set(true);
+    this.refusal.set(null);
     try {
-      await this.store.start({ ...query, totalLimit, newLimit });
+      const started = await this.store.start(
+        weak ? { ...query, mode: 'weak', totalLimit } : { ...query, totalLimit, newLimit },
+      );
+      if (started === false) {
+        const message = this.store.startError();
+        this.refusal.set(
+          message
+            ? { message, nothingToDrill: weak && message === this.i18n.t().overview.nothingToDrill }
+            : null,
+        );
+        if (weak) {
+          // The weak set changed since the counts were read (e.g. answered elsewhere): refresh them.
+          this.overview.reload();
+        }
+      }
     } finally {
       this.starting.set(false);
     }
   }
 }
 
-/** Query params for a picker value; incomplete parts are left out. */
+/** Query params for a picker value; incomplete parts are left out, `mode` only when weak. */
 function scopeParams(value: {
+  mode: ReviewMode;
   scopeType: ReviewScopeType;
   domain: string;
   topic: string;
   concept: string;
 }): Record<string, string> {
+  const mode: Record<string, string> = value.mode === 'weak' ? { mode: 'weak' } : {};
   if (value.scopeType === 'all') {
-    return {};
+    return mode;
   }
   const params: Record<string, string> = { scope: value.scopeType };
   if (value.domain) {
@@ -362,5 +439,5 @@ function scopeParams(value: {
   if (value.scopeType === 'concept' && value.concept) {
     params['concept'] = value.concept;
   }
-  return params;
+  return { ...params, ...mode };
 }

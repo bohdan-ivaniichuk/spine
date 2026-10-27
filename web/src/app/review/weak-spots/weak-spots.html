@@ -1,0 +1,178 @@
+@let t = i18n.t();
+<div class="mx-auto flex max-w-[1180px] flex-col gap-8">
+  <header class="flex flex-col gap-3">
+    <h1
+      class="font-display text-[clamp(1.8rem,4vw,2.6rem)] leading-tight font-extrabold tracking-[-0.04em] text-text"
+    >
+      {{ t.weak.title }}
+    </h1>
+    @if (data(); as d) {
+      <p class="max-w-[40rem] text-base leading-relaxed text-muted">
+        {{ t.weak.lead(d.windowDays, d.minAnswers) }}
+      </p>
+    }
+    <a
+      routerLink="/review"
+      [queryParams]="{ mode: 'weak' }"
+      class="self-start rounded-2xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >{{ t.weak.drillAll }}</a
+    >
+  </header>
+
+  @if (stats.error()) {
+    <div class="flex flex-wrap items-center gap-3" role="alert">
+      <p class="font-medium text-bad">{{ t.weak.loadError }}</p>
+      <button
+        type="button"
+        class="rounded-xl bg-surface px-3 py-1.5 text-sm font-medium text-text shadow-card hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        (click)="stats.reload()"
+      >
+        {{ t.app.retry }}
+      </button>
+    </div>
+  } @else if (data(); as d) {
+    <section aria-labelledby="weak-concepts-h" class="flex flex-col gap-4">
+      <h2 id="weak-concepts-h" class="font-display text-xl font-bold tracking-[-0.02em] text-text">
+        {{ t.weak.concepts }}
+      </h2>
+      @if (concepts().length > 0) {
+        <ol class="flex flex-col gap-2.5">
+          @for (c of concepts(); track c.domain + '/' + c.topic + '/' + c.concept; let i = $index) {
+            <li
+              data-testid="weak-concept"
+              class="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl bg-surface px-5 py-4 shadow-card"
+            >
+              <div class="min-w-0 flex-[1_1_15rem]">
+                <h3 class="font-semibold break-words text-text">
+                  <a
+                    class="rounded hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    [routerLink]="['/atlas', c.domain, c.topic, c.concept]"
+                    ><span
+                      [id]="'weak-concept-' + i"
+                      [attr.lang]="c.title.fallback ? 'en' : null"
+                      >{{ c.title.text }}</span
+                    ></a
+                  >
+                  <app-en-badge [fallback]="c.title.fallback" />
+                </h3>
+                <p class="mt-0.5 text-xs break-words text-muted">
+                  <span [attr.lang]="c.domainTitle.fallback ? 'en' : null">{{
+                    c.domainTitle.text
+                  }}</span>
+                  ›
+                  <span [attr.lang]="c.topicTitle.fallback ? 'en' : null">{{
+                    c.topicTitle.text
+                  }}</span>
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+                <span class="flex items-baseline gap-1">
+                  <span class="font-display text-lg font-extrabold text-bad">{{
+                    i18n.formatPercent(c.accuracy)
+                  }}</span>
+                  {{ t.weak.accuracy }}
+                </span>
+                <span class="font-mono">{{ t.weak.wrongOf(c.wrong, c.answers) }}</span>
+                <span>{{ t.weak.lastAnswered(i18n.formatDay(c.lastAnsweredAt)) }}</span>
+                <app-readiness-chip [readiness]="c.readiness ?? undefined" />
+              </div>
+              <div class="flex flex-wrap items-center gap-3 text-xs">
+                @if (c.weakQuestions > 0) {
+                  <span class="font-medium text-text">{{ t.weak.toDrill(c.weakQuestions) }}</span>
+                  <a
+                    routerLink="/review"
+                    [queryParams]="c.drill"
+                    class="rounded-xl bg-accent-soft px-4 py-2 text-sm font-semibold text-accent-text hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    [id]="'weak-concept-drill-' + i"
+                    [attr.aria-labelledby]="'weak-concept-drill-' + i + ' weak-concept-' + i"
+                    >{{ t.weak.drill }}</a
+                  >
+                } @else {
+                  <span class="text-muted">{{ t.weak.noneToDrill }}</span>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      } @else {
+        <div class="flex flex-col items-start gap-3 rounded-card bg-surface p-6 shadow-card">
+          <p class="font-semibold text-text">{{ t.weak.emptyTitle }}</p>
+          <p class="max-w-[40rem] text-sm text-muted">
+            {{ t.weak.emptyLead(d.windowDays, d.minAnswers) }}
+          </p>
+          <a
+            routerLink="/review"
+            class="rounded-2xl border border-line bg-surface px-5 py-2.5 text-sm font-semibold text-text hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >{{ t.weak.toReview }}</a
+          >
+        </div>
+      }
+    </section>
+
+    @if (topics().length > 0) {
+      <section
+        data-testid="weak-topics"
+        aria-labelledby="weak-topics-h"
+        class="flex flex-col gap-4"
+      >
+        <h2 id="weak-topics-h" class="font-display text-xl font-bold tracking-[-0.02em] text-text">
+          {{ t.weak.topics }}
+        </h2>
+        <ol class="flex flex-col gap-2.5">
+          @for (tp of topics(); track tp.domain + '/' + tp.topic; let i = $index) {
+            <li
+              data-testid="weak-topic"
+              class="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl bg-surface px-5 py-4 shadow-card"
+            >
+              <div class="min-w-0 flex-[1_1_15rem]">
+                <h3 class="font-semibold break-words text-text">
+                  <a
+                    class="rounded hover:text-accent-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    [routerLink]="['/atlas', tp.domain, tp.topic]"
+                    ><span [id]="'weak-topic-' + i" [attr.lang]="tp.title.fallback ? 'en' : null">{{
+                      tp.title.text
+                    }}</span></a
+                  >
+                  <app-en-badge [fallback]="tp.title.fallback" />
+                </h3>
+                <p class="mt-0.5 text-xs break-words text-muted">
+                  <span [attr.lang]="tp.domainTitle.fallback ? 'en' : null">{{
+                    tp.domainTitle.text
+                  }}</span>
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+                <span class="flex items-baseline gap-1">
+                  <span class="font-display text-lg font-extrabold text-bad">{{
+                    i18n.formatPercent(tp.accuracy)
+                  }}</span>
+                  {{ t.weak.accuracy }}
+                </span>
+                <span class="font-mono">{{ t.weak.wrongOf(tp.wrong, tp.answers) }}</span>
+                <span>{{ t.weak.lastAnswered(i18n.formatDay(tp.lastAnsweredAt)) }}</span>
+              </div>
+              <div class="flex flex-wrap items-center gap-3 text-xs">
+                @if (tp.weakQuestions > 0) {
+                  <span class="font-medium text-text">{{ t.weak.toDrill(tp.weakQuestions) }}</span>
+                  <a
+                    routerLink="/review"
+                    [queryParams]="tp.drill"
+                    class="rounded-xl bg-accent-soft px-4 py-2 text-sm font-semibold text-accent-text hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    [id]="'weak-topic-drill-' + i"
+                    [attr.aria-labelledby]="'weak-topic-drill-' + i + ' weak-topic-' + i"
+                    >{{ t.weak.drill }}</a
+                  >
+                } @else {
+                  <span class="text-muted">{{ t.weak.noneToDrill }}</span>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      </section>
+    }
+  } @else {
+    <p class="text-muted">{{ t.weak.loading }}</p>
+  }
+  <p class="sr-only" aria-live="polite">{{ stats.isLoading() ? t.weak.loading : '' }}</p>
+</div>

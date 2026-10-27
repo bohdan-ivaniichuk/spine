@@ -244,9 +244,37 @@ describe('ReviewOverview', () => {
     await settle(fixture);
   });
 
+  it("drops a refused start's alert once the scope changes", async () => {
+    await open();
+
+    startButton().click();
+    http
+      .expectOne('/api/review/sessions')
+      .flush({ title: 'Nothing to review', status: 409 }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    expect(root().querySelector('[role=alert]')?.textContent).toContain('Nothing to review');
+
+    setSelect('scopeType', 'domain');
+    setSelect('domain', 'dotnet');
+    http.expectOne('/api/review/overview?scope=domain&domain=dotnet').flush(overview());
+    await settle(fixture);
+    expect(root().querySelector('[role=alert]')).toBeNull();
+  });
+
+  it('clears a refused start before resuming the open session', async () => {
+    await open(overview(), session(2));
+    const clear = vi.spyOn(store, 'clearError');
+
+    Array.from(root().querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Resume'))!
+      .click();
+
+    expect(clear).toHaveBeenCalled();
+  });
+
   it('starts a session with the chosen scope and limits', async () => {
     await open();
-    const start = vi.spyOn(store, 'start').mockResolvedValue();
+    const start = vi.spyOn(store, 'start').mockResolvedValue(true);
 
     await setNumber('totalLimit', '12');
     await setNumber('newLimit', '4');
@@ -272,7 +300,9 @@ describe('ReviewOverview', () => {
     expect(text()).toContain('API unreachable');
     expect(startButton().disabled).toBe(true);
 
-    root().querySelector<HTMLButtonElement>('button[type=button]')!.click();
+    Array.from(root().querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.trim() === 'Retry')!
+      .click();
     TestBed.tick();
     http.expectOne('/api/knowledge/tree').flush(tree);
     http.expectOne('/api/review/overview?scope=all').flush(overview());
@@ -466,7 +496,7 @@ describe('ReviewOverview', () => {
     ]);
     expect(text()).toContain('3 new questions');
 
-    const start = vi.spyOn(store, 'start').mockResolvedValue();
+    const start = vi.spyOn(store, 'start').mockResolvedValue(true);
     startButton().click();
     expect(start).toHaveBeenCalledWith({
       scope: 'concept',
@@ -509,5 +539,155 @@ describe('ReviewOverview', () => {
         },
       }),
     );
+  });
+
+  describe('weak mode', () => {
+    const modeButton = (label: string) =>
+      Array.from(root().querySelectorAll<HTMLButtonElement>('button[aria-pressed]')).find((b) =>
+        b.textContent?.includes(label),
+      )!;
+
+    async function openWeak(overviewBody = overview({ weakCount: 4 })) {
+      queryParams.next(convertToParamMap({ mode: 'weak' }));
+      await open(overviewBody);
+    }
+
+    it('?mode=weak preselects the weak mode, shows the weak count and hides the new limit', async () => {
+      await openWeak(overview({ weakCount: 4, dueCount: 7, newCount: 28 }));
+
+      expect(modeButton('Weak spots').getAttribute('aria-pressed')).toBe('true');
+      expect(modeButton('Due & new').getAttribute('aria-pressed')).toBe('false');
+      expect(text()).toContain('4 questions to drill');
+      expect(text()).not.toContain('28 new questions');
+      expect(text()).not.toContain('due for review');
+      expect(numberInput('newLimit')).toBeNull();
+      expect(numberInput('totalLimit')).not.toBeNull();
+      expect(startButton().disabled).toBe(false);
+    });
+
+    it('starts a weak session with mode "weak" and no new limit', async () => {
+      await openWeak();
+      const start = vi.spyOn(store, 'start').mockResolvedValue(true);
+
+      await setNumber('totalLimit', '12');
+      startButton().click();
+
+      expect(start).toHaveBeenCalledWith({ scope: 'all', mode: 'weak', totalLimit: 12 });
+    });
+
+    it('disables Start with a message when nothing in scope is weak', async () => {
+      await openWeak(overview({ weakCount: 0, dueCount: 3 }));
+
+      expect(text()).toContain('Nothing to drill');
+      expect(startButton().disabled).toBe(true);
+    });
+
+    it('the mode toggle writes ?mode=weak to the URL and back, keeping the scope', async () => {
+      await open(overview({ weakCount: 2 }));
+      expect(modeButton('Due & new').getAttribute('aria-pressed')).toBe('true');
+      expect(numberInput('newLimit')).not.toBeNull();
+
+      modeButton('Weak spots').click();
+      await settle(fixture);
+      expect(navigate).toHaveBeenLastCalledWith(
+        [],
+        expect.objectContaining({ queryParams: { mode: 'weak' }, replaceUrl: true }),
+      );
+      expect(text()).toContain('2 questions to drill');
+      expect(numberInput('newLimit')).toBeNull();
+
+      setSelect('scopeType', 'domain');
+      setSelect('domain', 'dotnet');
+      http.expectOne('/api/review/overview?scope=domain&domain=dotnet').flush(overview());
+      await settle(fixture);
+      expect(navigate).toHaveBeenLastCalledWith(
+        [],
+        expect.objectContaining({
+          queryParams: { scope: 'domain', domain: 'dotnet', mode: 'weak' },
+        }),
+      );
+
+      modeButton('Due & new').click();
+      await settle(fixture);
+      expect(navigate).toHaveBeenLastCalledWith(
+        [],
+        expect.objectContaining({ queryParams: { scope: 'domain', domain: 'dotnet' } }),
+      );
+      expect(numberInput('newLimit')).not.toBeNull();
+    });
+
+    it('explains a refused weak start (409 "Nothing to drill") and refreshes the counts', async () => {
+      await openWeak(overview({ weakCount: 1 }));
+
+      startButton().click();
+      http
+        .expectOne('/api/review/sessions')
+        .flush({ title: 'Nothing to drill', status: 409 }, { status: 409, statusText: 'Conflict' });
+      // Let the refused start settle; the counts are then re-read (whenStable would wait on them).
+      await new Promise((resolve) => setTimeout(resolve));
+      TestBed.tick();
+      http.expectOne('/api/review/overview?scope=all').flush(overview({ weakCount: 0 }));
+      await settle(fixture);
+
+      // Said once, inline with the refreshed count — not also as an alert.
+      expect(root().querySelector('[role=alert]')).toBeNull();
+      expect(text().split('Nothing to drill').length - 1).toBe(1);
+      expect(startButton().disabled).toBe(true);
+    });
+
+    it('keeps the refusal as an alert while the refreshed count still shows weak questions', async () => {
+      await openWeak(overview({ weakCount: 1 }));
+
+      startButton().click();
+      http
+        .expectOne('/api/review/sessions')
+        .flush({ title: 'Nothing to drill', status: 409 }, { status: 409, statusText: 'Conflict' });
+      await new Promise((resolve) => setTimeout(resolve));
+      TestBed.tick();
+      http.expectOne('/api/review/overview?scope=all').flush(overview({ weakCount: 1 }));
+      await settle(fixture);
+
+      expect(root().querySelector('[role=alert]')?.textContent).toContain('Nothing to drill');
+    });
+
+    it('lands on ?mode=weak&scope=concept&… with the weak mode and the concept preselected', async () => {
+      queryParams.next(
+        convertToParamMap({
+          mode: 'weak',
+          scope: 'concept',
+          domain: 'dotnet',
+          topic: 'clr-memory',
+          concept: 'gc-modes',
+        }),
+      );
+      fixture = TestBed.createComponent(ReviewOverview);
+      fixture.detectChanges();
+      TestBed.tick();
+      http.expectOne('/api/knowledge/tree').flush(conceptTree);
+      http
+        .expectOne('/api/review/sessions/current')
+        .flush(null, { status: 204, statusText: 'No Content' });
+      http
+        .expectOne(
+          '/api/review/overview?scope=concept&domain=dotnet&topic=clr-memory&concept=gc-modes',
+        )
+        .flush(overview({ weakCount: 2 }));
+      http.expectOne('/api/review/coverage').flush(coverage);
+      await settle(fixture);
+
+      expect(modeButton('Weak spots').getAttribute('aria-pressed')).toBe('true');
+      expect(select('concept').value).toBe('gc-modes');
+      expect(text()).toContain('2 questions to drill');
+      for (const [, extras] of navigate.mock.calls) {
+        // Never an intermediate URL that drops the weak mode or the concept.
+        expect((extras as { queryParams: Record<string, string> }).queryParams).toEqual({
+          scope: 'concept',
+          domain: 'dotnet',
+          topic: 'clr-memory',
+          concept: 'gc-modes',
+          mode: 'weak',
+        });
+      }
+    });
   });
 });

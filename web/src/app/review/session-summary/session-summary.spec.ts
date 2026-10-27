@@ -129,7 +129,7 @@ describe('SessionSummary', () => {
   it('"Review again" starts a new session with the same scope and limits', async () => {
     await finishSession();
     await render();
-    const start = vi.spyOn(store, 'start').mockResolvedValue();
+    const start = vi.spyOn(store, 'start').mockResolvedValue(true);
 
     Array.from(root().querySelectorAll('button'))
       .find((b) => b.textContent?.includes('Review again'))!
@@ -142,5 +142,76 @@ describe('SessionSummary', () => {
       totalLimit: 20,
       newLimit: 10,
     });
+  });
+
+  it('links each weak concept to its concept page in the Atlas', async () => {
+    await finishSession();
+    await render();
+
+    const links = Array.from(root().querySelectorAll<HTMLAnchorElement>('ol li a'));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/atlas/dotnet/clr-memory/gc-modes',
+      '/atlas/dotnet/clr-memory/span-memory',
+    ]);
+    expect(links[0].textContent).toContain('Open note');
+    expect(links[0].getAttribute('aria-label')).toContain('GC modes');
+  });
+
+  it('"Drill these" starts a weak session over the summary scope with the same total limit', async () => {
+    await finishSession();
+    await render();
+    const start = vi.spyOn(store, 'start').mockResolvedValue(true);
+
+    Array.from(root().querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Drill these'))!
+      .click();
+    await fixture.whenStable();
+
+    expect(start).toHaveBeenCalledWith({
+      scope: 'topic',
+      domain: 'dotnet',
+      topic: 'clr-memory',
+      mode: 'weak',
+      totalLimit: 20,
+    });
+  });
+
+  it('offers no drill when every answer was right', async () => {
+    await finishSession(summary({ answered: 20, correct: 20, accuracy: 1, weakConcepts: [] }));
+    await render();
+
+    expect(
+      Array.from(root().querySelectorAll('button')).some((b) =>
+        b.textContent?.includes('Drill these'),
+      ),
+    ).toBe(false);
+  });
+
+  it('marks the summary of a weak session', async () => {
+    await finishSession(summary({ mode: 'weak' }));
+    await render();
+    expect(root().querySelector('[data-testid=weak-chip]')?.textContent).toContain('Weak spots');
+  });
+
+  it('shows no weak mark for a regular session', async () => {
+    await finishSession();
+    await render();
+    expect(root().querySelector('[data-testid=weak-chip]')).toBeNull();
+  });
+
+  it('explains a refused drill (409 "Nothing to drill")', async () => {
+    await finishSession();
+    await render();
+
+    Array.from(root().querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Drill these'))!
+      .click();
+    http
+      .expectOne(SESSIONS)
+      .flush({ title: 'Nothing to drill', status: 409 }, { status: 409, statusText: 'Conflict' });
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+
+    expect(root().querySelector('[role=alert]')?.textContent).toContain('Nothing to drill');
   });
 });

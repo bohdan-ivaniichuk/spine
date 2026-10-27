@@ -324,4 +324,20 @@ describe('ReviewSession', () => {
     expect(window.confirm).toHaveBeenCalled();
     expect(navigate).toHaveBeenLastCalledWith('/review/summary');
   });
+
+  it('marks a weak session next to the scope label', async () => {
+    fixture = TestBed.createComponent(ReviewSession);
+    fixture.detectChanges();
+    http.expectOne(`${SESSIONS}/current`).flush(session(2, { mode: 'weak' }));
+    await settle(fixture, http);
+
+    const chip = root().querySelector('[data-testid=weak-chip]');
+    expect(chip?.textContent).toContain('Weak spots');
+    expect(text()).toContain('C# & .NET Runtime › Memory & GC');
+  });
+
+  it('shows no weak chip for a regular session', async () => {
+    await open(2);
+    expect(root().querySelector('[data-testid=weak-chip]')).toBeNull();
+  });
 });

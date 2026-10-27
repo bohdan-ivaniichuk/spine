@@ -39,6 +39,14 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 - Tests: 322 .NET + 158 web, gate `--profile pr` PASS. Lockflight trace covers FR-008/009/010/012 only —
   web-only FRs are verified by Vitest (TECH_DEBT 3.3).
 
+- **006 Weak spots done** (ADR 0008, 2026-10-28): `sessions.mode` (`regular`/`weak`, migration `AddSessionMode`);
+  weak = latest attempt `is_correct = false` (from attempts, not SM-2), `ReviewQueryables.WeakQuestions` anti-join on
+  `item_id`; `StartWeakAsync` shares `StartCoreAsync` (same locks), 409 "Nothing to drill"; overview `weakCount`;
+  `GET /api/review/weak-spots` (30-day window rounded up to the minute, ≥ 3 answers, top 20 concepts / 10 topics,
+  pure `WeaknessRanker`, readiness reused). Web: `/weak`, rail item, overview mode toggle (`?mode=weak`), weak chip,
+  summary note links + "Drill these". 356 .NET + 188 web tests; trace 11/15 (web-only FRs untraced); Lockflight
+  review of record: approve; walked in Chrome (drill → answers → summary → drill again, EN/UK, dark, 375 px).
+
 **Next**
 1. User: remove the stale test baseline (`.lockflight/baselines/known-failing-tests.json`, entry
    `MigrationsTests.MigrateAsync_on_an_empty_database_applies_every_migration` — the test now compares
@@ -47,9 +55,11 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 3. Content: Angular (3) and AI engineering (5) domains.
 4. 005 LLM grading (open + kata) — readiness widens automatically when open questions become schedulable.
 
-**Gotchas learned in 004**
-- Lockflight red classifier: only xUnit `Assert.*` without a custom message counts as RED_ASSERT; Shouldly
-  failures in test code are RED_IN_TEST. In API tests, assert the status with `Assert.Equal` first.
+**Gotchas learned in 004/006**
+- Lockflight red classifier (alpha.6, fixed build): xUnit `Assert.*` without a custom message is RED_ASSERT; Shouldly
+  failures in test code are RED_IN_TEST; a test must call production code (a production member, not just a type as a
+  generic argument) or it is RED_NO_PRODUCTION — build API request bodies from the real request type.
+- Cycle tests must pass for green; `baseline tests` does not excuse them. Keep time-dependent fields out of equality.
 - `phase check tasks` recognises test tasks under a `### Tests` heading or starting with "Tests"; stub tasks
   must contain the word "stub"; FR ids go right after the story label.
 - Test projects lock after `redgreen red`; a test that must change (e.g. a hard-coded migration count)

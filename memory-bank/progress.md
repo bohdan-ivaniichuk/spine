@@ -16,6 +16,8 @@
       content sprint 1 for domains 1, 2, 4 (409 questions, unreviewed); 267 .NET + 81 web tests (2026-10-15).
 - [x] 004 Knowledge atlas & notes — Atlas routes, Markdown notes, readiness endpoint, concept review scope;
       322 .NET + 158 web tests, gate PASS (2026-10-15, ADR 0007).
+- [x] 006 Weak spots — weak review mode, weak-spots view, summary drill; 356 .NET + 188 web tests, gate PASS,
+      Lockflight review approve (2026-10-28, ADR 0008).
 
 ## In progress
 
@@ -25,7 +27,6 @@
 ## Planned (in order)
 
 - [ ] 005 LLM grading (open + kata) (was 004)
-- [ ] 006 Weak-spots & failed-question review (was 005)
 - [ ] Content sprint (user priority, 2026-09-06): after 002 integration, run the content workflow 2–3 topics
       at a time for the rest of domain 1 (`csharp-lang`, `dotnet-platform`), all of domain 2 (`pipeline`,
       `security`, `efcore`, `postgres`, `api-design`) and domain 4 (`principles`, `distributed`,

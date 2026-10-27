@@ -9,6 +9,7 @@ export const EN = {
     nav: 'Main',
     review: 'Review',
     atlas: 'Atlas',
+    weak: 'Weak spots',
     katas: 'Katas',
     soon: 'soon',
     spine: 'Spine',
@@ -28,6 +29,7 @@ export const EN = {
     session: 'Review session',
     summary: 'Session summary',
     atlas: 'Atlas',
+    weak: 'Weak spots',
   },
   scope: {
     all: 'All domains',
@@ -40,6 +42,14 @@ export const EN = {
     today: 'Today',
     due: (n: number) => plural('en', n, { one: 'due for review', other: 'due for review' }),
     fresh: (n: number) => plural('en', n, { one: 'new question', other: 'new questions' }),
+    mode: 'Session mode',
+    modeRegular: 'Due & new',
+    modeWeak: 'Weak spots',
+    toDrill: (n: number) =>
+      plural('en', n, { one: 'question to drill', other: 'questions to drill' }),
+    weakHint: 'Questions whose last answer was wrong, newest miss first.',
+    nothingToDrill: 'Nothing to drill — no question in this scope has a wrong last answer.',
+    drill: (n: number) => `Drill · ${n} ${plural('en', n, { one: 'card', other: 'cards' })}`,
     scope: 'Scope',
     scopeAll: 'All domains',
     scopeDomain: 'One domain',
@@ -107,6 +117,8 @@ export const EN = {
     level: (name: string) => `Level: ${name}`,
     levels: { M: 'Middle', S: 'Senior', L: 'Lead' } as Record<string, string>,
     isNew: 'new',
+    weak: 'Weak spots',
+    weakHint: 'Weak-spots drill: questions you last answered wrong',
   },
   badges: {
     unreviewed: 'unreviewed',
@@ -159,6 +171,27 @@ export const EN = {
     reviewTopic: 'Review this topic',
     reviewConcept: 'Review this concept',
   },
+  weak: {
+    title: 'Weak spots',
+    lead: (days: number, min: number) =>
+      `Your weakest concepts and topics over the last ${days} ${plural('en', days, { one: 'day', other: 'days' })}, lowest accuracy first. Only those with at least ${min} ${plural('en', min, { one: 'answer', other: 'answers' })} in that window are ranked.`,
+    drillAll: 'Drill all weak spots',
+    concepts: 'Weakest concepts',
+    topics: 'Weakest topics',
+    accuracy: 'accuracy',
+    wrongOf: (wrong: number, answers: number) => `${wrong} of ${answers} wrong`,
+    lastAnswered: (when: string) => `last answered ${when}`,
+    toDrill: (n: number) =>
+      `${n} ${plural('en', n, { one: 'question to drill', other: 'questions to drill' })}`,
+    noneToDrill: 'last answers all right',
+    drill: 'Drill',
+    emptyTitle: 'No weak spots yet',
+    emptyLead: (days: number, min: number) =>
+      `Weak spots appear after reviewing: a concept is ranked once it has at least ${min} ${plural('en', min, { one: 'answer', other: 'answers' })} in the last ${days} ${plural('en', days, { one: 'day', other: 'days' })}.`,
+    toReview: 'Go to Review',
+    loading: 'Loading your weak spots…',
+    loadError: 'Could not load your weak spots.',
+  },
   feedback: {
     correct: 'Correct',
     incorrect: 'Incorrect',
@@ -177,6 +210,10 @@ export const EN = {
     dueTomorrow: 'Due tomorrow in this scope:',
     back: 'Back to overview',
     again: 'Review again',
+    drill: 'Drill these',
+    drillHint: 'A weak-spots session over this scope: the questions whose last answer was wrong',
+    openNote: 'Open note',
+    openNoteFor: (title: string) => `Open note: ${title}`,
     starting: 'Starting…',
     conceptMeta: (domain: string, topic: string, level: string, questions: number) =>
       `${domain} · ${topic} · level ${level} · ${questions} ${plural('en', questions, { one: 'question', other: 'questions' })}`,

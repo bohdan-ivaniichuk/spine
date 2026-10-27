@@ -48,6 +48,7 @@ public static class SessionSummaryBuilder
             correct,
             accuracy,
             weak,
-            dueTomorrow);
+            dueTomorrow,
+            session.Mode.ToDbValue());
     }
 }

@@ -1,9 +1,11 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { I18n } from '../shared/i18n/i18n';
 import { ReviewApi, errorMessage } from './api/review-api';
 import {
   AnswerFeedback,
+  ReviewMode,
   Session,
   SessionAnswer,
   SessionLimits,
@@ -38,6 +40,7 @@ export class SessionStore {
   private readonly answeredState = signal<ReadonlyMap<string, SessionAnswer>>(new Map());
   private readonly summaryState = signal<SessionSummary | null>(null);
   private readonly errorState = signal<string | null>(null);
+  private readonly startErrorState = signal<string | null>(null);
   private readonly limitsState = signal<SessionLimits | null>(null);
 
   readonly session = this.sessionState.asReadonly();
@@ -47,6 +50,8 @@ export class SessionStore {
   readonly answered = this.answeredState.asReadonly();
   readonly summary = this.summaryState.asReadonly();
   readonly error = this.errorState.asReadonly();
+  /** Why the last start was refused; unlike `error` it never decorates an open session. */
+  readonly startError = this.startErrorState.asReadonly();
   /** Limits of the last session, so "Review again" reuses them after the session is gone. */
   readonly limits = this.limitsState.asReadonly();
 
@@ -61,6 +66,9 @@ export class SessionStore {
   });
 
   readonly total = computed(() => this.questions().length);
+
+  /** Mode of the open session; `regular` when none is open. */
+  readonly mode = computed<ReviewMode>(() => this.sessionState()?.mode ?? 'regular');
 
   readonly answeredCount = computed(
     () => this.questions().filter((q) => this.answeredState().has(q.id)).length,
@@ -112,28 +120,77 @@ export class SessionStore {
     });
   }
 
-  /** Starts a new session (the server auto-finishes any open one) and opens the card page. */
-  async start(request: StartSessionRequest): Promise<void> {
+  /**
+   * Starts a new session (the server auto-finishes any open one) and opens the card page. Resolves
+   * `false` when the API refused; a session already in memory then stays usable (a refused start
+   * leaves the open session open on the server too).
+   */
+  async start(request: StartSessionRequest): Promise<boolean> {
+    const before = this.statusState();
+    const open = this.sessionState() !== null;
     this.statusState.set('loading');
-    this.errorState.set(null);
+    this.startErrorState.set(null);
+    if (!open) {
+      this.errorState.set(null);
+    }
     const lang = this.i18n.lang();
     try {
       this.load(await this.api.start(request));
       this.followLanguage(lang);
       await this.router.navigateByUrl(SESSION_ROUTE);
+      return true;
     } catch (error) {
-      this.statusState.set('error');
-      this.errorState.set(errorMessage(error));
+      const message =
+        request.mode === 'weak' && error instanceof HttpErrorResponse && error.status === 409
+          ? this.i18n.t().overview.nothingToDrill
+          : errorMessage(error);
+      this.startErrorState.set(message);
+      if (open && before !== 'loading') {
+        // The open session stays as it was: its card must not show (or be locked by) this error.
+        this.statusState.set(before);
+      } else {
+        this.statusState.set('error');
+        this.errorState.set(message);
+      }
+      return false;
     }
   }
 
-  /** "Review again" from the summary: same scope, same limits. */
+  /** "Review again" from the summary: same scope, same mode, same limits. */
   async reviewAgain(): Promise<void> {
     const summary = this.summaryState();
     if (!summary) {
       return;
     }
-    await this.start({ ...toScopeQuery(summary.scope), ...(this.limitsState() ?? {}) });
+    if (summary.mode === 'weak') {
+      await this.start(this.weakRequest(summary));
+    } else {
+      await this.start({ ...toScopeQuery(summary.scope), ...(this.limitsState() ?? {}) });
+    }
+  }
+
+  /** "Drill these" from the summary: a weak session over the summary's scope. */
+  async drillWeak(): Promise<void> {
+    const summary = this.summaryState();
+    if (summary) {
+      await this.start(this.weakRequest(summary));
+    }
+  }
+
+  /** Clears the errors shown for the last action (e.g. a refused start before resuming). */
+  clearError(): void {
+    this.errorState.set(null);
+    this.startErrorState.set(null);
+  }
+
+  /** Weak sessions ignore `newLimit`, so only the total limit is carried over. */
+  private weakRequest(summary: SessionSummary): StartSessionRequest {
+    const limits = this.limitsState();
+    return {
+      ...toScopeQuery(summary.scope),
+      mode: 'weak',
+      ...(limits ? { totalLimit: limits.totalLimit } : {}),
+    };
   }
 
   /**

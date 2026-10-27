@@ -17,6 +17,13 @@ public interface IReviewSessions
     /// <exception cref="ReviewException"><see cref="ReviewError.ScopeNotFound"/>, <see cref="ReviewError.NothingToReview"/>.</exception>
     Task<SessionDto> StartAsync(ReviewScope scope, int totalLimit, int newLimit, Language language = Language.En, CancellationToken ct = default);
 
+    /// <summary>
+    /// Finishes any open session first, then builds and stores a weak session: the schedulable questions in scope whose
+    /// most recent answer was wrong, newest miss first, at most <paramref name="totalLimit"/>; due dates are ignored.
+    /// </summary>
+    /// <exception cref="ReviewException"><see cref="ReviewError.ScopeNotFound"/>, <see cref="ReviewError.NothingToDrill"/>.</exception>
+    Task<SessionDto> StartWeakAsync(ReviewScope scope, int totalLimit, Language language = Language.En, CancellationToken ct = default);
+
     /// <summary>The open session, or null when there is none.</summary>
     Task<SessionDto?> GetCurrentAsync(Language language = Language.En, CancellationToken ct = default);
 

@@ -43,6 +43,26 @@
         <span class="font-mono text-xs text-ink-muted">{{ today() }}</span>
       </div>
 
+      <div
+        role="group"
+        class="grid grid-cols-2 gap-1 rounded-2xl bg-ink-2 p-1"
+        [attr.aria-label]="t.overview.mode"
+      >
+        @for (m of modes; track m) {
+          <button
+            type="button"
+            class="rounded-xl px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            [class]="
+              (m === 'weak') === weak() ? 'bg-on-ink text-ink' : 'text-ink-muted hover:text-on-ink'
+            "
+            [attr.aria-pressed]="(m === 'weak') === weak()"
+            (click)="setMode(m)"
+          >
+            {{ m === 'weak' ? t.overview.modeWeak : t.overview.modeRegular }}
+          </button>
+        }
+      </div>
+
       <div class="min-h-[5.5rem]" aria-live="polite">
         @if (apiUnreachable()) {
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -79,6 +99,18 @@
                 >docker compose run --rm api import-content</code
               >
             </p>
+          } @else if (weak()) {
+            <div>
+              <p class="font-display text-[3.4rem] leading-none font-extrabold text-warm">
+                {{ o.weakCount }}
+              </p>
+              <p class="mt-1.5 text-sm text-ink-muted">{{ t.overview.toDrill(o.weakCount) }}</p>
+            </div>
+            @if (nothingToDrill()) {
+              <p class="mt-3 text-sm font-medium">{{ t.overview.nothingToDrill }}</p>
+            } @else {
+              <p class="mt-3 text-xs text-ink-muted">{{ t.overview.weakHint }}</p>
+            }
           } @else {
             <div class="flex gap-8">
               <div>
@@ -177,7 +209,7 @@
         }
       </fieldset>
 
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid gap-3" [class.grid-cols-2]="!weak()">
         <label class="grid gap-1.5 text-xs text-ink-muted">
           {{ t.overview.perSession }}
           <input
@@ -191,23 +223,25 @@
             <span class="text-warm">{{ t.overview.limitError }}</span>
           }
         </label>
-        <label class="grid gap-1.5 text-xs text-ink-muted">
-          {{ t.overview.newMax }}
-          <input
-            type="number"
-            formControlName="newLimit"
-            [min]="minLimit"
-            [max]="maxLimit"
-            class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-2.5 font-mono text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
-          />
-          @if (form.controls.newLimit.invalid) {
-            <span class="text-warm">{{ t.overview.limitError }}</span>
-          }
-        </label>
+        @if (!weak()) {
+          <label class="grid gap-1.5 text-xs text-ink-muted">
+            {{ t.overview.newMax }}
+            <input
+              type="number"
+              formControlName="newLimit"
+              [min]="minLimit"
+              [max]="maxLimit"
+              class="w-full rounded-2xl border border-ink-line bg-ink-2 px-3.5 py-2.5 font-mono text-[15px] text-on-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink"
+            />
+            @if (form.controls.newLimit.invalid) {
+              <span class="text-warm">{{ t.overview.limitError }}</span>
+            }
+          </label>
+        }
       </div>
 
-      @if (store.error() && !store.session()) {
-        <p class="text-sm font-medium text-warm" role="alert">{{ store.error() }}</p>
+      @if (alert(); as error) {
+        <p class="text-sm font-medium text-warm" role="alert">{{ error }}</p>
       }
 
       <button
@@ -215,7 +249,13 @@
         class="rounded-2xl bg-accent px-4 py-4 font-display text-[15px] font-bold tracking-[-0.01em] text-on-accent hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-on-ink disabled:cursor-default disabled:opacity-50"
         [disabled]="!canStart() || form.invalid"
       >
-        {{ starting() ? t.overview.starting : t.overview.start(form.controls.totalLimit.value) }}
+        @if (starting()) {
+          {{ t.overview.starting }}
+        } @else if (weak()) {
+          {{ t.overview.drill(form.controls.totalLimit.value) }}
+        } @else {
+          {{ t.overview.start(form.controls.totalLimit.value) }}
+        }
       </button>
     </form>
   </section>
