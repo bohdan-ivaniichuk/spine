@@ -10,7 +10,22 @@ public static class ApiRoutes
     public const string Prefix = "api";
 
     /// <summary>Every endpoint template served under <see cref="Prefix"/>, each exactly once.</summary>
-    public static IReadOnlyList<string> All => throw new NotImplementedException();
+    public static IReadOnlyList<string> All { get; } =
+    [
+        Knowledge.Tree,
+        Knowledge.Concept,
+        Review.Overview,
+        Review.Coverage,
+        Review.Readiness,
+        Review.WeakSpots,
+        Review.Activity,
+        Review.Sessions,
+        Review.CurrentSession,
+        Review.Session,
+        Review.Answers,
+        Review.Finish,
+        Meta.Info,
+    ];
 
     public static class Knowledge
     {
