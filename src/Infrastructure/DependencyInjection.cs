@@ -34,20 +34,7 @@ public static class DependencyInjection
 
         // Tests replace the clock with FakeTimeProvider; TryAdd keeps a registration made before this call.
         services.TryAddSingleton<TimeProvider>(PostgresTimeProvider.SystemTruncated);
-        services.AddSingleton<ISchedulingAlgorithm, Sm2Algorithm>();
-        services.AddScoped<IReviewSessions, ReviewSessions>();
-        services.AddScoped<IReadinessQueries, ReadinessQueries>();
-        services.AddScoped<IWeakSpotsQueries, WeakSpotsQueries>();
-        services.AddScoped<IActivityQueries, ActivityQueries>();
-        services.AddOptions<ReviewOptions>().Configure(o =>
-        {
-            o.DefaultTotalLimit = configuration.GetValue(ReviewOptions.TotalLimitKey, o.DefaultTotalLimit);
-            o.DefaultNewLimit = configuration.GetValue(ReviewOptions.NewLimitKey, o.DefaultNewLimit);
-        })
-        .Validate(
-            o => ReviewOptions.IsWithinBounds(o.DefaultTotalLimit) && ReviewOptions.IsWithinBounds(o.DefaultNewLimit),
-            $"{ReviewOptions.TotalLimitKey} and {ReviewOptions.NewLimitKey} must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.")
-        .ValidateOnStart();
+        services.AddReview(configuration);
         return services;
     }
 
