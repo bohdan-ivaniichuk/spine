@@ -1,5 +1,15 @@
 import { httpResource } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DOCUMENT,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { I18n } from '../../shared/i18n/i18n';
 import { Activity, activityUrl } from '../api/activity.models';
 
@@ -15,10 +25,19 @@ import { Activity, activityUrl } from '../api/activity.models';
 })
 export class ActivityCard {
   protected readonly i18n = inject(I18n);
+  private readonly document = inject(DOCUMENT);
+  private readonly heading = viewChild.required<ElementRef<HTMLElement>>('heading');
+
+  /** Set by Retry: the error branch (and its focused button) stays until the reload settles. */
+  private readonly retrying = signal(false);
 
   /** Language-independent payload, so no `?lang=`; the zone is read once per card. */
   private readonly url = activityUrl();
   protected readonly activity = httpResource<Activity>(() => this.url);
+
+  protected readonly showError = computed(
+    () => !!this.activity.error() || (this.retrying() && this.activity.isLoading()),
+  );
 
   protected readonly data = computed(() =>
     this.activity.hasValue() ? this.activity.value() : null,
@@ -52,7 +71,8 @@ export class ActivityCard {
       const date = new Date(`${d.date}T00:00:00Z`);
       return {
         ...d,
-        height: `${Math.round((d.answers / busiest) * 100)}%`,
+        // A day with answers never looks empty, however busy the busiest day was.
+        height: `${d.answers > 0 ? Math.max(6, Math.round((d.answers / busiest) * 100)) : 0}%`,
         weekday: weekday.format(date),
         spoken: `${spoken.format(date)}: ${d.answers}`,
       };
@@ -61,7 +81,28 @@ export class ActivityCard {
 
   protected readonly total = computed(() => this.bars().reduce((sum, d) => sum + d.answers, 0));
 
+  constructor() {
+    // After a retry the button that had focus is gone; hand focus to the card's heading instead.
+    effect(() => {
+      if (this.retrying() && !this.activity.isLoading()) {
+        this.retrying.set(false);
+        if (!this.activity.error()) {
+          this.heading().nativeElement.focus();
+        }
+      }
+    });
+  }
+
   protected retry(): void {
+    this.retrying.set(true);
     this.activity.reload();
+  }
+
+  /** The empty state's call to action: the overview's start form, first control focused. */
+  protected focusStart(): void {
+    this.document
+      .getElementById('review-start')
+      ?.querySelector<HTMLElement>('button, select, input')
+      ?.focus();
   }
 }

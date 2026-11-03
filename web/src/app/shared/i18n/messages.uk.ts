@@ -229,6 +229,7 @@ export const UK: Messages = {
     empty: 'Серії ще немає — дайте відповідь на перше питання, щоб її почати.',
     startReview: 'Почати повторення',
     error: 'Не вдалося завантажити активність.',
+    loading: 'Завантаження активності…',
     chartSummary: (d: number, n: number) => `Останні ${d} ${days(d)}: ${n} ${answers(n)}.`,
   },
   feedback: {

@@ -1,31 +1,35 @@
 @let t = i18n.t().activity;
-<section
-  aria-labelledby="activity-h"
-  class="flex flex-col gap-4 rounded-card bg-surface p-6 text-text"
-  aria-live="polite"
->
-  <h2 id="activity-h" class="font-display text-sm font-bold">{{ t.title }}</h2>
+<section aria-labelledby="activity-h" class="flex flex-col gap-4 rounded-card bg-surface p-6 text-text">
+  <h2 #heading id="activity-h" tabindex="-1" class="font-display text-sm font-bold focus:outline-none">
+    {{ t.title }}
+  </h2>
 
-  @if (activity.error()) {
+  @if (showError()) {
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-muted">{{ t.error }}</p>
+      <p role="status" class="text-muted">{{ t.error }}</p>
       <button
         type="button"
         data-testid="activity-retry"
-        class="rounded-xl bg-surface-2 px-3 py-1.5 text-sm font-semibold hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        class="rounded-xl bg-surface-2 px-3 py-1.5 text-sm font-semibold hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+        [disabled]="activity.isLoading()"
         (click)="retry()"
       >
         {{ i18n.t().app.retry }}
       </button>
     </div>
+  } @else if (activity.isLoading() && !data()) {
+    <p data-testid="activity-loading" class="min-h-[5.5rem] text-sm text-muted">{{ t.loading }}</p>
   } @else if (empty()) {
     <p data-testid="activity-empty" class="text-muted">
       {{ t.empty }}
-      <a
-        href="#review-start"
+      <button
+        type="button"
+        data-testid="activity-start"
         class="font-semibold text-accent-text underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >{{ t.startReview }}</a
+        (click)="focusStart()"
       >
+        {{ t.startReview }}
+      </button>
     </p>
   } @else if (data(); as a) {
     <div class="flex flex-wrap items-end gap-x-8 gap-y-2">
@@ -50,7 +54,8 @@
               <div
                 data-testid="activity-bar"
                 class="w-full rounded-sm"
-                [class]="last ? 'bg-accent' : 'bg-accent-text/60'"
+                [class.bg-accent]="last"
+                [class.bg-accent-text/40]="!last"
                 [attr.data-answers]="bar.answers"
                 [style.height]="bar.height"
               ></div>

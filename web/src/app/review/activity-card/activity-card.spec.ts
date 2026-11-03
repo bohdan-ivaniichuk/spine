@@ -63,6 +63,16 @@ describe('ActivityCard', () => {
     await settle(fixture);
   }
 
+  it('is quiet (no live region) and shows a loading line until activity arrives', async () => {
+    fixture = TestBed.createComponent(ActivityCard);
+    TestBed.tick();
+    expect(root().querySelector('[aria-live]')).toBeNull();
+    expect(text()).toContain('Loading activity…');
+    http.expectOne(activityUrl()).flush(activity());
+    await settle(fixture);
+    expect(root().querySelector('[data-testid=activity-loading]')).toBeNull();
+  });
+
   it("requests activity in the browser's time zone", async () => {
     await open();
     // expectOne(activityUrl()) above is the assertion; the card shows the figures.
@@ -110,19 +120,37 @@ describe('ActivityCard', () => {
 
     const empty = root().querySelector('[data-testid=activity-empty]');
     expect(empty?.textContent).toContain('No streak yet');
-    expect(empty?.querySelector('a')?.getAttribute('href')).toBe('#review-start');
     expect(root().querySelector('[data-testid=current-streak]')).toBeNull();
+
+    // The call to action focuses the overview's start form (no fragment link: the app has a base href).
+    const form = document.createElement('form');
+    form.id = 'review-start';
+    const first = document.createElement('button');
+    form.append(first);
+    document.body.append(form);
+    try {
+      root().querySelector<HTMLButtonElement>('[data-testid=activity-start]')!.click();
+      expect(document.activeElement).toBe(first);
+    } finally {
+      form.remove();
+    }
   });
 
   it('shows an error with a retry when activity cannot be loaded', async () => {
     await open('error');
 
     expect(text()).toContain('Activity could not be loaded.');
-    root().querySelector<HTMLButtonElement>('[data-testid=activity-retry]')!.click();
+    expect(root().querySelector('[role=status]')?.textContent).toContain('Activity could not be loaded.');
+    const retry = root().querySelector<HTMLButtonElement>('[data-testid=activity-retry]')!;
+    retry.click();
     TestBed.tick();
+    // While reloading, the focused button stays in place, disabled.
+    expect(root().querySelector('[data-testid=activity-retry]')).toBe(retry);
+    expect(retry.disabled).toBe(true);
     http.expectOne(activityUrl()).flush(activity());
     await settle(fixture);
     expect(root().querySelector('[data-testid=current-streak]')).not.toBeNull();
+    expect(document.activeElement?.id).toBe('activity-h');
   });
 
   /** 14 days ending 3 Nov 2026 (a Tuesday); the busiest day has 8 answers. */
@@ -140,6 +168,7 @@ describe('ActivityCard', () => {
     expect(bars).toHaveLength(14);
     expect(bars[12].style.height).toBe('100%');
     expect(bars[4].style.height).toBe('50%');
+    expect(bars[8].style.height).toBe('13%');
     expect(bars[0].dataset['answers']).toBe('0');
     expect(bars[13].dataset['answers']).toBe('3');
     // The chart is decoration for sighted users; the text alternative carries the figures.

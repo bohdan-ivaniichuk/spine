@@ -99,6 +99,7 @@ describe('ReviewOverview', () => {
 
   /** Answers the hosted activity card's request, then settles as usual. */
   async function settle(f: ComponentFixture<unknown>) {
+    TestBed.tick(); // let a card rendered in this tick raise its request before it is answered
     for (const r of http.match((req) => req.url.startsWith(ACTIVITY_URL))) {
       r.flush(activity());
       activityLoads++;
