@@ -58,6 +58,9 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 4. 005 LLM grading (open + kata) — readiness widens automatically when open questions become schedulable.
 
 **Gotchas learned in 004/006**
+- (2026-11-03) Linux clocks tick at 100 ns, PostgreSQL keeps 1 µs: a time returned before SaveChanges differed from the
+  re-read value (CI-only failure, macOS clocks are µs). The app clock is `PostgresTimeProvider.SystemTruncated`;
+  integration tests that need this must wrap their FakeTimeProvider in it.
 - Lockflight red classifier (alpha.6, fixed build): xUnit `Assert.*` without a custom message is RED_ASSERT; Shouldly
   failures in test code are RED_IN_TEST; a test must call production code (a production member, not just a type as a
   generic argument) or it is RED_NO_PRODUCTION — build API request bodies from the real request type.

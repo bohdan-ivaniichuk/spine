@@ -633,6 +633,26 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task Times_returned_to_the_client_equal_what_is_read_back_when_the_clock_has_sub_microsecond_ticks()
+    {
+        // A Linux system clock ticks every 100 ns; PostgreSQL keeps 1 µs. The production clock must hide the difference.
+        var raw = new FakeTimeProvider(Start.AddTicks(7));
+        var sut = new ReviewSessions(_db, new Sm2Algorithm(), new PostgresTimeProvider(raw), Options.Create(new ReviewOptions()));
+
+        var session = await sut.StartAsync(ReviewScope.All, 4, 4);
+        var feedback = await sut.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct);
+        raw.Advance(TimeSpan.FromTicks(TimeSpan.TicksPerMinute + 3));
+        var first = await sut.FinishAsync(session.Id);
+        var again = await sut.FinishAsync(session.Id);
+
+        again.StartedAt.ShouldBe(session.StartedAt);
+        again.FinishedAt.ShouldBe(first.FinishedAt);
+        await using var db = fixture.CreateContext();
+        (await db.Sessions.SingleAsync()).FinishedAt.ShouldBe(first.FinishedAt);
+        (await db.ReviewStates.SingleAsync()).DueAt.ShouldBe(feedback.NextDueAt);
+    }
+
+    [Fact]
     public async Task Finish_is_idempotent_and_ended_early_counts_only_given_answers()
     {
         var session = await _sut.StartAsync(ReviewScope.All, 4, 4);
