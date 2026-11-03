@@ -13,9 +13,18 @@ public sealed class DatabaseInitializer(
     IOptions<DatabaseStartupOptions> options,
     ILogger<DatabaseInitializer> logger) : IDatabaseInitializer
 {
-    public Task<bool> InitializeAsync(CancellationToken ct)
+    public async Task<bool> InitializeAsync(CancellationToken ct)
     {
-        _ = (migrator, seeder, options, logger);
-        throw new NotImplementedException();
+        try
+        {
+            await migrator.MigrateAsync(options.Value.Timeout, ct);
+            await seeder.SeedAsync(ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "Database start-up failed; refusing to serve");
+            return false;
+        }
     }
 }
