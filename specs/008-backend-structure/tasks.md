@@ -87,16 +87,16 @@ construction and URL-building lines may change. Use `git mv` for moved files.
 
 **Independent Test**: snapshots identical, SQL counts ≤ recorded.
 
-- [ ] T018 [US4] (FR-006) Declare row types and mapper stubs in `src/Application/Knowledge/{Tree,Concept}/` and `src/Application/Review/{GetReviewOverview,GetReviewCoverage}/` (`KnowledgeTreeMapper`, `ConceptPageMapper`, `ReviewCoverageMapper`, `ReviewOverviewMapper`, methods throwing)
+- [X] T018 [US4] (FR-006) Declare row types and mapper stubs in `src/Application/Knowledge/{Tree,Concept}/` and `src/Application/Review/{GetReviewOverview,GetReviewCoverage}/` (`KnowledgeTreeMapper`, `ConceptPageMapper`, `ReviewCoverageMapper`, `ReviewOverviewMapper`, methods throwing)
 
 ### Tests for User Story 4
 
-- [ ] T019 [P] [US4] (FR-006, FR-007) Unit tests in `tests/Application.Tests/Knowledge/` and `tests/Application.Tests/Review/` for the four mappers: requested-language title, English fallback flag, `Level` wire value ("M"/"S"/"L"), missing translations, counts and child ordering preserved
+- [X] T019 [P] [US4] (FR-006, FR-007) Unit tests in `tests/Application.Tests/Knowledge/` and `tests/Application.Tests/Review/` for the four mappers: requested-language title, English fallback flag, `Level` wire value ("M"/"S"/"L"), missing translations, counts and child ordering preserved
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] (FR-006, FR-007) Replace the stubs with Mapperly `[Mapper]` partial classes (required mapping `Both`, explicit `Use` for enums and fallbacks)
-- [ ] T021 [US4] (FR-006, FR-007) One query per commit: knowledge tree, concept page, coverage, overview → named steps returning rows, mapped by the mappers; readiness and weak spots → named rows, hand-written assembly; snapshots and SQL counts after each
+- [X] T020 [US4] (FR-006, FR-007) Replace the stubs with Mapperly `[Mapper]` partial classes (required mapping `Both`, explicit `Use` for enums and fallbacks)
+- [X] T021 [US4] (FR-006, FR-007) One query per commit: knowledge tree, concept page, coverage, overview → named steps returning rows, mapped by the mappers; readiness and weak spots → named rows, hand-written assembly; snapshots and SQL counts after each
 
 **Checkpoint**: queries readable, behaviour identical.
 

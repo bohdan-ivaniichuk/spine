@@ -48,7 +48,10 @@ public sealed class KnowledgeTreeMapperTests
     [Trait("Requirement", "FR-006")]
     public void English_tree_has_no_fallbacks_and_keeps_every_field()
     {
-        var tree = new KnowledgeTreeMapper(Language.En).ToTree(Domains, Topics, Concepts);
+        // An English query loads the English title as the requested one.
+        var englishConcepts = Concepts.Select(c => c with { TitleRequested = c.TitleEn }).ToArray();
+
+        var tree = new KnowledgeTreeMapper(Language.En).ToTree(Domains, Topics, englishConcepts);
 
         tree.Language.ShouldBe("en");
         tree.Domains[1].ShouldBe(new TreeDomainDto("angular", "Angular", false, 2, Deprecated, tree.Domains[1].Topics));

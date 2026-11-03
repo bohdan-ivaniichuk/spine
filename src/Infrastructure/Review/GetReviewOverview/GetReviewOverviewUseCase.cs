@@ -15,11 +15,21 @@ public sealed class GetReviewOverviewUseCase(
     TimeProvider clock,
     IOptions<ReviewOptions> options) : IGetReviewOverviewUseCase
 {
+    private static readonly ReviewOverviewMapper Mapper = new();
+
     public async Task<ReviewOverviewDto> ExecuteAsync(ReviewScope scope, Language language, CancellationToken ct)
     {
         var scopeDto = await resolver.ResolveAsync(scope, language, ct);
-        var now = clock.GetUtcNow();
+        var counts = await CountAsync(scope, clock.GetUtcNow(), ct);
+        return Mapper.ToOverview(
+            counts,
+            scopeDto,
+            new SessionDefaultsDto(options.Value.DefaultTotalLimit, options.Value.DefaultNewLimit),
+            new SessionLimitsDto(ReviewOptions.MinLimit, ReviewOptions.MaxLimit));
+    }
 
+    private async Task<OverviewCounts> CountAsync(ReviewScope scope, DateTimeOffset now, CancellationToken ct)
+    {
         var totalEligible = await db.Eligible(scope).CountAsync(ct);
         var dueCount = await db.DueIds(scope, now).CountAsync(ct);
         var newCount = await db.NewIds(scope).CountAsync(ct);
@@ -28,15 +38,6 @@ public sealed class GetReviewOverviewUseCase(
             .Select(dueAt => (DateTimeOffset?)dueAt)
             .MinAsync(ct);
         var weakCount = await db.WeakQuestions(scope).CountAsync(ct);
-
-        return new ReviewOverviewDto(
-            scopeDto,
-            dueCount,
-            newCount,
-            totalEligible,
-            nextDueAt,
-            new SessionDefaultsDto(options.Value.DefaultTotalLimit, options.Value.DefaultNewLimit),
-            new SessionLimitsDto(ReviewOptions.MinLimit, ReviewOptions.MaxLimit),
-            weakCount);
+        return new OverviewCounts(totalEligible, dueCount, newCount, nextDueAt, weakCount);
     }
 }

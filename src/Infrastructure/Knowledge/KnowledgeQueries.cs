@@ -1,4 +1,6 @@
 using Spine.Application.Knowledge;
+using Spine.Application.Knowledge.Concept;
+using Spine.Application.Knowledge.Tree;
 using Spine.Domain.Content;
 using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -6,30 +8,81 @@ using Microsoft.EntityFrameworkCore;
 namespace Spine.Infrastructure.Knowledge;
 
 /// <summary>
-/// Tree = three flat no-tracking queries stitched in memory (no cartesian product, no N+1);
-/// concept page = one query with sub-selects. English is the fallback language.
+/// Tree = three flat no-tracking queries into rows, nested by <see cref="KnowledgeTreeMapper"/> (no cartesian product,
+/// no N+1); concept page = one query into a row, shaped by <see cref="ConceptPageMapper"/>. English is the fallback.
 /// </summary>
 public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
 {
-    public async Task<KnowledgeTreeDto> GetTreeAsync(Language language, bool includeDeprecated, CancellationToken ct = default)
+    public async Task<KnowledgeTreeDto> GetTreeAsync(
+        Language language, bool includeDeprecated, CancellationToken ct = default)
     {
-        var domains = await db.Domains.AsNoTracking()
+        var domains = await LoadDomainsAsync(includeDeprecated, ct);
+        var topics = await LoadTopicsAsync(includeDeprecated, ct);
+        var concepts = await LoadConceptsAsync(language, includeDeprecated, ct);
+        return new KnowledgeTreeMapper(language).ToTree(domains, topics, concepts);
+    }
+
+    public async Task<ConceptPageDto?> GetConceptAsync(
+        string domainSlug,
+        string topicSlug,
+        string conceptSlug,
+        Language language,
+        bool includeDeprecated,
+        CancellationToken ct = default)
+    {
+        var row = await db.Concepts.AsNoTracking()
+            .Where(c => c.Slug == conceptSlug && c.Topic!.Slug == topicSlug && c.Topic.Domain!.Slug == domainSlug)
+            .Where(c => includeDeprecated
+                        || (c.DeprecatedAt == null
+                            && c.Topic!.DeprecatedAt == null
+                            && c.Topic.Domain!.DeprecatedAt == null))
+            .Select(c => new ConceptPageRow(
+                c.Topic!.Domain!.Slug,
+                c.Topic.Domain.Title,
+                c.Topic.Domain.TitleUk,
+                c.Topic.Slug,
+                c.Topic.Title,
+                c.Topic.TitleUk,
+                c.Slug,
+                c.Level,
+                c.Reviewed,
+                c.SortOrder,
+                c.DeprecatedAt,
+                c.Translations
+                    .Where(t => t.Language == language)
+                    .Select(t => new ConceptTextRow(t.Title, t.Note))
+                    .FirstOrDefault(),
+                c.Translations
+                    .Where(t => t.Language == Language.En)
+                    .Select(t => new ConceptTextRow(t.Title, t.Note))
+                    .FirstOrDefault(),
+                c.Questions.Count(q => includeDeprecated || q.DeprecatedAt == null),
+                c.Katas.Count(k => includeDeprecated || k.DeprecatedAt == null)))
+            .SingleOrDefaultAsync(ct);
+
+        return row is null ? null : new ConceptPageMapper(language).ToPage(row);
+    }
+
+    private Task<List<TreeDomainRow>> LoadDomainsAsync(bool includeDeprecated, CancellationToken ct) =>
+        db.Domains.AsNoTracking()
             .Where(d => includeDeprecated || d.DeprecatedAt == null)
             .OrderBy(d => d.SortOrder).ThenBy(d => d.Id)
-            .Select(d => new { d.Id, d.Slug, d.Title, d.TitleUk, d.SortOrder, d.DeprecatedAt })
+            .Select(d => new TreeDomainRow(d.Id, d.Slug, d.Title, d.TitleUk, d.SortOrder, d.DeprecatedAt))
             .ToListAsync(ct);
 
-        var topics = await db.Topics.AsNoTracking()
+    private Task<List<TreeTopicRow>> LoadTopicsAsync(bool includeDeprecated, CancellationToken ct) =>
+        db.Topics.AsNoTracking()
             .Where(t => includeDeprecated || t.DeprecatedAt == null)
             .OrderBy(t => t.SortOrder).ThenBy(t => t.Id)
-            .Select(t => new { t.Id, t.DomainId, t.Slug, t.Title, t.TitleUk, t.SortOrder, t.DeprecatedAt })
+            .Select(t => new TreeTopicRow(t.Id, t.DomainId, t.Slug, t.Title, t.TitleUk, t.SortOrder, t.DeprecatedAt))
             .ToListAsync(ct);
 
-        var concepts = await db.Concepts.AsNoTracking()
+    private Task<List<TreeConceptRow>> LoadConceptsAsync(
+        Language language, bool includeDeprecated, CancellationToken ct) =>
+        db.Concepts.AsNoTracking()
             .Where(c => includeDeprecated || c.DeprecatedAt == null)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
-            .Select(c => new
-            {
+            .Select(c => new TreeConceptRow(
                 c.Id,
                 c.TopicId,
                 c.Slug,
@@ -37,88 +90,9 @@ public sealed class KnowledgeQueries(AppDbContext db) : IKnowledgeQueries
                 c.Reviewed,
                 c.SortOrder,
                 c.DeprecatedAt,
-                TitleRequested = c.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault(),
-                TitleEn = c.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
-                QuestionCount = c.Questions.Count(q => includeDeprecated || q.DeprecatedAt == null),
-                KataCount = c.Katas.Count(k => includeDeprecated || k.DeprecatedAt == null),
-            })
+                c.Translations.Where(t => t.Language == language).Select(t => t.Title).FirstOrDefault(),
+                c.Translations.Where(t => t.Language == Language.En).Select(t => t.Title).FirstOrDefault(),
+                c.Questions.Count(q => includeDeprecated || q.DeprecatedAt == null),
+                c.Katas.Count(k => includeDeprecated || k.DeprecatedAt == null)))
             .ToListAsync(ct);
-
-        var conceptsByTopic = concepts.ToLookup(c => c.TopicId);
-        var topicsByDomain = topics.ToLookup(t => t.DomainId);
-
-        var tree = domains.Select(d => (Domain: d, Title: LocalizedTitle.Pick(language, d.Title, d.TitleUk))).Select(x => new TreeDomainDto(
-            x.Domain.Slug,
-            x.Title.Title,
-            x.Title.Fallback,
-            x.Domain.SortOrder,
-            x.Domain.DeprecatedAt,
-            topicsByDomain[x.Domain.Id].Select(t => (Topic: t, Title: LocalizedTitle.Pick(language, t.Title, t.TitleUk))).Select(y => new TreeTopicDto(
-                y.Topic.Slug,
-                y.Title.Title,
-                y.Title.Fallback,
-                y.Topic.SortOrder,
-                y.Topic.DeprecatedAt,
-                conceptsByTopic[y.Topic.Id].Select(c => new TreeConceptDto(
-                    c.Slug,
-                    c.TitleRequested ?? c.TitleEn ?? c.Slug,
-                    c.TitleRequested is null,
-                    c.Level.ToDbValue(),
-                    c.Reviewed,
-                    c.SortOrder,
-                    c.QuestionCount,
-                    c.KataCount,
-                    c.DeprecatedAt)).ToList())).ToList())).ToList();
-
-        return new KnowledgeTreeDto(language.ToDbValue(), tree);
-    }
-
-    public async Task<ConceptPageDto?> GetConceptAsync(string domainSlug, string topicSlug, string conceptSlug, Language language, bool includeDeprecated, CancellationToken ct = default)
-    {
-        var row = await db.Concepts.AsNoTracking()
-            .Where(c => c.Slug == conceptSlug && c.Topic!.Slug == topicSlug && c.Topic.Domain!.Slug == domainSlug)
-            .Where(c => includeDeprecated || (c.DeprecatedAt == null && c.Topic!.DeprecatedAt == null && c.Topic.Domain!.DeprecatedAt == null))
-            .Select(c => new
-            {
-                DomainSlug = c.Topic!.Domain!.Slug,
-                DomainTitle = c.Topic.Domain.Title,
-                DomainTitleUk = c.Topic.Domain.TitleUk,
-                TopicSlug = c.Topic.Slug,
-                TopicTitle = c.Topic.Title,
-                TopicTitleUk = c.Topic.TitleUk,
-                c.Slug,
-                c.Level,
-                c.Reviewed,
-                c.SortOrder,
-                c.DeprecatedAt,
-                Requested = c.Translations.Where(t => t.Language == language).Select(t => new { t.Title, t.Note }).FirstOrDefault(),
-                En = c.Translations.Where(t => t.Language == Language.En).Select(t => new { t.Title, t.Note }).FirstOrDefault(),
-                QuestionCount = c.Questions.Count(q => includeDeprecated || q.DeprecatedAt == null),
-                KataCount = c.Katas.Count(k => includeDeprecated || k.DeprecatedAt == null),
-            })
-            .SingleOrDefaultAsync(ct);
-
-        if (row is null)
-        {
-            return null;
-        }
-
-        var fallback = row.Requested is null;
-        var text = row.Requested ?? row.En;
-        return new ConceptPageDto(
-            new ConceptRefDto(row.DomainSlug, LocalizedTitle.Of(language, row.DomainTitle, row.DomainTitleUk)),
-            new ConceptRefDto(row.TopicSlug, LocalizedTitle.Of(language, row.TopicTitle, row.TopicTitleUk)),
-            row.Slug,
-            row.Level.ToDbValue(),
-            row.Reviewed,
-            row.SortOrder,
-            language.ToDbValue(),
-            fallback ? Language.En.ToDbValue() : language.ToDbValue(),
-            fallback,
-            text?.Title ?? row.Slug,
-            text?.Note ?? string.Empty,
-            row.QuestionCount,
-            row.KataCount,
-            row.DeprecatedAt);
-    }
 }
