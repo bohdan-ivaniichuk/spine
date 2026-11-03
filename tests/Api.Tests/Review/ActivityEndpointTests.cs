@@ -66,6 +66,22 @@ public sealed class ActivityEndpointTests(ApiFixture fixture) : IAsyncLifetime
         (activity.CurrentStreak, activity.ActiveToday).ShouldBe((1, true));
     }
 
+    [Fact]
+    [Trait("Requirement", "FR-004")]
+    public async Task Days_are_fourteen_entries_ending_today_with_the_answer()
+    {
+        await AnswerOneAsync();
+
+        var response = await fixture.Client.GetAsync(Url(new GetActivityRequest { Tz = "Europe/Kyiv" }));
+
+        var raw = await response.Content.ReadAsStringAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, raw);
+        var activity = JsonSerializer.Deserialize<ActivityDto>(raw, ApiFixture.Json).ShouldNotBeNull();
+        activity.Days.Count.ShouldBe(14);
+        activity.Days[^1].ShouldBe(new ActivityDayDto(activity.Today, 1));
+        activity.Days[0].Date.ShouldBe(activity.Today.AddDays(-13));
+    }
+
     [Theory]
     [Trait("Requirement", "FR-001")]
     [InlineData("Mars/Olympus_Mons")]

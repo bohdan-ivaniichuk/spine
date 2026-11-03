@@ -20,6 +20,10 @@ public static class ActivityCalculator
         return new ActivityDto(timeZone, today, current, activeToday, LongestRun(active), []);
     }
 
+    /// <summary>Answers on each of the last <see cref="WindowDays"/> days, oldest first, ending today; 0 for empty days.</summary>
+    public static IReadOnlyList<ActivityDayDto> DailyCounts(DateOnly today, IEnumerable<DateOnly> answerDays) =>
+        throw new NotImplementedException();
+
     /// <summary>Consecutive active days ending at <paramref name="last"/>; 0 when that day is inactive.</summary>
     private static int RunEndingAt(HashSet<DateOnly> active, DateOnly last)
     {

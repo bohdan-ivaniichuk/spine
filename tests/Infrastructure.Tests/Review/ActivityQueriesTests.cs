@@ -95,6 +95,24 @@ public sealed class ActivityQueriesTests(PostgresFixture fixture) : IAsyncLifeti
     }
 
     [Fact]
+    [Trait("Requirement", "FR-004")]
+    public async Task Days_hold_fourteen_local_days_with_the_seeded_counts()
+    {
+        await QuestionAttemptAsync(TopicTemplate.Mcq1, LateEvening, correct: true);
+        await QuestionAttemptAsync(TopicTemplate.Mcq2, AfterMidnight, correct: false);
+        await QuestionAttemptAsync(TopicTemplate.SpanMcq1, AfterMidnight.AddMinutes(5), correct: true);
+        await QuestionAttemptAsync(TopicTemplate.Mcq1, Now.AddDays(-20), correct: true);
+
+        var activity = await GetAsync(Kyiv);
+
+        activity.Days.Count.ShouldBe(14);
+        activity.Days[0].Date.ShouldBe(new DateOnly(2026, 10, 21));
+        activity.Days[^1].ShouldBe(new ActivityDayDto(new DateOnly(2026, 11, 3), 2));
+        activity.Days[^2].ShouldBe(new ActivityDayDto(new DateOnly(2026, 11, 2), 1));
+        activity.Days.Sum(d => d.Answers).ShouldBe(3, "the answer 20 days ago is outside the window");
+    }
+
+    [Fact]
     [Trait("Requirement", "FR-005")]
     public async Task Wrong_weak_session_and_deprecated_answers_count_and_katas_do_not()
     {

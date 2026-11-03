@@ -82,6 +82,43 @@ public sealed class ActivityCalculatorTests
     }
 
     [Fact]
+    [Trait("Requirement", "FR-004")]
+    public void Daily_counts_cover_fourteen_days_ending_today_oldest_first_with_zeros()
+    {
+        var days = ActivityCalculator.DailyCounts(Today, DaysAgo(0, 0, 2, 13, 13, 13));
+
+        days.Count.ShouldBe(14);
+        days[0].ShouldBe(new ActivityDayDto(Today.AddDays(-13), 3));
+        days[^1].ShouldBe(new ActivityDayDto(Today, 2));
+        days[^3].ShouldBe(new ActivityDayDto(Today.AddDays(-2), 1));
+        days.Select(d => d.Date).ShouldBe(Enumerable.Range(0, 14).Select(i => Today.AddDays(i - 13)));
+        days.Sum(d => d.Answers).ShouldBe(6);
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-004")]
+    public void Older_answers_leave_the_chart_but_keep_the_longest_streak()
+    {
+        var answers = DaysAgo(14, 15, 16, 17, 18, 19, 0);
+
+        var activity = Calculate(answers);
+
+        activity.Days.Sum(d => d.Answers).ShouldBe(1);
+        activity.LongestStreak.ShouldBe(6);
+    }
+
+    [Fact]
+    [Trait("Requirement", "FR-004")]
+    public void Calculate_serves_the_daily_counts_and_ignores_days_after_today()
+    {
+        var answers = DaysAgo(0, 1, 1, 5);
+
+        var activity = Calculate([.. answers, Today.AddDays(1)]);
+
+        activity.Days.ShouldBe(ActivityCalculator.DailyCounts(Today, answers));
+    }
+
+    [Fact]
     [Trait("Requirement", "FR-003")]
     public void No_answers_give_empty_streaks_and_echo_the_zone_and_today()
     {
