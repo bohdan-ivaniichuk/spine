@@ -12,7 +12,12 @@ public sealed class GetActivityRequest
     public string? Tz { get; set; }
 
     /// <summary>The zone the request names; UTC when it names none. Only valid after validation.</summary>
-    public TimeZoneInfo ResolveZone() => throw new NotImplementedException();
+    public TimeZoneInfo ResolveZone() =>
+        string.IsNullOrEmpty(Tz) ? TimeZoneInfo.Utc : TimeZoneInfo.FindSystemTimeZoneById(Tz);
+
+    /// <summary>Absent, empty or a zone id this machine's time-zone data knows (IANA ids; aliases resolve too).</summary>
+    public static bool IsKnownZone(string? tz) =>
+        string.IsNullOrEmpty(tz) || TimeZoneInfo.TryFindSystemTimeZoneById(tz, out _);
 }
 
 public sealed class GetActivityValidator : Validator<GetActivityRequest>
@@ -20,7 +25,7 @@ public sealed class GetActivityValidator : Validator<GetActivityRequest>
     public GetActivityValidator()
     {
         RuleFor(r => r.Tz)
-            .Must(_ => throw new NotImplementedException())
+            .Must(GetActivityRequest.IsKnownZone)
             .WithMessage("tz must be a known IANA time zone id, e.g. Europe/Kyiv");
     }
 }
@@ -40,9 +45,8 @@ public sealed class GetActivityEndpoint(IActivityQueries activity) : Endpoint<Ge
         });
     }
 
-    public override Task HandleAsync(GetActivityRequest req, CancellationToken ct)
+    public override async Task HandleAsync(GetActivityRequest req, CancellationToken ct)
     {
-        _ = activity;
-        throw new NotImplementedException();
+        await Send.OkAsync(await activity.GetAsync(req.ResolveZone(), ct), ct);
     }
 }

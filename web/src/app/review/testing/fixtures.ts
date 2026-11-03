@@ -1,6 +1,7 @@
 import { HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { KnowledgeTree } from '../../knowledge/api/knowledge-tree.models';
+import { Activity } from '../api/activity.models';
 import {
   AnswerFeedback,
   ReviewOverview,
@@ -178,4 +179,17 @@ export async function settle(
     answerTree(http);
   }
   await fixture.whenStable();
+}
+
+/** `GET /api/review/activity` payload shaped like specs/007-activity-streak/contracts/activity-api.md. */
+export function activity(overrides: Partial<Activity> = {}): Activity {
+  return {
+    timeZone: 'Europe/Kyiv',
+    today: '2026-11-03',
+    currentStreak: 4,
+    activeToday: true,
+    longestStreak: 9,
+    days: [],
+    ...overrides,
+  };
 }

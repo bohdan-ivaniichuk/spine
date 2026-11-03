@@ -1,0 +1,46 @@
+@let t = i18n.t().activity;
+<section
+  aria-labelledby="activity-h"
+  class="flex flex-col gap-4 rounded-card bg-surface p-6 text-text"
+  aria-live="polite"
+>
+  <h2 id="activity-h" class="font-display text-sm font-bold">{{ t.title }}</h2>
+
+  @if (activity.error()) {
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-muted">{{ t.error }}</p>
+      <button
+        type="button"
+        data-testid="activity-retry"
+        class="rounded-xl bg-surface-2 px-3 py-1.5 text-sm font-semibold hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        (click)="retry()"
+      >
+        {{ i18n.t().app.retry }}
+      </button>
+    </div>
+  } @else if (empty()) {
+    <p data-testid="activity-empty" class="text-muted">
+      {{ t.empty }}
+      <a
+        href="#review-start"
+        class="font-semibold text-accent-text underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >{{ t.startReview }}</a
+      >
+    </p>
+  } @else if (data(); as a) {
+    <div class="flex flex-wrap items-end gap-x-8 gap-y-2">
+      <p data-testid="current-streak" class="flex items-baseline gap-2">
+        <span class="font-display text-5xl font-extrabold tracking-[-0.04em] text-accent-text">{{
+          a.currentStreak
+        }}</span>&ngsp;
+        <span class="text-muted">{{ t.inARow(a.currentStreak) }}</span>
+      </p>
+      <p data-testid="longest-streak" class="text-sm text-muted">
+        {{ t.longest(a.longestStreak) }}
+      </p>
+    </div>
+    @if (keepStreak()) {
+      <p data-testid="keep-streak" class="text-sm font-medium text-text">{{ t.keepStreak }}</p>
+    }
+  }
+</section>

@@ -6,9 +6,10 @@ import { BehaviorSubject } from 'rxjs';
 import { I18n } from '../../shared/i18n/i18n';
 import { KnowledgeTree } from '../../knowledge/api/knowledge-tree.models';
 import { treeConcept } from '../../knowledge/testing/atlas-fixtures';
+import { ACTIVITY_URL } from '../api/activity.models';
 import { Coverage, Session } from '../api/review.models';
 import { SessionStore } from '../session-store';
-import { overview, session, settle } from '../testing/fixtures';
+import { activity, overview, session, settle as settleFixture } from '../testing/fixtures';
 import { ReviewOverview } from './review-overview';
 
 const tree: KnowledgeTree = {
@@ -93,6 +94,17 @@ const coverage: Coverage = {
 
 describe('ReviewOverview', () => {
   let fixture: ComponentFixture<ReviewOverview>;
+  /** Activity requests answered so far; the hosted card (feature 007) has its own spec. */
+  let activityLoads = 0;
+
+  /** Answers the hosted activity card's request, then settles as usual. */
+  async function settle(f: ComponentFixture<unknown>) {
+    for (const r of http.match((req) => req.url.startsWith(ACTIVITY_URL))) {
+      r.flush(activity());
+      activityLoads++;
+    }
+    await settleFixture(f);
+  }
   let http: HttpTestingController;
   let store: SessionStore;
 
@@ -136,6 +148,7 @@ describe('ReviewOverview', () => {
   }
 
   beforeEach(async () => {
+    activityLoads = 0;
     localStorage.removeItem('spine.lang');
     queryParams = new BehaviorSubject(convertToParamMap({}));
     await TestBed.configureTestingModule({
@@ -157,6 +170,14 @@ describe('ReviewOverview', () => {
   });
 
   afterEach(() => http.verify());
+
+  it('hosts the activity card and anchors the start form for its empty state', async () => {
+    await open();
+
+    expect(fixture.nativeElement.querySelector('app-activity-card')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('form#review-start')).not.toBeNull();
+    expect(activityLoads).toBe(1);
+  });
 
   it('renders "28 new · 0 due" and prefills the limits from the server defaults', async () => {
     await open(overview({ defaults: { totalLimit: 15, newLimit: 5 } }));
