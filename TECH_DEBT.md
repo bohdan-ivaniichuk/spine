@@ -10,8 +10,8 @@ Add items as they are discovered; remove them when fixed (with the commit).
 |---|---|---|
 | Critical | 0 | — |
 | High | 0 | — |
-| Medium | 4 | Light-theme contrast below AA; Start/Answer race; retried commit can 409; npm audit advisories |
-| Low | 12 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
+| Medium | 2 | Start/Answer race; retried commit can 409 |
+| Low | 11 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
 
 ## 1. Content pipeline
 
@@ -20,12 +20,7 @@ validator as the importer (`import-content --validate-only`)._
 
 ## 2. Review session (feature 002, from pre-commit reviews)
 
-### 2.1 [MEDIUM] Light-theme colour pairs below WCAG AA for small text
-- **Files:** `web/src/styles.scss` (light palette)
-- **Problem:** `text-bad` on `bg-bad-soft`/`bg-surface-2`/`bg-surface` (~3.8–4.4:1), `text-muted` on
-  `bg-surface-2`/`bg-accent-soft` (~4.2–4.3:1), `text-ok` hint (~3.5:1). Dark theme passes.
-- **Fix:** darken `--color-bad`, `--color-muted`, `--color-ok` in the light theme; no component change.
-- **Effort:** XS
+_2.1 (light-theme contrast) closed by the 003 Atlas palette: every light token pair is ≥ 5.7:1 (re-measured 2026-11-03)._
 
 ### 2.2 [MEDIUM] Start and Answer are not serialised
 - **Files:** `src/Infrastructure/Review/ReviewSessions.cs` (Start ~80, Answer ~150)
@@ -97,21 +92,14 @@ validator as the importer (`import-content --validate-only`)._
 
 ## 3. Tooling
 
+_3.2 (`npm audit` advisories) closed 2026-11-03: Angular 22.2.4, `npm audit` reports 0 vulnerabilities._
+
 ### 3.1 [LOW] Monaco wrapper choice unverified
 - **Files:** `memory-bank/techContext.md`
 - **Problem:** `ngx-monaco-editor-v2` version came from search snippets (npm returned 403 to the
   researcher). Decide between the wrapper and loading `monaco-editor` directly in a `@defer` block
   during feature 004.
 - **Effort:** XS (decide at 004 planning)
-
-### 3.2 [MEDIUM] `npm audit` reports 9 advisories in the Angular toolchain
-- **Files:** `web/package-lock.json`
-- **Problem:** 3 critical (`@angular/build` → `piscina`, `proxy-addr`), 4 high (`@angular/cli` →
-  `@modelcontextprotocol/sdk`, `@angular/router` SSR DoS, `source-map-js`), 2 moderate (`fast-uri`,
-  `ip-address`). None come from the 004 additions (`markdown-it`, `highlight.js`); all are dev/build-time
-  or SSR paths this app does not use, but the router one is a runtime package.
-- **Fix:** bump Angular to the patched 22.x and re-run `npm audit` (checked 2026-10-15).
-- **Effort:** S
 
 ### 3.3 [LOW] Lockflight trace sees only .NET tests
 - **Files:** `specs/004-knowledge-atlas-notes/`
