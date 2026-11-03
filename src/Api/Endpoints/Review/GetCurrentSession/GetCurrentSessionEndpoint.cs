@@ -6,7 +6,8 @@ using FastEndpoints;
 namespace Spine.Api.Endpoints.Review.GetCurrentSession;
 
 /// <summary>GET /api/review/sessions/current — the open session for resume, or 204 when there is none.</summary>
-public sealed class GetCurrentSessionEndpoint(IGetCurrentSessionUseCase current) : Endpoint<GetCurrentSessionRequest, SessionDto>
+public sealed class GetCurrentSessionEndpoint(IGetCurrentSessionUseCase current)
+    : Endpoint<GetCurrentSessionRequest, SessionDto>
 {
     public override void Configure()
     {

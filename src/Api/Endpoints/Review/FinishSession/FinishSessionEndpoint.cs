@@ -5,7 +5,8 @@ using Spine.Application.Review.FinishSession;
 namespace Spine.Api.Endpoints.Review.FinishSession;
 
 /// <summary>POST /api/review/sessions/{id}/finish — closes the session (idempotent) and returns its summary.</summary>
-public sealed class FinishSessionEndpoint(IFinishSessionUseCase finish) : Endpoint<FinishSessionRequest, SessionSummaryDto>
+public sealed class FinishSessionEndpoint(IFinishSessionUseCase finish)
+    : Endpoint<FinishSessionRequest, SessionSummaryDto>
 {
     public override void Configure()
     {
