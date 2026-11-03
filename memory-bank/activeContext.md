@@ -47,6 +47,13 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
   summary note links + "Drill these". 356 .NET + 188 web tests; trace 11/15 (web-only FRs untraced); Lockflight
   review of record: approve; walked in Chrome (drill → answers → summary → drill again, EN/UK, dark, 375 px).
 
+- **Public release (2026-11-03)**: github.com/bohdan-ivaniichuk/spine, MIT, `main` protected (PR + required `gates`
+  check, merge commits). First CI run caught a Linux-only clock-precision bug (fixed with `PostgresTimeProvider`).
+- **007 Activity and streak** (2026-11-03, first feature fully under Lockflight 0.3.0 + Spec Kit): `GET
+  /api/review/activity?tz=` (UTC default, IANA-only, 400 otherwise), pure `ActivityCalculator`, overview streak card
+  with 14-day chart and sr-only text alternative; Alpine API image gains `tzdata`. Trace 5/9 (web FRs untraced);
+  review of record approve; 381 .NET + 202 web tests.
+
 **Next**
 1. Public release (2026-11-03): repo moved to `~/GitHub/public/spine`; MIT license, README with screenshots
    (`docs/images/`), CODEOWNERS, noreply commit email. Pending user steps: apply the CI trigger patch
@@ -56,6 +63,15 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 2. User: review sprint-1 content, flip `reviewed`; then `uk` pass for reviewed items.
 3. Content: Angular (3) and AI engineering (5) domains.
 4. 005 LLM grading (open + kata) — readiness widens automatically when open questions become schedulable.
+
+**Gotchas learned in 007 (Lockflight on a real PR)**
+- Keep each story's tests in their own file from the start: the CI judge rebuilds a cycle's tests on its red commit,
+  and later-story tests in the same file (calling members that did not exist yet) make that build compile-red;
+  moving them afterwards renames them and loses their red.
+- A test that only fails with ICU (Windows zone ids) is GREEN_BEFORE under `redgreen red` but red under plain
+  `dotnet test`: environment-dependent behaviour cannot be proven red; fix it as hardening.
+- Angular strips whitespace between elements: use `&ngsp;` where a space must be read (e.g. "4 days in a row").
+- `<base href="/">` turns `href="#id"` into a full reload of `/#id`; focus targets in code instead.
 
 **Gotchas learned in 004/006**
 - (2026-11-03) Linux clocks tick at 100 ns, PostgreSQL keeps 1 µs: a time returned before SaveChanges differed from the

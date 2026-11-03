@@ -1,0 +1,83 @@
+{
+  "schema": "lockflight.review/v2",
+  "run": "20261103-151336",
+  "at": "2026-11-03T15:13:36.6962920+00:00",
+  "feature": "007-activity-streak",
+  "base": {
+    "ref": "origin/main",
+    "commit": "bdb3c6dde2bb75a34dc9ed6f58f688a180a79351",
+    "target": "origin/main",
+    "mergeBase": "bdb3c6dde2bb75a34dc9ed6f58f688a180a79351",
+    "isMergeBase": true
+  },
+  "head": "c3bfb369cf6fa2aa27785807c2deb244a831cf22",
+  "diffSha256": "de7e3c52b58d9cc42324ab0f88fe7acef22ed04ee8de04f478c28b7e47cefe3c",
+  "promptSha256": "f5e63185cd32c6524eeec465fd37684ed3a359b2ea41538098fabd832dd4c709",
+  "model": "sonnet",
+  "budgetUsd": 3.00,
+  "settings": {
+    "model": "sonnet",
+    "maxUsd": 3.00,
+    "target": null,
+    "maxDiffCharacters": 120000,
+    "source": "default"
+  },
+  "generatedFiles": {
+    "status": "listed, not reviewed",
+    "files": []
+  },
+  "claudeCodeVersion": "2.1.317 (Claude Code)",
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 1402,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 41060
+  },
+  "estimatedCostUsd": 0.178264,
+  "reproductionRepairs": {
+    "calls": 0,
+    "estimatedCostUsd": 0
+  },
+  "fixChecks": {
+    "count": 0,
+    "wallTimeMs": 0
+  },
+  "claudeDurationMs": 11021,
+  "wallTimeMs": 12456,
+  "ofRecord": true,
+  "notOfRecord": [],
+  "verdict": "approve",
+  "summary": "I found no blocker or major defects. I read the diff only and did not build it or run any tests. The streak and daily-count logic, the per-answer zone conversion, the validation and the card behaviour all match FR-001 to FR-009. One minor point about time-zone validation is below.",
+  "findings": [
+    {
+      "id": "15ba7b1bb925",
+      "dimension": "general",
+      "severity": "minor",
+      "originalSeverity": null,
+      "escalation": null,
+      "outcome": "reported",
+      "reproductionResult": "none",
+      "state": null,
+      "carried": false,
+      "file": "src/Api/Endpoints/Review/GetActivityEndpoint.cs",
+      "line": 28,
+      "requirement": null,
+      "specQuote": null,
+      "specAnchor": "none",
+      "title": "Slash-less IANA ids other than UTC are rejected",
+      "evidence": "IsKnownZone only accepts ids that contain '/' or equal \"UTC\". Valid IANA ids without a slash, such as \"Japan\", \"Egypt\" or \"EST5EDT\", get a 400 even though the tz data knows them. A browser would rarely report these, but the spec only says unknown zones are rejected and does not cover this case. I report it as minor for that reason. No reproduction is attached because it is below major.",
+      "reproduction": null,
+      "earlierReproductions": [],
+      "reproductionAttempts": 0,
+      "reproductionProject": null,
+      "compileErrors": [],
+      "fix": null,
+      "fixCheck": "none",
+      "fixChecked": false,
+      "fixAttempts": 0,
+      "ownTestsChecked": 0,
+      "conflictingTests": [],
+      "fixCheckErrors": null
+    }
+  ]
+}
