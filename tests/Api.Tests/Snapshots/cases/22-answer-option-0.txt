@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 7
+
+{"questionId":"dotnet.clr-memory.stack-vs-heap.mcq.1","selectedIndex":0,"isCorrect":true,"correctIndex":0,"explanation":"Explanation: the right answer is A.","nextDueAt":"2026-11-04T09:01:00+00:00","intervalDays":1,"language":"en","fallback":false}

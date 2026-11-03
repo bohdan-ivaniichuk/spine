@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 4
+
+{"since":"2026-10-04T09:00:00+00:00","windowDays":30,"minAnswers":3,"concepts":[],"topics":[]}

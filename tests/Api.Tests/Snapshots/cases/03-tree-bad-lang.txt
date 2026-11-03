@@ -1,0 +1,5 @@
+status: 400
+location: -
+sql: 0
+
+{"type":"https://www.rfc-editor.org/rfc/rfc7231#section-6.5.1","title":"Bad Request","status":400,"instance":"/api/knowledge/tree","traceId":"<trace>","detail":"lang must be 'en' or 'uk'","errors":[{"name":"lang","reason":"lang must be 'en' or 'uk'"}]}

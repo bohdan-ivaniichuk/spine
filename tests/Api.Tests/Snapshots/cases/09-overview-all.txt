@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 5
+
+{"scope":{"type":"all","domain":null,"topic":null,"domainTitle":null,"topicTitle":null,"concept":null,"conceptTitle":null},"dueCount":0,"newCount":15,"totalEligible":15,"nextDueAt":null,"defaults":{"totalLimit":20,"newLimit":10},"limits":{"min":1,"max":100},"weakCount":0}

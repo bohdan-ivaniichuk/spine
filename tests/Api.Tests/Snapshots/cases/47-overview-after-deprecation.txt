@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 6
+
+{"scope":{"type":"topic","domain":"dotnet","topic":"clr-memory","domainTitle":"C# & .NET Runtime","topicTitle":"Memory & GC","concept":null,"conceptTitle":null},"dueCount":2,"newCount":6,"totalEligible":8,"nextDueAt":null,"defaults":{"totalLimit":20,"newLimit":10},"limits":{"min":1,"max":100},"weakCount":0}

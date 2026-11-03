@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 4
+
+{"domains":[{"domain":"dotnet","ready":0,"counted":5,"percent":0,"topics":[{"topic":"clr-memory","ready":0,"counted":3,"percent":0,"concepts":[{"concept":"stack-vs-heap","state":"in-progress","questions":4,"readyQuestions":0},{"concept":"gc-modes","state":"not-started","questions":4,"readyQuestions":0},{"concept":"span-memory","state":"not-started","questions":4,"readyQuestions":0}]},{"topic":"async","ready":0,"counted":2,"percent":0,"concepts":[{"concept":"async-await","state":"not-started","questions":2,"readyQuestions":0},{"concept":"configure-await","state":"not-started","questions":1,"readyQuestions":0}]},{"topic":"csharp-lang","ready":0,"counted":0,"percent":null,"concepts":[]}]},{"domain":"aspnet-data","ready":0,"counted":0,"percent":null,"topics":[{"topic":"pipeline","ready":0,"counted":0,"percent":null,"concepts":[]},{"topic":"efcore","ready":0,"counted":0,"percent":null,"concepts":[]}]},{"domain":"angular","ready":0,"counted":0,"percent":null,"topics":[{"topic":"core","ready":0,"counted":0,"percent":null,"concepts":[]}]}]}

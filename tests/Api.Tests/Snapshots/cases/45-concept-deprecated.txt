@@ -1,0 +1,5 @@
+status: 404
+location: -
+sql: 1
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Concept not found","status":404,"detail":"No concept 'dotnet/clr-memory/gc-modes' (deprecated items need includeDeprecated=true).","instance":"/api/knowledge/concepts/dotnet/clr-memory/gc-modes","traceId":"<trace>"}

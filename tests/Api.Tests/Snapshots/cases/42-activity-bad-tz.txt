@@ -1,0 +1,5 @@
+status: 400
+location: -
+sql: 0
+
+{"type":"https://www.rfc-editor.org/rfc/rfc7231#section-6.5.1","title":"Bad Request","status":400,"instance":"/api/review/activity","traceId":"<trace>","detail":"tz must be a known IANA time zone id, e.g. Europe/Kyiv","errors":[{"name":"tz","reason":"tz must be a known IANA time zone id, e.g. Europe/Kyiv"}]}

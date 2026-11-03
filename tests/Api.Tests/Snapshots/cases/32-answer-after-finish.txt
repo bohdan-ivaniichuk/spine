@@ -1,0 +1,5 @@
+status: 409
+location: -
+sql: 2
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Session already finished","status":409,"detail":"Session '<guid-1>' was finished at 2026-11-03T09:04:00.0000000+00:00.","instance":"/api/review/sessions/<guid-1>/answers","traceId":"<trace>"}

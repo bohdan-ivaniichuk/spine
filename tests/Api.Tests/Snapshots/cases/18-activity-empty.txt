@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 1
+
+{"timeZone":"UTC","today":"2026-11-03","currentStreak":0,"activeToday":false,"longestStreak":0,"days":[{"date":"2026-10-21","answers":0},{"date":"2026-10-22","answers":0},{"date":"2026-10-23","answers":0},{"date":"2026-10-24","answers":0},{"date":"2026-10-25","answers":0},{"date":"2026-10-26","answers":0},{"date":"2026-10-27","answers":0},{"date":"2026-10-28","answers":0},{"date":"2026-10-29","answers":0},{"date":"2026-10-30","answers":0},{"date":"2026-10-31","answers":0},{"date":"2026-11-01","answers":0},{"date":"2026-11-02","answers":0},{"date":"2026-11-03","answers":0}]}

@@ -1,0 +1,5 @@
+status: 404
+location: -
+sql: 1
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Scope not found","status":404,"detail":"No topic 'dotnet/nope'.","instance":"/api/review/overview","traceId":"<trace>"}

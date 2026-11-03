@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 6
+
+{"sessionId":"<guid-1>","scope":{"type":"topic","domain":"dotnet","topic":"clr-memory","domainTitle":"C# & .NET Runtime","topicTitle":"Memory & GC","concept":null,"conceptTitle":null},"startedAt":"2026-11-03T09:00:00+00:00","finishedAt":"2026-11-03T09:04:00+00:00","questionCount":4,"answered":2,"correct":2,"accuracy":1,"weakConcepts":[],"dueTomorrow":2,"mode":"regular"}
