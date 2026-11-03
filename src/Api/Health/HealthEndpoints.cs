@@ -1,20 +1,23 @@
 using System.Text.Json;
+using Spine.Api.Endpoints;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Spine.Api.Health;
 
-/// <summary>/health = liveness (no checks); /health/ready = database reachable. Both answer {"status": "..."}.</summary>
+/// <summary>
+/// /health = liveness (no checks); /health/ready = database reachable. Both answer {"status": "..."}.
+/// </summary>
 public static class HealthEndpoints
 {
     public static void MapHealth(this IEndpointRouteBuilder app)
     {
-        app.MapHealthChecks("/health", new HealthCheckOptions
+        app.MapHealthChecks(ApiRoutes.Health.Live, new HealthCheckOptions
         {
             Predicate = _ => false,
             ResponseWriter = WriteAsync,
         });
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        app.MapHealthChecks(ApiRoutes.Health.Ready, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains("ready"),
             ResponseWriter = WriteAsync,

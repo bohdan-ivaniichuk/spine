@@ -1,3 +1,4 @@
+using Spine.Api.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -9,7 +10,7 @@ namespace Spine.Api.Tests.Knowledge;
 [Trait("Category", "Integration")]
 public sealed class ConceptEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private const string SpanMemory = "/api/knowledge/concepts/dotnet/clr-memory/span-memory";
+    private static readonly string SpanMemory = ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "span-memory"));
 
     public Task InitializeAsync() => fixture.ImportAsync();
 
@@ -80,7 +81,7 @@ public sealed class ConceptEndpointTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Uk_translation_from_content_is_served_without_fallback()
     {
-        const string path = "/api/knowledge/concepts/dotnet/async/async-await";
+        var path = ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "async"), ("concept", "async-await"));
         var en = await GetConceptAsync(path + "?lang=en");
         var uk = await GetConceptAsync(path + "?lang=uk");
 
@@ -103,12 +104,13 @@ public sealed class ConceptEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("/api/knowledge/concepts/nope/clr-memory/span-memory")]
-    [InlineData("/api/knowledge/concepts/dotnet/nope/span-memory")]
-    [InlineData("/api/knowledge/concepts/dotnet/clr-memory/nope")]
-    [InlineData("/api/knowledge/concepts/dotnet/async/span-memory")]
-    public async Task Unknown_path_is_a_404_problem(string path)
+    [InlineData("nope", "clr-memory", "span-memory")]
+    [InlineData("dotnet", "nope", "span-memory")]
+    [InlineData("dotnet", "clr-memory", "nope")]
+    [InlineData("dotnet", "async", "span-memory")]
+    public async Task Unknown_path_is_a_404_problem(string domain, string topic, string concept)
     {
+        var path = ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", domain), ("topic", topic), ("concept", concept));
         var response = await fixture.Client.GetAsync(path);
 
         await ShouldBeNotFoundProblemAsync(response);

@@ -1,3 +1,4 @@
+using Spine.Api.Endpoints;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -24,70 +25,70 @@ public sealed class ResponseSnapshotTests(SnapshotFixture fixture) : IAsyncLifet
     public async Task Every_endpoint_answers_exactly_as_recorded()
     {
         // Fresh learner: nothing answered yet.
-        await GetAsync("tree-en", "/api/knowledge/tree");
-        await GetAsync("tree-uk", "/api/knowledge/tree?lang=uk");
-        await GetAsync("tree-bad-lang", "/api/knowledge/tree?lang=fr");
-        await GetAsync("concept-en", "/api/knowledge/concepts/dotnet/async/async-await");
-        await GetAsync("concept-uk", "/api/knowledge/concepts/dotnet/async/async-await?lang=uk");
-        await GetAsync("concept-uk-fallback", "/api/knowledge/concepts/dotnet/clr-memory/gc-modes?lang=uk");
-        await GetAsync("concept-unknown", "/api/knowledge/concepts/dotnet/clr-memory/nope");
-        await GetAsync("concept-bad-lang", "/api/knowledge/concepts/dotnet/clr-memory/gc-modes?lang=fr");
-        await GetAsync("overview-all", "/api/review/overview");
-        await GetAsync("overview-domain-uk", "/api/review/overview?scope=domain&domain=dotnet&lang=uk");
-        await GetAsync("overview-topic", "/api/review/overview?scope=topic&domain=dotnet&topic=clr-memory");
-        await GetAsync("overview-concept", "/api/review/overview?scope=concept&domain=dotnet&topic=async&concept=async-await");
-        await GetAsync("overview-unknown-topic", "/api/review/overview?scope=topic&domain=dotnet&topic=nope");
-        await GetAsync("overview-bad-scope", "/api/review/overview?scope=planet");
-        await GetAsync("coverage", "/api/review/coverage");
-        await GetAsync("readiness", "/api/review/readiness");
-        await GetAsync("weak-spots-empty", "/api/review/weak-spots");
-        await GetAsync("activity-empty", "/api/review/activity");
-        await GetAsync("current-none", "/api/review/sessions/current");
-        await PostAsync("weak-nothing-to-drill", "/api/review/sessions", new { mode = "weak", totalLimit = 5 });
+        await GetAsync("tree-en", ApiUrl.Prefix + ApiRoutes.Knowledge.Tree);
+        await GetAsync("tree-uk", ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=uk");
+        await GetAsync("tree-bad-lang", ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=fr");
+        await GetAsync("concept-en", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "async"), ("concept", "async-await")));
+        await GetAsync("concept-uk", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "async"), ("concept", "async-await")) + "?lang=uk");
+        await GetAsync("concept-uk-fallback", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "gc-modes")) + "?lang=uk");
+        await GetAsync("concept-unknown", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "nope")));
+        await GetAsync("concept-bad-lang", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "gc-modes")) + "?lang=fr");
+        await GetAsync("overview-all", ApiUrl.Prefix + ApiRoutes.Review.Overview);
+        await GetAsync("overview-domain-uk", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=domain&domain=dotnet&lang=uk");
+        await GetAsync("overview-topic", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=topic&domain=dotnet&topic=clr-memory");
+        await GetAsync("overview-concept", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=concept&domain=dotnet&topic=async&concept=async-await");
+        await GetAsync("overview-unknown-topic", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=topic&domain=dotnet&topic=nope");
+        await GetAsync("overview-bad-scope", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=planet");
+        await GetAsync("coverage", ApiUrl.Prefix + ApiRoutes.Review.Coverage);
+        await GetAsync("readiness", ApiUrl.Prefix + ApiRoutes.Review.Readiness);
+        await GetAsync("weak-spots-empty", ApiUrl.Prefix + ApiRoutes.Review.WeakSpots);
+        await GetAsync("activity-empty", ApiUrl.Prefix + ApiRoutes.Review.Activity);
+        await GetAsync("current-none", ApiUrl.Prefix + ApiRoutes.Review.CurrentSession);
+        await PostAsync("weak-nothing-to-drill", ApiUrl.Prefix + ApiRoutes.Review.Sessions, new { mode = "weak", totalLimit = 5 });
 
         // A topic session: two answers (one per option), a duplicate, a foreign question, then finish twice.
-        var session = await PostAsync("start-topic", "/api/review/sessions",
+        var session = await PostAsync("start-topic", ApiUrl.Prefix + ApiRoutes.Review.Sessions,
             new { scope = "topic", domain = "dotnet", topic = "clr-memory", totalLimit = 4, newLimit = 4 });
         var id = session.RootElement.GetProperty("id").GetString();
         var questions = session.RootElement.GetProperty("questions").EnumerateArray()
             .Select(q => q.GetProperty("id").GetString()!).ToArray();
         fixture.Clock.Advance(TimeSpan.FromMinutes(1));
-        await PostAsync("answer-option-0", $"/api/review/sessions/{id}/answers", new { questionId = questions[0], selectedIndex = 0 });
+        await PostAsync("answer-option-0", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = questions[0], selectedIndex = 0 });
         fixture.Clock.Advance(TimeSpan.FromMinutes(1));
-        await PostAsync("answer-option-1", $"/api/review/sessions/{id}/answers", new { questionId = questions[1], selectedIndex = 1 });
-        await PostAsync("answer-duplicate", $"/api/review/sessions/{id}/answers", new { questionId = questions[1], selectedIndex = 1 });
-        await PostAsync("answer-foreign", $"/api/review/sessions/{id}/answers", new { questionId = "dotnet.async.async-await.mcq.1", selectedIndex = 0 });
-        await PostAsync("answer-bad-body", $"/api/review/sessions/{id}/answers", new { questionId = "", selectedIndex = -1 });
-        await GetAsync("current-open", "/api/review/sessions/current");
-        await GetAsync("session-by-id-uk", $"/api/review/sessions/{id}?lang=uk");
-        await GetAsync("session-unknown", $"/api/review/sessions/{Guid.Empty}");
+        await PostAsync("answer-option-1", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = questions[1], selectedIndex = 1 });
+        await PostAsync("answer-duplicate", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = questions[1], selectedIndex = 1 });
+        await PostAsync("answer-foreign", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = "dotnet.async.async-await.mcq.1", selectedIndex = 0 });
+        await PostAsync("answer-bad-body", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = "", selectedIndex = -1 });
+        await GetAsync("current-open", ApiUrl.Prefix + ApiRoutes.Review.CurrentSession);
+        await GetAsync("session-by-id-uk", ApiUrl.For(ApiRoutes.Review.Session, ("id", id!)) + "?lang=uk");
+        await GetAsync("session-unknown", ApiUrl.For(ApiRoutes.Review.Session, ("id", Guid.Empty)));
         fixture.Clock.Advance(TimeSpan.FromMinutes(2));
-        await PostAsync("finish", $"/api/review/sessions/{id}/finish", null);
-        await PostAsync("finish-again", $"/api/review/sessions/{id}/finish", null);
-        await PostAsync("answer-after-finish", $"/api/review/sessions/{id}/answers", new { questionId = questions[2], selectedIndex = 0 });
+        await PostAsync("finish", ApiUrl.For(ApiRoutes.Review.Finish, ("id", id!)), null);
+        await PostAsync("finish-again", ApiUrl.For(ApiRoutes.Review.Finish, ("id", id!)), null);
+        await PostAsync("answer-after-finish", ApiUrl.For(ApiRoutes.Review.Answers, ("id", id!)), new { questionId = questions[2], selectedIndex = 0 });
 
         // A whole-domain session with Ukrainian text, closed by a weak drill that replaces it.
-        await PostAsync("start-domain-uk", "/api/review/sessions?lang=uk", new { scope = "domain", domain = "dotnet", totalLimit = 3, newLimit = 3 });
-        await PostAsync("start-weak", "/api/review/sessions", new { mode = "weak", totalLimit = 5 });
+        await PostAsync("start-domain-uk", ApiUrl.Prefix + ApiRoutes.Review.Sessions + "?lang=uk", new { scope = "domain", domain = "dotnet", totalLimit = 3, newLimit = 3 });
+        await PostAsync("start-weak", ApiUrl.Prefix + ApiRoutes.Review.Sessions, new { mode = "weak", totalLimit = 5 });
 
         // The next day: statistics and schedules move.
         fixture.Clock.Advance(TimeSpan.FromDays(1));
-        await GetAsync("overview-next-day", "/api/review/overview");
-        await GetAsync("overview-weak-count-topic", "/api/review/overview?scope=topic&domain=dotnet&topic=clr-memory");
-        await GetAsync("coverage-after", "/api/review/coverage");
-        await GetAsync("readiness-after", "/api/review/readiness");
-        await GetAsync("weak-spots-after", "/api/review/weak-spots");
-        await GetAsync("activity-utc", "/api/review/activity");
-        await GetAsync("activity-kyiv", "/api/review/activity?tz=Europe/Kyiv");
-        await GetAsync("activity-bad-tz", "/api/review/activity?tz=Mars/Base");
+        await GetAsync("overview-next-day", ApiUrl.Prefix + ApiRoutes.Review.Overview);
+        await GetAsync("overview-weak-count-topic", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=topic&domain=dotnet&topic=clr-memory");
+        await GetAsync("coverage-after", ApiUrl.Prefix + ApiRoutes.Review.Coverage);
+        await GetAsync("readiness-after", ApiUrl.Prefix + ApiRoutes.Review.Readiness);
+        await GetAsync("weak-spots-after", ApiUrl.Prefix + ApiRoutes.Review.WeakSpots);
+        await GetAsync("activity-utc", ApiUrl.Prefix + ApiRoutes.Review.Activity);
+        await GetAsync("activity-kyiv", ApiUrl.Prefix + ApiRoutes.Review.Activity + "?tz=Europe/Kyiv");
+        await GetAsync("activity-bad-tz", ApiUrl.Prefix + ApiRoutes.Review.Activity + "?tz=Mars/Base");
 
         // Deprecation is visible only on request.
         await fixture.SetConceptDeprecatedAsync("gc-modes", SnapshotFixture.Start);
-        await GetAsync("tree-deprecated-hidden", "/api/knowledge/tree");
-        await GetAsync("tree-include-deprecated", "/api/knowledge/tree?includeDeprecated=true");
-        await GetAsync("concept-deprecated", "/api/knowledge/concepts/dotnet/clr-memory/gc-modes");
-        await GetAsync("concept-deprecated-included", "/api/knowledge/concepts/dotnet/clr-memory/gc-modes?includeDeprecated=true");
-        await GetAsync("overview-after-deprecation", "/api/review/overview?scope=topic&domain=dotnet&topic=clr-memory");
+        await GetAsync("tree-deprecated-hidden", ApiUrl.Prefix + ApiRoutes.Knowledge.Tree);
+        await GetAsync("tree-include-deprecated", ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?includeDeprecated=true");
+        await GetAsync("concept-deprecated", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "gc-modes")));
+        await GetAsync("concept-deprecated-included", ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "gc-modes")) + "?includeDeprecated=true");
+        await GetAsync("overview-after-deprecation", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?scope=topic&domain=dotnet&topic=clr-memory");
 
         _store.Failures.ShouldBeEmpty(string.Join("\n", _store.Failures));
     }

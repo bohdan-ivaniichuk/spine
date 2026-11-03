@@ -1,6 +1,7 @@
+using Spine.Api.Endpoints;
 using System.Net;
 using System.Text.Json;
-using Spine.Api.Endpoints.Review;
+using Spine.Api.Endpoints.Review.GetActivity;
 using Spine.Application.Review;
 
 namespace Spine.Api.Tests.Review;
@@ -9,7 +10,7 @@ namespace Spine.Api.Tests.Review;
 [Trait("Category", "Integration")]
 public sealed class ActivityEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private const string Activity = "/api/review/activity";
+    private const string Activity = ApiUrl.Prefix + ApiRoutes.Review.Activity;
 
     public async Task InitializeAsync()
     {

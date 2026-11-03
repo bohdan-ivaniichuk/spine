@@ -1,3 +1,4 @@
+using Spine.Api.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -12,7 +13,7 @@ public sealed class KnowledgeTreeEmptyDatabaseTests(EmptyApiFixture fixture) : I
     [Fact]
     public async Task Empty_database_returns_en_and_no_domains()
     {
-        var response = await fixture.Client.GetAsync("/api/knowledge/tree");
+        var response = await fixture.Client.GetAsync(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var tree = await response.Content.ReadFromJsonAsync<KnowledgeTreeDto>(ApiFixture.Json);
@@ -37,7 +38,7 @@ public sealed class KnowledgeTreeEndpointTests(ApiFixture fixture) : IAsyncLifet
 
     private async Task<KnowledgeTreeDto> GetTreeAsync(string query = "")
     {
-        var response = await fixture.Client.GetAsync("/api/knowledge/tree" + query);
+        var response = await fixture.Client.GetAsync(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + query);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var tree = await response.Content.ReadFromJsonAsync<KnowledgeTreeDto>(ApiFixture.Json);
         return tree.ShouldNotBeNull();
@@ -129,7 +130,7 @@ public sealed class KnowledgeTreeEndpointTests(ApiFixture fixture) : IAsyncLifet
     [Fact]
     public async Task Unsupported_language_is_a_400_problem()
     {
-        var response = await fixture.Client.GetAsync("/api/knowledge/tree?lang=de");
+        var response = await fixture.Client.GetAsync(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=de");
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");

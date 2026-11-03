@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FastEndpoints;
+using Spine.Api.Endpoints;
 
 namespace Spine.Api.Startup;
 
@@ -10,7 +11,7 @@ public static class FastEndpointsSetup
     {
         app.UseFastEndpoints(c =>
         {
-            c.Endpoints.RoutePrefix = "api";
+            c.Endpoints.RoutePrefix = ApiRoutes.Prefix;
             c.Serializer.Options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
             c.Errors.UseProblemDetails();
         });

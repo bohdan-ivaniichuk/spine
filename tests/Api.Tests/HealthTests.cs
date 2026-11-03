@@ -1,3 +1,4 @@
+using Spine.Api.Endpoints;
 using System.Net;
 using System.Text.Json;
 
@@ -23,7 +24,7 @@ public sealed class HealthTests(ApiFixture fixture)
     [Fact]
     public async Task Meta_reports_api_name_version_and_environment()
     {
-        var response = await fixture.Client.GetAsync("/api/meta");
+        var response = await fixture.Client.GetAsync(ApiUrl.Prefix + ApiRoutes.Meta.Info);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

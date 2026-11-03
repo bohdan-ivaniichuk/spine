@@ -1,3 +1,4 @@
+using Spine.Api.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -10,7 +11,7 @@ namespace Spine.Api.Tests.Review;
 [Trait("Category", "Integration")]
 public sealed class CoverageEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private const string Coverage = "/api/review/coverage";
+    private const string Coverage = ApiUrl.Prefix + ApiRoutes.Review.Coverage;
 
     public async Task InitializeAsync()
     {
