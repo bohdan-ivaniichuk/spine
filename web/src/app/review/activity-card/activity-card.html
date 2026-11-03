@@ -42,5 +42,35 @@
     @if (keepStreak()) {
       <p data-testid="keep-streak" class="text-sm font-medium text-text">{{ t.keepStreak }}</p>
     }
+    @if (bars().length > 0) {
+      <div data-testid="activity-chart" aria-hidden="true" class="flex flex-col gap-1.5">
+        <div class="flex h-16 items-end gap-1">
+          @for (bar of bars(); track bar.date; let last = $last) {
+            <div class="flex h-full min-w-0 flex-1 items-end rounded-sm bg-surface-2">
+              <div
+                data-testid="activity-bar"
+                class="w-full rounded-sm"
+                [class]="last ? 'bg-accent' : 'bg-accent-text/60'"
+                [attr.data-answers]="bar.answers"
+                [style.height]="bar.height"
+              ></div>
+            </div>
+          }
+        </div>
+        <div class="flex gap-1 font-mono text-[10px] text-muted">
+          @for (bar of bars(); track bar.date) {
+            <span data-testid="activity-weekday" class="min-w-0 flex-1 text-center">{{
+              bar.weekday
+            }}</span>
+          }
+        </div>
+      </div>
+      <p data-testid="activity-chart-text" class="sr-only">
+        {{ t.chartSummary(bars().length, total()) }}
+        @for (bar of bars(); track bar.date; let last = $last) {
+          {{ bar.spoken }}{{ last ? '.' : ',' }}
+        }
+      </p>
+    }
   }
 </section>

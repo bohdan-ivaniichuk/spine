@@ -200,6 +200,8 @@ export const EN = {
     empty: 'No streak yet — answer your first question to start one.',
     startReview: 'Start a review',
     error: 'Activity could not be loaded.',
+    chartSummary: (days: number, n: number) =>
+      `Last ${days} days: ${n} ${plural('en', n, { one: 'answer', other: 'answers' })}.`,
   },
   feedback: {
     correct: 'Correct',

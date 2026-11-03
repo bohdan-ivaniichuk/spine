@@ -124,4 +124,49 @@ describe('ActivityCard', () => {
     await settle(fixture);
     expect(root().querySelector('[data-testid=current-streak]')).not.toBeNull();
   });
+
+  /** 14 days ending 3 Nov 2026 (a Tuesday); the busiest day has 8 answers. */
+  function twoWeeks(counts: number[] = [0, 2, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 8, 3]) {
+    return counts.map((answers, i) => {
+      const date = new Date(Date.UTC(2026, 9, 21 + i));
+      return { date: date.toISOString().slice(0, 10), answers };
+    });
+  }
+
+  it('draws 14 bars, oldest first, scaled to the busiest day', async () => {
+    await open(activity({ days: twoWeeks() }));
+
+    const bars = Array.from(root().querySelectorAll<HTMLElement>('[data-testid=activity-bar]'));
+    expect(bars).toHaveLength(14);
+    expect(bars[12].style.height).toBe('100%');
+    expect(bars[4].style.height).toBe('50%');
+    expect(bars[0].dataset['answers']).toBe('0');
+    expect(bars[13].dataset['answers']).toBe('3');
+    // The chart is decoration for sighted users; the text alternative carries the figures.
+    expect(root().querySelector('[data-testid=activity-chart]')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('gives the chart a text alternative with the total and each day', async () => {
+    await open(activity({ days: twoWeeks() }));
+
+    const alt = root().querySelector('[data-testid=activity-chart-text]')!;
+    expect(alt.classList).toContain('sr-only');
+    const said = alt.textContent!.replace(/\s+/g, ' ');
+    expect(said).toContain('Last 14 days: 18 answers.');
+    expect(said).toContain('Wed 21 Oct: 0');
+    expect(said).toContain('Tue 3 Nov: 3');
+  });
+
+  it('labels weekdays in the selected language, on the calendar date of each day', async () => {
+    await open(activity({ days: twoWeeks() }));
+    const labels = () =>
+      Array.from(root().querySelectorAll('[data-testid=activity-weekday]')).map((l) => l.textContent?.trim());
+    expect(labels()[0]).toBe('W');
+    expect(labels()[13]).toBe('T');
+
+    TestBed.inject(I18n).set('uk');
+    await settle(fixture);
+    expect(labels()[0]).toBe('С');
+    expect(root().querySelector('[data-testid=activity-chart-text]')?.textContent).toContain('Останні 14 днів: 18 відповідей.');
+  });
 });

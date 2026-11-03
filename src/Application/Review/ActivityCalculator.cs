@@ -12,17 +12,30 @@ public static class ActivityCalculator
     public static ActivityDto Calculate(string timeZone, DateOnly today, IEnumerable<DateOnly> answerDays)
     {
         ArgumentNullException.ThrowIfNull(answerDays);
-        var active = answerDays.Where(d => d <= today).ToHashSet();
+        var days = answerDays.Where(d => d <= today).ToList();
+        var active = days.ToHashSet();
 
         var activeToday = active.Contains(today);
         var current = RunEndingAt(active, activeToday ? today : today.AddDays(-1));
 
-        return new ActivityDto(timeZone, today, current, activeToday, LongestRun(active), []);
+        return new ActivityDto(timeZone, today, current, activeToday, LongestRun(active), DailyCounts(today, days));
     }
 
     /// <summary>Answers on each of the last <see cref="WindowDays"/> days, oldest first, ending today; 0 for empty days.</summary>
-    public static IReadOnlyList<ActivityDayDto> DailyCounts(DateOnly today, IEnumerable<DateOnly> answerDays) =>
-        throw new NotImplementedException();
+    public static IReadOnlyList<ActivityDayDto> DailyCounts(DateOnly today, IEnumerable<DateOnly> answerDays)
+    {
+        ArgumentNullException.ThrowIfNull(answerDays);
+        var first = today.AddDays(1 - WindowDays);
+        var counts = answerDays
+            .Where(d => d >= first && d <= today)
+            .GroupBy(d => d)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        return Enumerable.Range(0, WindowDays)
+            .Select(i => first.AddDays(i))
+            .Select(day => new ActivityDayDto(day, counts.GetValueOrDefault(day)))
+            .ToList();
+    }
 
     /// <summary>Consecutive active days ending at <paramref name="last"/>; 0 when that day is inactive.</summary>
     private static int RunEndingAt(HashSet<DateOnly> active, DateOnly last)

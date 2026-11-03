@@ -501,6 +501,112 @@
         "tests/Infrastructure.Tests/Review/WeakSpotsQueriesTests.cs": "b43d8caa999b9879f56d6d434c171f4b8a11e7b3b11a5bff12ee06e2108f036e",
         "tests/Infrastructure.Tests/Spine.Infrastructure.Tests.csproj": "8a53b201e829d69cf7a3293d5196e86f6980b7ca4b0560f4ff0ad945c3977656"
       }
+    },
+    {
+      "number": 2,
+      "redAt": "2026-11-03T14:57:47.7038700+00:00",
+      "greenAt": "2026-11-03T14:58:40.5310570+00:00",
+      "tests": [
+        {
+          "key": "Spine.Api.Tests:Spine.Api.Tests.Review.ActivityEndpointTests.Days_are_fourteen_entries_ending_today_with_the_answer",
+          "method": "Spine.Api.Tests.Review.ActivityEndpointTests.Days_are_fourteen_entries_ending_today_with_the_answer",
+          "red": "RED_ASSERT",
+          "requirements": [
+            "FR-004"
+          ],
+          "rows": 1
+        },
+        {
+          "key": "Spine.Application.Tests:Spine.Application.Tests.Review.ActivityCalculatorTests.Daily_counts_cover_fourteen_days_ending_today_oldest_first_with_zeros",
+          "method": "Spine.Application.Tests.Review.ActivityCalculatorTests.Daily_counts_cover_fourteen_days_ending_today_oldest_first_with_zeros",
+          "red": "RED_STUB",
+          "requirements": [
+            "FR-004"
+          ],
+          "rows": 1
+        },
+        {
+          "key": "Spine.Application.Tests:Spine.Application.Tests.Review.ActivityCalculatorTests.Older_answers_leave_the_chart_but_keep_the_longest_streak",
+          "method": "Spine.Application.Tests.Review.ActivityCalculatorTests.Older_answers_leave_the_chart_but_keep_the_longest_streak",
+          "red": "RED_ASSERT",
+          "requirements": [
+            "FR-004"
+          ],
+          "rows": 1
+        },
+        {
+          "key": "Spine.Application.Tests:Spine.Application.Tests.Review.ActivityCalculatorTests.Calculate_serves_the_daily_counts_and_ignores_days_after_today",
+          "method": "Spine.Application.Tests.Review.ActivityCalculatorTests.Calculate_serves_the_daily_counts_and_ignores_days_after_today",
+          "red": "RED_STUB",
+          "requirements": [
+            "FR-004"
+          ],
+          "rows": 1
+        },
+        {
+          "key": "Spine.Infrastructure.Tests:Spine.Infrastructure.Tests.Review.ActivityQueriesTests.Days_hold_fourteen_local_days_with_the_seeded_counts",
+          "method": "Spine.Infrastructure.Tests.Review.ActivityQueriesTests.Days_hold_fourteen_local_days_with_the_seeded_counts",
+          "red": "RED_ASSERT",
+          "requirements": [
+            "FR-004"
+          ],
+          "rows": 1
+        }
+      ],
+      "snapshot": "8ae20b4c803435373b3f40cbdccc80e977733e24",
+      "testFiles": {
+        "tests/Api.Tests/ApiFixture.cs": "bd3bd6cdfa76cfe99054f783d25a0801334afcae41de573f4b0c3d17f42cacb8",
+        "tests/Api.Tests/HealthTests.cs": "224743959cc87fa74de842e318f161339ef4b308098881772464de354f8bddcf",
+        "tests/Api.Tests/Knowledge/ConceptEndpointTests.cs": "a226f3c30a6d597f1c70e621f79c4e055fb3957ce2fdf4111496e19703937b5a",
+        "tests/Api.Tests/Knowledge/KnowledgeTreeEndpointTests.cs": "6656948aa6107563ff7b61fb6e12befaf0f9d90db9611d264cf1d4fa1d34abe5",
+        "tests/Api.Tests/Knowledge/UkTitlesEndpointTests.cs": "92993b3d3a5855aad3868b117e06e08b39f833106dce109d7dc990d9f866be1f",
+        "tests/Api.Tests/Review/ActivityEndpointTests.cs": "31daa62bdb3d088df9cc967243558469d1fc1fada2d25ca42978b204c004462e",
+        "tests/Api.Tests/Review/AnswersEndpointTests.cs": "28c2b0b9c294038ada5015a8b0f14cd9d02adc28ef26156fe50b057a8828750e",
+        "tests/Api.Tests/Review/CoverageEndpointTests.cs": "751baf9f83d4c0a832e18355357229dba211ab2f0933933842c24acf0185c26a",
+        "tests/Api.Tests/Review/FinishEndpointTests.cs": "f3633311e239851c6e47d01953fe62abc1efc0efbc0a10c5bb3cf4252a3edc88",
+        "tests/Api.Tests/Review/OverviewEndpointTests.cs": "1dbf9dab3d85d7cb0ac480875bd50bd03ee878ca4b9f9fb693bbc9901cb5920d",
+        "tests/Api.Tests/Review/ReadinessEndpointTests.cs": "da83aa7e4928e31350c344067ad6c5f89d3c9de1b10263996dab61d7eeb89f65",
+        "tests/Api.Tests/Review/ReviewApi.cs": "6aad06bbdf85e05fd29ca1140256609d4fa9db25bbd674ef3a046ad9115d7e75",
+        "tests/Api.Tests/Review/ReviewI18nEndpointTests.cs": "72954ef5c68f1c065eba41a6971f366e919c95c8d82ce3b1f7e4b30e968b4bbd",
+        "tests/Api.Tests/Review/SessionsEndpointTests.cs": "0bfb8e01c352341d9578f88c070a68e0b51358bc68080b81d6dc2959c73ea30d",
+        "tests/Api.Tests/Review/WeakSessionEndpointTests.cs": "3f81b00b4e13b87334849c14464e231c4d3e7423a6674df84e356db23df20dad",
+        "tests/Api.Tests/Review/WeakSpotsEndpointTests.cs": "0b5fdfb9784b4a8e3ee739810366040130323984a183b3012c9ac32ea12a8917",
+        "tests/Api.Tests/Spine.Api.Tests.csproj": "098667608a13b4a6b1b68b7de440f67ec6215a354c8dc57f3ecd6f814c741abf",
+        "tests/Application.Tests/Content/ContentHasherTests.cs": "5834748b4b7b6d822687db265cc351efbe654e663e66ad852635a016877d07ce",
+        "tests/Application.Tests/Content/ContentRuleValidatorTests.cs": "9c4ff02cfdf3629edf9bb5e88de8e6d662cdfb3789761dc8dd724927a8348f16",
+        "tests/Application.Tests/Content/ContentSchemaValidatorTests.cs": "6065106b199f7953a462baf086978091c0999bac07f07e39fbf4e46aa5cc7605",
+        "tests/Application.Tests/Content/ContentSetLoader.cs": "f60df642450a6bd4b95501c9eb8bd7e07a988d0bf07a225bab4e2d736a5c253c",
+        "tests/Application.Tests/Content/FixtureJson.cs": "37f214695f94f47f4ff58d18d0f4191be221085bbbb6f9fe1395d774f562a403",
+        "tests/Application.Tests/Content/ImportDiffTests.cs": "1c39a418202f6a0191d7eb1cf3a3c4f612a334201053f9014b42efe34e27d3f9",
+        "tests/Application.Tests/Content/ManifestTitlesTests.cs": "a156ae0c6746428e0dfa3830d1c66b9996b84585c6a08a386e0376e6041a8b8a",
+        "tests/Application.Tests/Content/RepoContentValidatesTests.cs": "0beb5a56aa01f96ee43728f9b3291d9afc1caa618d748fe1abf3d707d2b1479a",
+        "tests/Application.Tests/Knowledge/LocalizedTitleTests.cs": "d9858aa6546b47166aa6493ddf2c3ed98e24a0bd78e833227af73a049b8eb638",
+        "tests/Application.Tests/Review/ActivityCalculatorTests.cs": "26504bb74e5ede7b78523e3548695ffcbb890584a42ff630a70274c55121542e",
+        "tests/Application.Tests/Review/ReadinessCalculatorTests.cs": "577b4b06cac4f8347a46a3cbc6cf0399035a4012742c4c1ab767a67f58f49839",
+        "tests/Application.Tests/Review/ReviewScopeTests.cs": "4ea3994ec17d447706b93b153caf45cc27f75742694a3afd517d070cd452ebbc",
+        "tests/Application.Tests/Review/SessionPlannerTests.cs": "3852c6a79453888d5a139d9313bd17a51630a2ce40c7f63008fd1b0d35580926",
+        "tests/Application.Tests/Review/SessionSummaryBuilderTests.cs": "a44137b32b3ca279adf0017348731ea6845c142bbbcec2dd6b8f8c1db82882fc",
+        "tests/Application.Tests/Review/TranslationPickerTests.cs": "8c5e27f3776dc19afe9c752c6c5925dcec5b40a606d969d1ee7e16916b241b9b",
+        "tests/Application.Tests/Review/WeaknessRankerTests.cs": "e7cf50a70ef25a41d26996528014ca4e17215fcae8867921ca1c5a29f7241d42",
+        "tests/Application.Tests/Spine.Application.Tests.csproj": "c2b0e28989f0925f5f11c3a49fb5c3807699010407609ae4181bdf9d13c7be80",
+        "tests/Domain.Tests/Progress/ReadinessRuleTests.cs": "cd61c384991253564894b7abc8e14f507e99a284daebe0e02d33b2c6026ec7a2",
+        "tests/Domain.Tests/Scheduling/Sm2AlgorithmTests.cs": "72c887a5f290a516f3a4cad05deb71e25f454ca8f1a4423074ab67a643d04ba3",
+        "tests/Domain.Tests/Spine.Domain.Tests.csproj": "69a5d76c44f554ef94788c835b7a0258c3803e467f52669c52d92825880b3995",
+        "tests/Infrastructure.Tests/Content/ContentDirBuilder.cs": "e89127391c17e7d3bb7809abb315982210b1cda20346e3c9c9ef19c90ee08527",
+        "tests/Infrastructure.Tests/Content/ContentImporterTests.cs": "944cb57fdb73b935d66fb39b8d50c25117d0fabe65a42a24b59a61aea70ece97",
+        "tests/Infrastructure.Tests/Persistence/LearnerSeederTests.cs": "1e567f6019febe12065a25bce988dc3ff40aa58fec2aa96ab4eb81a817d18abb",
+        "tests/Infrastructure.Tests/Persistence/MigrationsTests.cs": "03b6686d5e90a9cf3977f89b0574d45a1e58ded6420d87bd83745f5f00120a3f",
+        "tests/Infrastructure.Tests/Persistence/PostgresTimeProviderTests.cs": "4d560cafea9fb76480cc840568e31846d1a117b3a7874fbfc50389001b3fd8bb",
+        "tests/Infrastructure.Tests/Persistence/ProgressSchemaTests.cs": "f3377308febfdd9a64615d86162c7bca27f41b31eacb8e445ed2b9de648ea2ac",
+        "tests/Infrastructure.Tests/PostgresFixture.cs": "c2de71024fd81cc1b795605c5f1ea3dc550fffb736957800bbb40aa8af1f993f",
+        "tests/Infrastructure.Tests/Review/ActivityQueriesTests.cs": "108f582a57911bd30e7ca680cac793466db3da341c431033d5f7d6446cb82618",
+        "tests/Infrastructure.Tests/Review/ReadinessQueriesTests.cs": "f6224e5f8046984d7e8454c792dd15dc83860a87f4d581beb7010b7c8a9add23",
+        "tests/Infrastructure.Tests/Review/ReviewSessionsLanguageTests.cs": "9e3314f6c77e0211a6277167de20afe42b1deb51d526716d82b7a57fc060f15e",
+        "tests/Infrastructure.Tests/Review/ReviewSessionsTests.cs": "7efe743b484f13da07fea35c3fbfac458c81c42d9ef816a8d8a575f3eb2ba0c0",
+        "tests/Infrastructure.Tests/Review/WeakSessionsTests.cs": "15226e4cf9bf30beec4e362499f3292cf2aacc3953446005d1fd3a850437b8cd",
+        "tests/Infrastructure.Tests/Review/WeakSpotsQueriesTests.cs": "b43d8caa999b9879f56d6d434c171f4b8a11e7b3b11a5bff12ee06e2108f036e",
+        "tests/Infrastructure.Tests/Spine.Infrastructure.Tests.csproj": "8a53b201e829d69cf7a3293d5196e86f6980b7ca4b0560f4ff0ad945c3977656"
+      }
     }
   ]
 }
