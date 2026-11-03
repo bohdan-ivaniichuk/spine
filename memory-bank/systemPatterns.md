@@ -82,6 +82,17 @@ say so rather than deleting.
 - Web `knowledge/`: `AtlasLayout` provides a per-visit `ReadinessStore`; the concept page is a lazy route
   (renderer deps stay out of the initial bundle); cross-feature UI lives in `shared/` (badges, i18n).
 - Weakness (006) is read from `attempts` (latest answer wrong), never from SM-2 fields; session `mode` sits next to
-  scope on `sessions`. Every start goes through `ReviewSessions.StartCoreAsync` (advisory lock → open-session
+  scope on `sessions`. Every start goes through `SessionStarter.StartAsync` (advisory lock → open-session
   `FOR UPDATE` → plan, which throws to refuse → close open → insert).
 
+
+## Backend structure (008, ADR 0009)
+
+- Endpoint per folder (`Endpoints/<Feature>/<Name>/{Endpoint,Request,Validator}`), routes from `ApiRoutes`,
+  `Program.cs` wiring only (`IDatabaseInitializer` migrates + seeds, exit 1 on failure).
+- One class per review use case (`I<UseCase>UseCase` / `<UseCase>UseCase`); shared session collaborators in
+  `Infrastructure/Review/Sessions/`; tests reach the old operation names through `ReviewSessionsHarness`.
+- Reads: named row records + Riok.Mapperly mappers (`RequiredMappingStrategy.Target`, explicit `Use` for enum
+  wire values and language fallbacks).
+- One top-level type per `src` file, ≤ 250 lines, enum helpers in `<Enum>Extensions.cs`; enforced by
+  `Spine.ArchitectureTests`. Response snapshots (`Api.Tests/Snapshots`) pin JSON and SQL command counts.
