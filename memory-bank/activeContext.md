@@ -48,9 +48,11 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
   review of record: approve; walked in Chrome (drill → answers → summary → drill again, EN/UK, dark, 375 px).
 
 **Next**
-1. User: remove the stale test baseline (`.lockflight/baselines/known-failing-tests.json`, entry
-   `MigrationsTests.MigrateAsync_on_an_empty_database_applies_every_migration` — the test now compares
-   applied vs. assembly migrations and passes), and `lockflight init` to re-pin the engine (doctor FAIL).
+1. Public release (2026-11-03): repo moved to `~/GitHub/public/spine`; MIT license, README with screenshots
+   (`docs/images/`), CODEOWNERS, noreply commit email. Pending user steps: apply the CI trigger patch
+   (PRs + push to main), run the email history rewrite, create `bohdan-ivaniichuk/spine` (public), push.
+   Then dogfood Lockflight on real PRs. Tasks approvals for 004/006 are stale (checkboxes ticked after
+   sign-off): the user re-approves them or leaves them as history.
 2. User: review sprint-1 content, flip `reviewed`; then `uk` pass for reviewed items.
 3. Content: Angular (3) and AI engineering (5) domains.
 4. 005 LLM grading (open + kata) — readiness widens automatically when open questions become schedulable.

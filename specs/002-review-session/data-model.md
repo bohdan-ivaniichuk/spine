@@ -15,7 +15,7 @@ The spec's Key Entities paragraph says both "gains no new columns" and "stored w
 
 EF mapping in `SessionConfiguration`: `e.Property(x => x.QuestionIds).TextArray().HasDefaultValueSql("'{}'")`, `e.Property(x => x.TotalLimit).HasDefaultValue(20)`, `e.Property(x => x.NewLimit).HasDefaultValue(10)`. Entity: `public string[] QuestionIds { get; set; } = [];`, `public int TotalLimit { get; set; }`, `public int NewLimit { get; set; }`.
 
-Migration name: `AddSessionMembership`. Procedure (from `/Users/bogdanivaniichuk/Interview Preparation/.claude/skills/ef-migrations/SKILL.md`):
+Migration name: `AddSessionMembership`. Procedure (from `.claude/skills/ef-migrations/SKILL.md`):
 1. `docker compose up -d postgres`; `export ConnectionStrings__Default="Host=localhost;Port=5432;Database=interviewprep;Username=interviewprep" PGPASSWORD=<from .env>`.
 2. `dotnet ef migrations add AddSessionMembership --project src/Infrastructure --startup-project src/Api --output-dir Persistence/Migrations`.
 3. `dotnet ef migrations script --project src/Infrastructure --startup-project src/Api --idempotent -o /tmp/schema.sql` then `grep -E "ALTER TABLE sessions|text\[\]|CREATE UNIQUE INDEX ix_attempts_session_id_item_id|WHERE session_id" /tmp/schema.sql`. Expect: three `ADD COLUMN`s with defaults, one partial unique index, nothing else.
