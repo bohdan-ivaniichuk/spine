@@ -116,8 +116,8 @@ scripts/validate-content.sh
 
 ### Confirmation gate (PreToolUse)
 
-- **`git-commit-push-confirm.sh`** — every `git commit` / `git push` asks for explicit confirmation,
-  regardless of permission mode. Staging and read-only git are untouched.
+- **`git-commit-push-confirm.sh`** — every `git push` asks for explicit confirmation, regardless of
+  permission mode. Local commits, staging and read-only git run without a prompt (user decision, 2026-11-03).
 
 ### Non-blocking
 
