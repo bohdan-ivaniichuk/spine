@@ -15,9 +15,18 @@ public sealed class GetActivityRequest
     public TimeZoneInfo ResolveZone() =>
         string.IsNullOrEmpty(Tz) ? TimeZoneInfo.Utc : TimeZoneInfo.FindSystemTimeZoneById(Tz);
 
-    /// <summary>Absent, empty or a zone id this machine's time-zone data knows (IANA ids; aliases resolve too).</summary>
+    /// <summary>
+    /// Absent, empty, <c>UTC</c>, or an IANA <c>Area/Location</c> id the time-zone data knows (aliases such as Europe/Kiev
+    /// too). Windows ids resolve only where ICU is loaded and the <c>posix/</c> / <c>right/</c> trees are file-system
+    /// aliases, so both are refused everywhere and every machine answers alike.
+    /// </summary>
     public static bool IsKnownZone(string? tz) =>
-        string.IsNullOrEmpty(tz) || TimeZoneInfo.TryFindSystemTimeZoneById(tz, out _);
+        string.IsNullOrEmpty(tz)
+        || (tz.Length <= 64
+            && (tz == "UTC" || (tz.Contains('/', StringComparison.Ordinal)
+                && !tz.StartsWith("posix/", StringComparison.Ordinal)
+                && !tz.StartsWith("right/", StringComparison.Ordinal)))
+            && TimeZoneInfo.TryFindSystemTimeZoneById(tz, out _));
 }
 
 public sealed class GetActivityValidator : Validator<GetActivityRequest>

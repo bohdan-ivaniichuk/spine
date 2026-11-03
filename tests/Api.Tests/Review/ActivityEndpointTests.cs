@@ -82,8 +82,22 @@ public sealed class ActivityEndpointTests(ApiFixture fixture) : IAsyncLifetime
         activity.Days[0].Date.ShouldBe(activity.Today.AddDays(-13));
     }
 
+    [Fact]
+    [Trait("Requirement", "FR-001")]
+    public async Task A_legacy_alias_resolves_and_is_echoed_as_sent()
+    {
+        // Older browsers report Europe/Kiev; tzdata keeps it as a link to Europe/Kyiv.
+        var response = await fixture.Client.GetAsync(Url(new GetActivityRequest { Tz = "Europe/Kiev" }));
+
+        var raw = await response.Content.ReadAsStringAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, raw);
+        JsonSerializer.Deserialize<ActivityDto>(raw, ApiFixture.Json)!.TimeZone.ShouldBe("Europe/Kiev");
+    }
+
     [Theory]
     [Trait("Requirement", "FR-001")]
+    [InlineData("FLE Standard Time")]
+    [InlineData("posix/Europe/Kyiv")]
     [InlineData("Mars/Olympus_Mons")]
     [InlineData("not a zone")]
     public async Task An_unknown_zone_is_a_400_problem_on_tz(string zone)

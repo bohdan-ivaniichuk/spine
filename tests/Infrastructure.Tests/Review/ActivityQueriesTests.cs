@@ -95,6 +95,24 @@ public sealed class ActivityQueriesTests(PostgresFixture fixture) : IAsyncLifeti
     }
 
     [Fact]
+    [Trait("Requirement", "FR-001")]
+    public async Task Each_answer_uses_the_offset_in_force_at_its_time_across_a_dst_change()
+    {
+        // Kyiv leaves summer time (UTC+3 → UTC+2) on 25 October 2026. 21:30Z on the 24th is 00:30 on the 25th (summer
+        // offset); a fixed winter offset would put it on the 24th, and a fixed summer offset would move 21:30Z on the
+        // 27th (23:30 local, winter) to the 28th.
+        await QuestionAttemptAsync(TopicTemplate.Mcq1, new DateTimeOffset(2026, 10, 24, 21, 30, 0, TimeSpan.Zero), correct: true);
+        await QuestionAttemptAsync(TopicTemplate.Mcq2, new DateTimeOffset(2026, 10, 27, 21, 30, 0, TimeSpan.Zero), correct: true);
+
+        var activity = await GetAsync(Kyiv);
+
+        activity.Days.Single(d => d.Date == new DateOnly(2026, 10, 25)).Answers.ShouldBe(1);
+        activity.Days.Single(d => d.Date == new DateOnly(2026, 10, 27)).Answers.ShouldBe(1);
+        activity.Days.Single(d => d.Date == new DateOnly(2026, 10, 24)).Answers.ShouldBe(0);
+        activity.Days.Single(d => d.Date == new DateOnly(2026, 10, 28)).Answers.ShouldBe(0);
+    }
+
+    [Fact]
     [Trait("Requirement", "FR-004")]
     public async Task Days_hold_fourteen_local_days_with_the_seeded_counts()
     {

@@ -74,7 +74,8 @@ public sealed class ActivityCalculatorTests
     [Trait("Requirement", "FR-002")]
     public void Days_after_today_are_ignored()
     {
-        var activity = Calculate([Today.AddDays(1), .. DaysAgo(1)]);
+        // Counted, tomorrow and the day after would form a run of 2 and make today look inactive-but-alive.
+        var activity = Calculate([Today.AddDays(1), Today.AddDays(2), .. DaysAgo(1)]);
 
         activity.CurrentStreak.ShouldBe(1);
         activity.ActiveToday.ShouldBeFalse();
