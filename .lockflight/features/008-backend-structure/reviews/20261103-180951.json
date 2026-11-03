@@ -1,0 +1,85 @@
+{
+  "schema": "lockflight.review/v2",
+  "run": "20261103-180951",
+  "at": "2026-11-03T18:09:51.5230030+00:00",
+  "feature": "008-backend-structure",
+  "base": {
+    "ref": "origin/main",
+    "commit": "1a1fd7dba4d9fbac149c4e31633cca5fa57f3d3c",
+    "target": "origin/main",
+    "mergeBase": "1a1fd7dba4d9fbac149c4e31633cca5fa57f3d3c",
+    "isMergeBase": true
+  },
+  "head": "d1f4333b81c2300350379a2c896838d301d3b20b",
+  "diffSha256": "d9714d77a87614c6a56eb9eaf331e98df3f98587d33841cd0d8bff1c10611632",
+  "promptSha256": "481a49fb7896e2fad9a5f419ef5ab37f9dc66c7edd598f75235365e004f7cedc",
+  "model": "sonnet",
+  "budgetUsd": 3.00,
+  "settings": {
+    "model": "sonnet",
+    "maxUsd": 3.00,
+    "target": null,
+    "maxDiffCharacters": 120000,
+    "source": "default"
+  },
+  "generatedFiles": {
+    "status": "listed, not reviewed",
+    "files": []
+  },
+  "claudeCodeVersion": "2.1.317 (Claude Code)",
+  "usage": {
+    "inputTokens": 4,
+    "outputTokens": 736,
+    "cacheReadInputTokens": 80357,
+    "cacheCreationInputTokens": 81161
+  },
+  "estimatedCostUsd": 0.3400477,
+  "reproductionRepairs": {
+    "calls": 0,
+    "estimatedCostUsd": 0
+  },
+  "fixChecks": {
+    "count": 0,
+    "wallTimeMs": 0
+  },
+  "claudeDurationMs": 6464,
+  "wallTimeMs": 7942,
+  "ofRecord": false,
+  "notOfRecord": [
+    "the diff (517555 characters) is larger than the 120000 the reviewer is shown (review.maxDiffCharacters), so the reviewer did not see the whole change (276 of 362 changed files not shown in full: src/Application/Content/ImportDiff.cs, src/Application/Content/Plan/PlanConceptTranslation.cs, src/Application/Content/Plan/PlanDomain.cs and 273 more): split the change into smaller pull requests and review each, or raise review.maxDiffCharacters (at most 400000; a larger diff costs more, so review.maxUsd may need raising too); a review against a later commit of this branch (--base <commit>) checks only the commits after it and is not of record"
+  ],
+  "verdict": "approve",
+  "summary": "I found no defects that violate a requirement. The diff was truncated, so I could not read most files. The refactor I could see matches the spec: endpoint folders, an ApiRoutes table, one call per line in endpoint metadata, a wiring-only Program.cs, a separate DatabaseInitializer, and one use case per review operation. I read the DatabaseInitializer and it logs a critical error and returns false on any failure, including cancellation. This matches the spec's exit-code-1 and stop-signal requirements.",
+  "findings": [
+    {
+      "id": "30cb5a10d22b",
+      "dimension": "general",
+      "severity": "nit",
+      "originalSeverity": null,
+      "escalation": null,
+      "outcome": "reported",
+      "reproductionResult": "none",
+      "state": null,
+      "carried": false,
+      "file": "src/Infrastructure/Persistence/Startup/DatabaseInitializer.cs",
+      "line": 24,
+      "requirement": null,
+      "specQuote": null,
+      "specAnchor": "none",
+      "title": "Cancellation on a stop signal is logged as a critical failure",
+      "evidence": "A stop signal during start-up is caught by catch (Exception) and logged as critical, and the process exits with code 1. The spec only says preparation is cancelled and the process stops, so this is acceptable. A shutdown therefore looks like a critical error in the logs.",
+      "reproduction": null,
+      "earlierReproductions": [],
+      "reproductionAttempts": 0,
+      "reproductionProject": null,
+      "compileErrors": [],
+      "fix": null,
+      "fixCheck": "none",
+      "fixChecked": false,
+      "fixAttempts": 0,
+      "ownTestsChecked": 0,
+      "conflictingTests": [],
+      "fixCheckErrors": null
+    }
+  ]
+}
