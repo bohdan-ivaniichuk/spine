@@ -10,6 +10,10 @@
         "en": {
           "title": "The System Design Interview Process",
           "note": "## What it is\n\nA system design interview is a 45–60 minute, deliberately underspecified conversation (\"Design a URL shortener\", \"Design a notification service\"). There is no single right answer. The interviewer is grading *how* you get to a design: whether you scope the problem, ground decisions in numbers, keep the big picture coherent, go deep where it matters and say out loud what each choice costs. For a senior candidate the bar is that you drive the conversation; the interviewer should not have to pull the next step out of you.\n\n## How a strong session is structured\n\n1. **Requirements (5–8 min).** Split them into *functional* (what the system does: \"create short link, redirect, custom alias; analytics is out of scope\") and *non-functional* (scale, latency target, availability, consistency, durability, cost, compliance). Write both down and state assumptions explicitly: \"I'll assume 100M DAU and that a few seconds of staleness on counts is acceptable.\" Agreeing on what is *out* of scope is as valuable as what is in.\n2. **Estimation (3–5 min).** Back-of-the-envelope numbers whose only job is to tell you which order of magnitude you are in: requests per second (average and peak), read/write ratio, storage growth, bandwidth, working-set size for a cache. Round aggressively (1 day ≈ 10^5 s) and stop as soon as a number changes a decision.\n3. **API and data model (5 min).** A handful of endpoints or events with their key fields, and the core entities with the access patterns that will drive storage choice.\n4. **High-level design (10 min).** Boxes and arrows end to end: clients, edge/LB, stateless services, storage, cache, queues, async workers. Walk one request through it to prove it works before optimising anything.\n5. **Deep dive (15 min).** Pick, ideally with the interviewer, the one or two components that are hard *for this problem*: key generation for a shortener, fan-out for a feed, idempotent retries for payments. This is where senior signal lives.\n6. **Bottlenecks, failure modes, evolution (5 min).** What breaks first at 10x, what happens when a dependency is down, how you would observe it, what you deliberately did not build yet.\n\n## Estimation cheat sheet\n\n```text\n1 day  ≈ 86,400 s ≈ 1e5 s          1M req/day   ≈ 12 req/s\npeak   ≈ 2–5x average (state it)   100M req/day ≈ 1,200 req/s\n1 KB x 1M rows = 1 GB              1 KB x 1B rows = 1 TB\nOne Postgres primary: thousands of simple writes/s, tens of thousands of indexed reads/s (hardware-dependent)\nOne Redis node: ~100k simple ops/s\n```\n\n## Trade-off narration\n\nEvery decision should be spoken as *choice → reason → cost → trigger to revisit*: \"One Postgres primary with read replicas, because writes are ~200/s; the cost is replica lag, which I handle by reading a user's own writes from the primary; I'd revisit if writes approach a few thousand per second.\" This pattern shows you know there are alternatives, you picked one deliberately, and you know when it stops being right.\n\n## What an interviewer probes\n\n- Do you ask before you draw? Jumping straight to \"load balancer, three app servers, Kafka\" is the most common failure.\n- Do your numbers drive the design, or are they ritual? If you compute 40 writes/s and then shard the database, the estimate was wasted.\n- Can you handle a curveball (\"now it must work across regions\", \"the cache is down\") by adjusting the design rather than restarting it?\n- Do you know what you are trading: consistency vs availability, latency vs cost, simplicity vs flexibility?\n- Can you name operational concerns unprompted: monitoring, deployments, data migrations, abuse?\n\n## Common misconceptions\n\n- \"Design for Google scale to look senior.\" Over-engineering for traffic you estimated you will not have is a negative signal; scale to the numbers and describe the next step.\n- \"There is a correct architecture the interviewer is waiting for.\" They are waiting for justified decisions.\n- \"Estimation must be precise.\" Within 2–3x is fine; the order of magnitude is what matters.\n- \"Deep dive means listing more technologies.\" It means explaining one mechanism precisely: data flow, failure handling, the edge cases.\n- \"It depends\" as a final answer. It is the start of an answer; finish with a decision under stated assumptions.\n"
+        },
+        "uk": {
+          "title": "Процес співбесіди з system design",
+          "note": "## Що це\n\nСпівбесіда з system design — це 45–60-хвилинна, навмисно недовизначена розмова («Спроєктуйте URL shortener», «Спроєктуйте notification service»). Єдиної правильної відповіді немає. Інтерв'юер оцінює, *як* ви доходите до дизайну: чи окреслюєте ви межі задачі, чи спираєте рішення на цифри, чи зберігаєте цілісну загальну картину, чи заглиблюєтеся там, де це важливо, і чи проговорюєте вголос, чого коштує кожен вибір. Для сеньйора планка така: розмову ведете ви; інтерв'юеру не доводиться витягувати з вас наступний крок.\n\n## Як побудована сильна сесія\n\n1. **Вимоги (5–8 хв).** Розділіть їх на *функціональні* (що робить система: «створити коротке посилання, редирект, власний alias; аналітика поза scope») і *нефункціональні* (масштаб, цільова latency, доступність, консистентність, durability, вартість, compliance). Запишіть обидва списки й проговоріть припущення явно: «Припускаю 100M DAU і що кілька секунд застарілості лічильників прийнятні». Домовитися, що *поза* scope, так само цінно, як і про те, що в ньому.\n2. **Оцінка (3–5 хв).** Цифри «на серветці», єдине завдання яких — показати, в якому порядку величин ви перебуваєте: запити за секунду (середні та пікові), співвідношення читань і записів, приріст сховища, bandwidth, розмір working set для кешу. Агресивно округлюйте (1 доба ≈ 10^5 с) і зупиняйтеся, щойно цифра змінює рішення.\n3. **API і модель даних (5 хв).** Кілька endpoints або подій з ключовими полями та основні сутності з access patterns, які визначать вибір сховища.\n4. **High-level design (10 хв).** Прямокутники й стрілки від початку до кінця: клієнти, edge/LB, stateless-сервіси, сховище, кеш, черги, асинхронні workers. Проведіть через схему один запит, щоб довести, що вона працює, перш ніж щось оптимізувати.\n5. **Deep dive (15 хв).** Оберіть, бажано разом з інтерв'юером, один-два компоненти, складні саме *для цієї задачі*: генерація ключів для shortener, fan-out для стрічки, ідемпотентні повтори для платежів. Саме тут видно сеньйорський рівень.\n6. **Вузькі місця, сценарії відмов, еволюція (5 хв).** Що зламається першим за 10x, що станеться, коли залежність недоступна, як ви це спостерігатимете, що ви свідомо ще не будували.\n\n## Шпаргалка з оцінки\n\n```text\n1 day  ≈ 86,400 s ≈ 1e5 s          1M req/day   ≈ 12 req/s\npeak   ≈ 2–5x average (state it)   100M req/day ≈ 1,200 req/s\n1 KB x 1M rows = 1 GB              1 KB x 1B rows = 1 TB\nOne Postgres primary: thousands of simple writes/s, tens of thousands of indexed reads/s (hardware-dependent)\nOne Redis node: ~100k simple ops/s\n```\n\n## Проговорювання trade-offs\n\nКожне рішення варто проговорювати як *вибір → причина → ціна → тригер для перегляду*: «Один Postgres primary з read replicas, бо записів ~200/с; ціна — відставання реплік, яке я обробляю, читаючи власні записи користувача з primary; переглянув би рішення, якщо записів стане кілька тисяч за секунду». Цей шаблон показує, що ви знаєте про альтернативи, обрали одну свідомо й розумієте, коли вона перестає бути правильною.\n\n## Що перевіряє інтерв'юер\n\n- Чи питаєте ви, перш ніж малювати? Одразу перейти до «load balancer, три app-сервери, Kafka» — найпоширеніша помилка.\n- Чи визначають ваші цифри дизайн, чи це ритуал? Якщо ви порахували 40 записів/с, а потім шардуєте базу, оцінка була марною.\n- Чи можете ви впоратися з несподіваним поворотом («тепер це має працювати в кількох регіонах», «кеш упав»), скоригувавши дизайн, а не почавши спочатку?\n- Чи знаєте ви, що на що обмінюєте: консистентність на доступність, latency на вартість, простоту на гнучкість?\n- Чи можете ви без підказки назвати операційні аспекти: моніторинг, деплої, міграції даних, зловживання?\n\n## Поширені хибні уявлення\n\n- «Проєктуй під масштаб Google, щоб виглядати сеньйором». Over-engineering під трафік, якого за вашою ж оцінкою не буде, — негативний сигнал; масштабуйте під цифри й опишіть наступний крок.\n- «Існує правильна архітектура, на яку чекає інтерв'юер». Він чекає на обґрунтовані рішення.\n- «Оцінка має бути точною». Похибка в 2–3x нормальна; важить порядок величини.\n- «Deep dive — це перелік ще більшої кількості технологій». Це точне пояснення одного механізму: потік даних, обробка відмов, граничні випадки.\n- «It depends» як остаточна відповідь. Це початок відповіді; завершіть її рішенням за явно названих припущень.\n"
         }
       },
       "questions": [
@@ -45,6 +49,28 @@
                 }
               ],
               "explanation": "The prompt is deliberately vague; the first signal the interviewer looks for is whether you scope it: which features (matching, pricing, payments, ratings?), which scale, which latency and consistency guarantees, and what you will explicitly not cover. The generic diagram is the most common mistake: it looks productive but commits to a shape before you know what the system must do, and the interviewer reads it as pattern-matching. Estimation is important but comes after requirements, because you cannot estimate traffic for features you have not agreed on, and borrowing Uber's real-world numbers may not match the scale the interviewer has in mind. Picking the datastore first is premature optimisation of one component; geospatial indexing may well be the deep dive later, but only after requirements show it is the hard part."
+            },
+            "uk": {
+              "prompt": "Інтерв'юер каже: «Спроєктуйте сервіс замовлення таксі». Який найкращий перший крок?",
+              "options": [
+                {
+                  "text": "Намалювати стандартну high-level архітектуру (клієнти, load balancer, stateless API tier, база даних, кеш), щоб було щось конкретне для спільного уточнення.",
+                  "correct": false
+                },
+                {
+                  "text": "Почати з оцінки потужностей, використовуючи публічно відомі цифри Uber, бо масштаб визначає всі подальші рішення.",
+                  "correct": false
+                },
+                {
+                  "text": "Уточнити функціональний scope і нефункціональні вимоги (масштаб, latency, консистентність), проговорити припущення й домовитися, що поза scope.",
+                  "correct": true
+                },
+                {
+                  "text": "Спершу обрати основне сховище даних, бо в сервісі таксі домінують геопросторові запити (найближчі водії), і цей вибір обмежує всі інші компоненти.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Формулювання навмисно розмите; перший сигнал, який шукає інтерв'юер, — чи окреслите ви межі: які функції (matching, ціноутворення, платежі, рейтинги?), який масштаб, які гарантії latency і консистентності, і що ви явно не розглядатимете. Типова діаграма — найпоширеніша помилка: вона виглядає продуктивно, але фіксує форму системи раніше, ніж ви знаєте, що вона має робити, і інтерв'юер сприймає це як pattern-matching. Оцінка важлива, але йде після вимог, бо не можна оцінити трафік для функцій, про які ще не домовилися, а реальні цифри Uber можуть не відповідати масштабу, який має на увазі інтерв'юер. Вибір сховища першим — передчасна оптимізація одного компонента; геопросторове індексування цілком може стати deep dive пізніше, але лише після того, як вимоги покажуть, що саме воно є складною частиною."
             }
           }
         },
@@ -80,6 +106,28 @@
                 }
               ],
               "explanation": "100M x 10 = 1 billion reads/day; a day has 86,400 s (round to 1e5), so 1e9 / 1e5 ≈ 10,000, more precisely ≈ 11,600/s, i.e. about 12k/s on average. You would then state a peak factor (2–5x, so 25–60k/s) because peak, not average, sizes the system. 1,200/s is what you get for 100M requests per day, forgetting the 10 reads per user. 120,000/s and 1.2M/s are off by one and two orders of magnitude, typically from dividing by hours or minutes instead of seconds or from applying a peak multiplier twice. The point of the exercise is the order of magnitude: ~10k reads/s is comfortably served by a cache plus a few replicas, not a reason for exotic infrastructure."
+            },
+            "uk": {
+              "prompt": "Сервіс має 100 мільйонів щоденних активних користувачів, кожен з яких виконує близько 10 читань на день. Якою приблизно є **середня** швидкість читань?",
+              "options": [
+                {
+                  "text": "Близько 1 200 запитів за секунду",
+                  "correct": false
+                },
+                {
+                  "text": "Близько 12 000 запитів за секунду",
+                  "correct": true
+                },
+                {
+                  "text": "Близько 120 000 запитів за секунду",
+                  "correct": false
+                },
+                {
+                  "text": "Близько 1,2 мільйона запитів за секунду",
+                  "correct": false
+                }
+              ],
+              "explanation": "100M x 10 = 1 мільярд читань/добу; у добі 86 400 с (округлюємо до 1e5), тож 1e9 / 1e5 ≈ 10 000, точніше ≈ 11 600/с, тобто в середньому близько 12k/с. Далі ви називаєте піковий коефіцієнт (2–5x, тобто 25–60k/с), бо розмір системи визначає пік, а не середнє. 1 200/с виходить для 100M запитів на добу, якщо забути про 10 читань на користувача. 120 000/с і 1,2M/с помиляються на один і два порядки — зазвичай через ділення на години чи хвилини замість секунд або через подвійне застосування пікового множника. Сенс вправи — порядок величини: ~10k читань/с цілком обслуговують кеш і кілька реплік; це не привід для екзотичної інфраструктури."
             }
           }
         },
@@ -115,6 +163,28 @@
                 }
               ],
               "explanation": "Estimates are decision tools: 40 writes/s means a single relational primary is fine; 500 TB/year means object storage or partitioning; a 20 GB hot set fits in one Redis node. Precision within 2–3x is acceptable because the decisions change at order-of-magnitude boundaries, so chasing 10% is wasted interview time. Storage and request rate are independent dimensions: a read-heavy shortener has tiny writes and huge read QPS, a logging pipeline the opposite, so deriving one from the other is wrong. Sizing to the average is a classic mistake: peaks are often 2–10x the average, autoscaling reacts in minutes (and cannot scale a single database primary at all), so you size the steady-state for peak and use autoscaling for headroom."
+            },
+            "uk": {
+              "prompt": "Яке твердження про оцінку «на серветці» на співбесіді з system design найточніше?",
+              "options": [
+                {
+                  "text": "Вона має бути точною в межах приблизно 10%, бо рішення щодо потужностей і вартості, побудовані на грубій оцінці, ненадійні, а інтерв'юери перевіряють арифметику.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона потрібна, щоб знайти порядок величини навантаження, обсягу сховища й bandwidth, і вирішити, чи компонент вміщається на один вузол, чи потребує кешу або партиціонування.",
+                  "correct": true
+                },
+                {
+                  "text": "Вона важлива лише для сховища; швидкість запитів напряму випливає з приросту сховища й середнього розміру об'єкта, тож окремо її оцінювати не треба.",
+                  "correct": false
+                },
+                {
+                  "text": "Правильна цифра для розрахунку — середнє навантаження, бо autoscaling автоматично поглинає піки, а розрахунок під пік марнує гроші більшу частину доби.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Оцінки — це інструменти для рішень: 40 записів/с означає, що одного реляційного primary достатньо; 500 TB/рік — object storage або партиціонування; гарячий набір у 20 GB вміщається в один вузол Redis. Точність у межах 2–3x прийнятна, бо рішення змінюються на межах порядків величини, тож гонитва за 10% — змарнований час співбесіди. Обсяг сховища й швидкість запитів — незалежні виміри: у read-heavy shortener крихітні записи й величезний read QPS, у пайплайні логування — навпаки, тож виводити одне з іншого неправильно. Розрахунок під середнє — класична помилка: піки часто в 2–10x вищі за середнє, autoscaling реагує за хвилини (і взагалі не може масштабувати єдиний primary бази даних), тому стабільну потужність розраховують під пік, а autoscaling використовують як запас."
             }
           }
         },
@@ -150,6 +220,28 @@
                 }
               ],
               "explanation": "The strong answer has all four parts: the choice, the reason tied to an estimated number, the cost it accepts with a concrete mitigation, and the condition under which it would change. The Cassandra answer is a capability, not a trade-off: it never says why horizontal write scale is needed at this load or what is given up (query flexibility, joins, transactions, tunable consistency complexity). Team familiarity is a legitimate factor in real life, but on its own it does not show you evaluated the requirements. \"It depends\" is the opening of an answer; ending there signals an inability to decide under uncertainty, which is exactly what the interview tests."
+            },
+            "uk": {
+              "prompt": "Яке твердження найкраще демонструє проговорювання trade-offs, яке інтерв'юери очікують від сеньйора?",
+              "options": [
+                {
+                  "text": "«Я візьму Cassandra: вона масштабується горизонтально, не має single point of failure і витримує величезний потік записів, тож нам не доведеться переробляти архітектуру, коли ми виростемо».",
+                  "correct": false
+                },
+                {
+                  "text": "«Я візьму Postgres, бо команда знає його найкраще; знайомство з інструментом зменшує операційний ризик, а мігрувати завжди можна пізніше, якщо виникне проблема».",
+                  "correct": false
+                },
+                {
+                  "text": "«SQL і NoSQL тут мають свої плюси й мінуси: SQL дає транзакції, NoSQL дає масштаб, тож правильний вибір справді залежить від вимог».",
+                  "correct": false
+                },
+                {
+                  "text": "«Один Postgres primary плюс репліки: ~200 записів/с вміщаються на один вузол. Ціна — відставання реплік, тож власні читання користувача деякий час ідуть на primary. Переглянув би за тисяч записів/с».",
+                  "correct": true
+                }
+              ],
+              "explanation": "Сильна відповідь містить усі чотири частини: вибір, причину, прив'язану до оціненої цифри, ціну, яку вона приймає, з конкретним способом її пом'якшити, і умову, за якої рішення зміниться. Відповідь про Cassandra — це перелік можливостей, а не trade-off: вона не пояснює, навіщо горизонтальне масштабування записів за такого навантаження і чим доводиться жертвувати (гнучкість запитів, joins, транзакції, складність tunable consistency). Знайомство команди з інструментом — легітимний фактор у реальному житті, але саме по собі воно не показує, що ви оцінили вимоги. «It depends» — це початок відповіді; якщо на цьому зупинитися, це сигналізує про нездатність ухвалювати рішення в умовах невизначеності, а саме це й перевіряє співбесіда."
             }
           }
         },
@@ -175,6 +267,17 @@
                 "Covers bottlenecks, failure modes and evolution (what breaks at higher scale, what happens when a dependency fails, monitoring) near the end.",
                 "Describes narrating trade-offs (choice, reason, cost, when to revisit) and gives a plausible time budget in which the deep dive gets the largest share."
               ]
+            },
+            "uk": {
+              "prompt": "Ви отримуєте незнайоме завдання з system design і 45 хвилин. Розкажіть, як ви проводите сесію: етапи, приблизно скільки часу на кожен, що ви отримуєте на кожному етапі й як вирішуєте, у що заглиблюватися.",
+              "explanation": "Еталонна відповідь: почати з вимог, відокремивши функціональний scope (включно з тим, що явно поза scope) від нефункціональних вимог (масштаб, latency, доступність, консистентність, durability), і вголос проговорити припущення (~5–8 хв). Потім швидка оцінка пікового QPS, співвідношення читань і записів, приросту сховища й bandwidth, округлена до порядків величини й використана для обґрунтування подальших рішень (~5 хв). Накидати API і основну модель даних з access patterns (~5 хв), потім end-to-end high-level design, пройдений одним запитом (~10 хв). Найбільший блок (~15 хв) віддати deep dive в один-два компоненти, справді складні для цієї задачі, обрані разом з інтерв'юером, і завершити вузькими місцями за 10x, сценаріями відмов, observability і тим, що ви будували б далі (~5 хв). Упродовж усієї сесії проговорювати кожне рішення як вибір, причину, ціну й тригер для перегляду, і адаптувати дизайн, коли інтерв'юер додає обмеження.",
+              "rubric": [
+                "Починає з уточнення вимог, явно розрізняючи функціональні й нефункціональні, і домовляється про те, що поза scope, та про припущення, перш ніж щось малювати.",
+                "Включає оцінку «на серветці» (піковий QPS, співвідношення читань і записів, сховище, можливо bandwidth) і зазначає, що цифри використовуються для обґрунтування конкретних рішень, а не як ритуал.",
+                "Розміщує решту етапів у логічному порядку: API/модель даних, end-to-end high-level design, потім deep dive у компонент(и), найскладніші саме для цієї задачі, обрані разом з інтерв'юером або погоджені з ним.",
+                "Наприкінці розглядає вузькі місця, сценарії відмов і еволюцію (що зламається за більшого масштабу, що станеться, коли відмовить залежність, моніторинг).",
+                "Описує проговорювання trade-offs (вибір, причина, ціна, коли переглянути) і дає правдоподібний розподіл часу, у якому deep dive отримує найбільшу частку."
+              ]
             }
           }
         }
@@ -188,6 +291,10 @@
         "en": {
           "title": "Scaling Basics: Vertical vs Horizontal, Statelessness, Load Balancing, Read Replicas",
           "note": "## What it is\n\nScaling is adding capacity so a system keeps its latency and availability targets as load grows. **Vertical scaling** (scale up) means a bigger machine: more cores, RAM, faster disks. **Horizontal scaling** (scale out) means more machines behind a load balancer. Vertical is operationally trivial and keeps everything in one process (no network hops, no coordination) but has a hard ceiling, non-linear cost at the top end, and keeps a single point of failure. Horizontal gives near-linear capacity and fault tolerance, but only if the tier is **stateless** or its state is externalised.\n\n## How it works underneath\n\n**Statelessness.** Any instance must be able to serve any request. Everything that used to live in process memory has to move: sessions (to Redis, a database, or a self-contained signed token), cached data (a per-instance `IMemoryCache` becomes N incoherent caches; use a distributed or hybrid cache with invalidation), uploaded files on local disk (to object storage), scheduled jobs (a timer in every instance now runs N times; use a distributed lock, a leader, or a dedicated worker). ASP.NET Core adds a trap: the **Data Protection key ring**, which encrypts auth cookies, antiforgery tokens and TempData, is per instance by default; behind a round-robin balancer a cookie issued by instance A cannot be decrypted by instance B.\n\n```csharp\n// Shared key ring + SignalR backplane for a scaled-out ASP.NET Core app\nvar redis = ConnectionMultiplexer.Connect(builder.Configuration[\"Redis\"]!);\n\nbuilder.Services.AddDataProtection()\n    .SetApplicationName(\"spine\")                       // same name on every instance\n    .PersistKeysToStackExchangeRedis(redis, \"dp-keys\");\n\nbuilder.Services.AddSignalR()\n    .AddStackExchangeRedis(builder.Configuration[\"Redis\"]!); // broadcasts reach clients on other instances\n```\n\n**Load balancing.** An L4 balancer routes TCP/UDP connections by IP and port; it is fast but blind to HTTP. An L7 balancer terminates HTTP(S) and can route by path, host or header, retry idempotent requests, and set affinity cookies. Algorithms: round-robin (fine for uniform, short requests), least connections / least outstanding requests (better when request cost varies), and hashing (consistent hashing when you want cache locality per key). Health checks remove dead instances; distinguish *liveness* (restart me) from *readiness* (do not send me traffic: warming up, draining, dependency down). Graceful shutdown means: fail readiness, let in-flight requests finish, then exit.\n\n**Sticky sessions** (session affinity) pin a client to one instance, usually via an LB cookie. They let an app with in-memory state run on several nodes, but load becomes uneven (one heavy user pins one box), a crashed or scaled-in instance loses its users' state, and deployments must drain longer. Treat affinity as a crutch, with one legitimate exception: protocols that are inherently connection-bound. SignalR needs affinity whenever the negotiate request and the subsequent connection (especially long polling or SSE) might land on different servers; a Redis backplane solves cross-server *broadcast*, not that.\n\n**Database read replicas.** The database is usually the first real bottleneck, because the app tier scales by copying and the primary does not. Read replicas receive the primary's write-ahead log asynchronously and serve reads, scaling read throughput but not writes. The cost is **replication lag**: a user who writes and immediately reads from a replica may see old data. Fixes are targeted: read-your-writes by routing that user's reads to the primary for a short window, or waiting until the replica has replayed a known log position. Also watch the connection count: 20 instances x a pool of 100 connections is 2,000 connections, far beyond what a Postgres primary handles well; a pooler such as PgBouncer sits in front.\n\n## What an interviewer probes\n\n- \"Your app works on one node and fails on two. What do you check?\" Sessions, data protection keys, local files, in-memory caches, timers.\n- When vertical scaling is the *right* answer: it is cheaper in engineering time until you hit the ceiling or need redundancy anyway.\n- Why horizontal scaling of the API does not scale the database, and what does (caching, replicas, partitioning, CQRS read models, eventually sharding).\n- How you scale in and deploy without dropping requests: readiness, draining, connection draining timeouts.\n\n## Common misconceptions\n\n- \"Stateless means no database.\" It means no per-instance state that the next request depends on.\n- \"JWTs make everything stateless.\" They remove session lookups but complicate revocation; you trade state for a denylist or short expiry.\n- \"Sticky sessions are free.\" They undermine both load distribution and fault tolerance.\n- \"Read replicas are consistent because replication is fast.\" Lag is usually milliseconds and occasionally seconds or minutes under load; design for the bad case.\n"
+        },
+        "uk": {
+          "title": "Основи масштабування: vertical vs horizontal, statelessness, load balancing, read replicas",
+          "note": "## Що це\n\nМасштабування — це додавання потужностей, щоб система зберігала цільові показники latency і доступності зі зростанням навантаження. **Vertical scaling** (scale up) — більша машина: більше ядер, RAM, швидші диски. **Horizontal scaling** (scale out) — більше машин за load balancer. Вертикальне масштабування операційно тривіальне й тримає все в одному процесі (жодних мережевих переходів, жодної координації), але має жорстку стелю, нелінійну вартість у верхньому сегменті й зберігає single point of failure. Горизонтальне дає майже лінійний приріст потужності й відмовостійкість, але лише якщо tier є **stateless** або його стан винесено назовні.\n\n## Як це працює під капотом\n\n**Statelessness.** Будь-який екземпляр має бути здатен обслужити будь-який запит. Усе, що раніше жило в пам'яті процесу, має переїхати: сесії (у Redis, базу даних або самодостатній підписаний токен), кешовані дані (`IMemoryCache` на кожному екземплярі перетворюється на N неузгоджених кешів; використовуйте distributed або hybrid cache з інвалідацією), завантажені файли на локальному диску (в object storage), заплановані задачі (таймер у кожному екземплярі тепер спрацьовує N разів; використовуйте distributed lock, лідера або окремий worker). ASP.NET Core додає пастку: **Data Protection key ring**, яким шифруються auth cookies, antiforgery-токени й TempData, за замовчуванням свій на кожному екземплярі; за round-robin балансувальником cookie, виданий екземпляром A, не може бути розшифрований екземпляром B.\n\n```csharp\n// Shared key ring + SignalR backplane for a scaled-out ASP.NET Core app\nvar redis = ConnectionMultiplexer.Connect(builder.Configuration[\"Redis\"]!);\n\nbuilder.Services.AddDataProtection()\n    .SetApplicationName(\"spine\")                       // same name on every instance\n    .PersistKeysToStackExchangeRedis(redis, \"dp-keys\");\n\nbuilder.Services.AddSignalR()\n    .AddStackExchangeRedis(builder.Configuration[\"Redis\"]!); // broadcasts reach clients on other instances\n```\n\n**Load balancing.** L4-балансувальник маршрутизує TCP/UDP-з'єднання за IP і портом; він швидкий, але не бачить HTTP. L7-балансувальник термінує HTTP(S) і може маршрутизувати за шляхом, host чи заголовком, повторювати ідемпотентні запити й встановлювати affinity cookies. Алгоритми: round-robin (підходить для однорідних коротких запитів), least connections / least outstanding requests (краще, коли вартість запитів різна) і хешування (consistent hashing, коли потрібна локальність кешу за ключем). Health checks прибирають мертві екземпляри; розрізняйте *liveness* (перезапусти мене) і *readiness* (не надсилай мені трафік: прогріваюся, дренуюся, залежність недоступна). Graceful shutdown означає: провалити readiness, дати запитам у процесі завершитися, потім вийти.\n\n**Sticky sessions** (session affinity) прив'язують клієнта до одного екземпляра, зазвичай через cookie балансувальника. Вони дають змогу застосунку зі станом у пам'яті працювати на кількох вузлах, але навантаження стає нерівномірним (один важкий користувач прив'язує одну машину), екземпляр, що впав або був прибраний під час scale-in, втрачає стан своїх користувачів, а деплої мають довше дренуватися. Сприймайте affinity як милицю, з одним легітимним винятком: протоколи, за своєю природою прив'язані до з'єднання. SignalR потребує affinity щоразу, коли negotiate-запит і подальше з'єднання (особливо long polling або SSE) можуть потрапити на різні сервери; Redis backplane вирішує міжсерверний *broadcast*, а не цю проблему.\n\n**Read replicas бази даних.** База даних зазвичай стає першим справжнім вузьким місцем, бо app tier масштабується копіюванням, а primary — ні. Read replicas асинхронно отримують write-ahead log від primary й обслуговують читання, масштабуючи пропускну здатність читань, але не записів. Ціна — **replication lag**: користувач, який записав дані й одразу читає з репліки, може побачити старі дані. Виправлення точкові: read-your-writes — направляти читання цього користувача на primary впродовж короткого вікна — або чекати, доки репліка не відтворить відому позицію в лозі. Стежте також за кількістю з'єднань: 20 екземплярів x пул на 100 з'єднань — це 2 000 з'єднань, значно більше, ніж добре витримує Postgres primary; перед ним ставлять pooler на кшталт PgBouncer.\n\n## Що перевіряє інтерв'юер\n\n- «Ваш застосунок працює на одному вузлі й падає на двох. Що ви перевірите?» Сесії, ключі data protection, локальні файли, кеші в пам'яті, таймери.\n- Коли вертикальне масштабування — *правильна* відповідь: воно дешевше в інженерному часі, доки ви не впретеся в стелю або однаково не знадобиться резервування.\n- Чому горизонтальне масштабування API не масштабує базу даних і що її масштабує (кешування, репліки, партиціонування, read models у CQRS, зрештою шардинг).\n- Як виконувати scale-in і деплой без втрати запитів: readiness, дренування, таймаути connection draining.\n\n## Поширені хибні уявлення\n\n- «Stateless означає без бази даних». Це означає відсутність стану на рівні екземпляра, від якого залежить наступний запит.\n- «JWT роблять усе stateless». Вони прибирають пошук сесій, але ускладнюють відкликання; ви обмінюєте стан на denylist або короткий термін дії.\n- «Sticky sessions нічого не коштують». Вони підривають і розподіл навантаження, і відмовостійкість.\n- «Read replicas консистентні, бо реплікація швидка». Відставання зазвичай становить мілісекунди, а під навантаженням інколи секунди чи хвилини; проєктуйте під поганий випадок.\n"
         }
       },
       "questions": [
@@ -223,6 +330,28 @@
                 }
               ],
               "explanation": "Vertical scaling (bigger CPU/RAM) is simple and avoids coordination but is capped by the largest available machine, gets expensive non-linearly, and leaves one box whose failure takes the service down. Horizontal scaling adds nodes behind a load balancer, which only works if any node can serve any request, hence statelessness. \"Always cheaper\" ignores engineering and operational cost: for many systems a larger instance is the cheapest correct answer until the ceiling or redundancy needs force a change. More API instances do not add database capacity; they add connections and load to the same primary, which is why the database usually becomes the bottleneck. The downtime claim is backwards in practice: resizing a VM usually needs a restart, while adding nodes behind a balancer is routine and done live."
+            },
+            "uk": {
+              "prompt": "У чому ключова різниця між вертикальним і горизонтальним масштабуванням і яке твердження правдиве?",
+              "options": [
+                {
+                  "text": "Горизонтальне масштабування завжди дешевше за вертикальне, тож сеньйор має закладати його з першого дня, навіть для сервісу зі скромним передбачуваним навантаженням.",
+                  "correct": false
+                },
+                {
+                  "text": "Вертикальне збільшує одну машину (жорстка стеля, single point of failure); горизонтальне додає машини заради потужності й резервування, але потребує stateless або винесеного назовні стану.",
+                  "correct": true
+                },
+                {
+                  "text": "Горизонтальне масштабування stateless API tier масштабує й базу даних, бо кожен новий екземпляр приносить власний connection pool і розподіляє запити на більшу кількість з'єднань.",
+                  "correct": false
+                },
+                {
+                  "text": "Вертикальне масштабування ніколи не потребує простою, бо хмарні VM змінюють розмір наживо, а горизонтальне завжди потребує, бо треба переналаштувати load balancer.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Вертикальне масштабування (більше CPU/RAM) просте й обходиться без координації, але обмежене найбільшою доступною машиною, дорожчає нелінійно й залишає одну машину, відмова якої кладе сервіс. Горизонтальне додає вузли за load balancer, і це працює лише тоді, коли будь-який вузол може обслужити будь-який запит, — звідси statelessness. «Завжди дешевше» ігнорує інженерні й операційні витрати: для багатьох систем більший інстанс — найдешевша коректна відповідь, доки стеля або потреба в резервуванні не змусять щось змінити. Більше екземплярів API не додають потужності базі даних; вони додають з'єднань і навантаження на той самий primary, тому база зазвичай і стає вузьким місцем. Твердження про простій на практиці навпаки: зміна розміру VM зазвичай потребує перезапуску, а додавання вузлів за балансувальником — рутинна операція, що виконується наживо."
             }
           }
         },
@@ -259,6 +388,28 @@
                 }
               ],
               "explanation": "ASP.NET Core encrypts auth cookies, antiforgery tokens and TempData with the Data Protection system. By default the key ring lives on the local file system (in a container, an ephemeral per-replica directory), so each replica has different keys and rejects payloads protected by its siblings. The fix is a shared key ring (`PersistKeysToStackExchangeRedis`, `PersistKeysToDbContext`, blob storage, with key encryption at rest) plus the same `SetApplicationName` everywhere. Sticky sessions would hide the symptom but are not required by cookie auth: the cookie itself carries the principal, and affinity would still break on scale-in or redeploy. The JWT option describes a different auth scheme; the scenario uses cookies. Cookie size is unrelated to the number of replicas, and ASP.NET Core already chunks large cookies."
+            },
+            "uk": {
+              "prompt": "ASP.NET Core застосунок з cookie authentication нормально працює в одному контейнері. Після масштабування до трьох реплік за round-robin load balancer користувачів випадково розлогінює, а відправлення форм не проходять antiforgery-валідацію. Більше нічого не змінювалося. Яка найімовірніша причина?",
+              "options": [
+                {
+                  "text": "Data Protection key ring зберігається окремо в кожному контейнері, тож cookie чи antiforgery-токен, захищений однією реплікою, не може бути розшифрований іншою.",
+                  "correct": true
+                },
+                {
+                  "text": "Cookie authentication за задумом потребує sticky sessions: load balancer має прив'язувати кожного користувача до репліки, що видала cookie, бо сесія живе в пам'яті цієї репліки.",
+                  "correct": false
+                },
+                {
+                  "text": "Ключ підпису JWT генерується випадково під час старту кожної репліки, тож токени, видані однією реплікою, не проходять перевірку підпису на інших.",
+                  "correct": false
+                },
+                {
+                  "text": "Authentication cookie перевищує браузерний ліміт 4 KB, щойно запити розподіляються між репліками, тож браузер мовчки його відкидає.",
+                  "correct": false
+                }
+              ],
+              "explanation": "ASP.NET Core шифрує auth cookies, antiforgery-токени й TempData системою Data Protection. За замовчуванням key ring лежить у локальній файловій системі (у контейнері — в ефемерному каталозі кожної репліки), тож у кожної репліки свої ключі, і вона відхиляє дані, захищені сусідніми. Виправлення — спільний key ring (`PersistKeysToStackExchangeRedis`, `PersistKeysToDbContext`, blob storage, з шифруванням ключів at rest) плюс однаковий `SetApplicationName` усюди. Sticky sessions приховали б симптом, але cookie auth їх не потребує: cookie сам несе principal, а affinity однаково ламалася б під час scale-in чи передеплою. Варіант з JWT описує іншу схему автентифікації; у сценарії використовуються cookies. Розмір cookie не залежить від кількості реплік, до того ж ASP.NET Core уже розбиває великі cookies на частини."
             }
           }
         },
@@ -295,6 +446,28 @@
                 }
               ],
               "explanation": "The symptom is replication lag observed by the writer. Read-your-writes targets exactly that path: only the user who just wrote needs fresh data, so routing their reads to the primary for a few seconds (tracked in the session or a cookie), or waiting for the replica to reach the commit's LSN, fixes it without changing the system's overall consistency model. More replicas add read capacity, but lag stems from the asynchronous protocol and the replay speed of each replica, and adding replicas even adds load on the primary's WAL senders. Synchronous replication does remove staleness for committed data, but every write then waits for replicas, raising write latency and making a slow or failed replica block commits; it is a sledgehammer for a per-user problem. A cache in front of replicas adds another stale layer and makes the problem worse unless it is invalidated on write."
+            },
+            "uk": {
+              "prompt": "Читання йдуть на асинхронні Postgres read replicas, записи — на primary. Користувачі скаржаться, що після збереження профілю сторінка перезавантажується зі старими значеннями; повторне оновлення показує нові. Яке виправлення найбільш пропорційне?",
+              "options": [
+                {
+                  "text": "Додати більше read replicas, щоб кожна була менш навантажена, швидше відтворювала WAL, а відставання між primary і реплікою скоротилося до меншого за час перезавантаження сторінки.",
+                  "correct": false
+                },
+                {
+                  "text": "Перевести всі репліки на синхронну реплікацію, щоб commit повертався лише після того, як кожна репліка його застосувала, і читання завжди були актуальними.",
+                  "correct": false
+                },
+                {
+                  "text": "Поставити Redis cache перед репліками, щоб профіль віддавався з пам'яті, що швидше, ніж читати і з primary, і з реплік.",
+                  "correct": false
+                },
+                {
+                  "text": "Read-your-writes: упродовж короткого вікна після запису направляти читання цього користувача на primary (або чекати, доки репліка не відтворить позицію запису в лозі).",
+                  "correct": true
+                }
+              ],
+              "explanation": "Симптом — replication lag, який бачить той, хто записав. Read-your-writes б'є саме в цей шлях: свіжі дані потрібні лише користувачеві, який щойно записав, тож направлення його читань на primary на кілька секунд (з відстеженням у сесії чи cookie) або очікування, доки репліка не досягне LSN цього commit, вирішує проблему, не змінюючи загальну модель консистентності системи. Більше реплік додають потужності для читань, але відставання зумовлене асинхронним протоколом і швидкістю відтворення на кожній репліці, а додавання реплік навіть збільшує навантаження на WAL senders primary. Синхронна реплікація справді прибирає застарілість для закомічених даних, але тоді кожен запис чекає на репліки, що підвищує latency записів, а повільна чи несправна репліка блокує commits; це кувалда для проблеми одного користувача. Кеш перед репліками додає ще один застарілий шар і погіршує проблему, якщо його не інвалідувати під час запису."
             }
           }
         },
@@ -331,6 +504,28 @@
                 }
               ],
               "explanation": "Affinity concentrates heavy users on particular instances, and the pinned state disappears with the instance on crash, scale-in or deploy, so it trades fault tolerance and balance for not refactoring state. It is still the right tool when the protocol itself is stateful per connection: SignalR's negotiate step and a long-polling or SSE connection must reach the same server unless every client uses WebSockets with negotiation skipped or a managed service handles it. The 'no downside' option ignores those failure modes. A Redis backplane distributes *messages* between servers so a broadcast reaches clients connected elsewhere; it does nothing to route a client's requests to the server holding its connection. Cookie-based stickiness requires reading HTTP headers, which an L4 balancer cannot do (and if TLS terminates on the backends it cannot see them at all); L4 can only offer source-IP affinity."
+            },
+            "uk": {
+              "prompt": "Яке твердження про sticky sessions (session affinity) правдиве?",
+              "options": [
+                {
+                  "text": "Зі sticky sessions застосунок, що тримає сесії в пам'яті, масштабується горизонтально без реальних недоліків, бо кожен користувач завжди потрапляє на екземпляр зі своїм станом.",
+                  "correct": false
+                },
+                {
+                  "text": "Додавання Redis backplane до SignalR прибирає потребу в sticky sessions, бо тоді будь-який сервер може обслужити будь-який запит будь-якого з'єднання.",
+                  "correct": false
+                },
+                {
+                  "text": "Вони перекошують навантаження й втрачають прив'язаний стан, коли екземпляр падає чи прибирається під час scale-in, але легітимні для протоколів, прив'язаних до з'єднання, як-от SignalR negotiate плюс long polling.",
+                  "correct": true
+                },
+                {
+                  "text": "L4 (TCP) load balancer може реалізувати stickiness на основі cookie, якщо TLS термінується на backend-серверах, а не на балансувальнику.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Affinity концентрує важких користувачів на певних екземплярах, а прив'язаний стан зникає разом з екземпляром під час падіння, scale-in чи деплою, тож вона обмінює відмовостійкість і рівномірність навантаження на те, щоб не рефакторити стан. Проте це правильний інструмент, коли сам протокол має стан на рівні з'єднання: negotiate-крок SignalR і з'єднання long polling чи SSE мають потрапити на той самий сервер, якщо тільки всі клієнти не використовують WebSockets із пропущеним negotiation або цим не займається керований сервіс. Варіант «без недоліків» ігнорує ці сценарії відмов. Redis backplane розподіляє *повідомлення* між серверами, щоб broadcast дійшов до клієнтів, підключених деінде; він ніяк не маршрутизує запити клієнта на сервер, що тримає його з'єднання. Stickiness на основі cookie потребує читання HTTP-заголовків, чого L4-балансувальник не вміє (а якщо TLS термінується на backend, він їх узагалі не бачить); L4 може запропонувати лише affinity за IP джерела."
             }
           }
         },
@@ -356,6 +551,17 @@
                 "Explains that the database becomes the bottleneck: connection count multiplies with instances (pooling/PgBouncer), reads can move to replicas with a replication-lag strategy, and writes still go to a single primary.",
                 "Mentions measuring first and that vertical scaling can be a valid or cheaper interim option."
               ]
+            },
+            "uk": {
+              "prompt": "Монолітний застосунок ASP.NET Core + Postgres працює на одній великій VM і в пік вичерпує CPU. Вас просять запустити його як N екземплярів за load balancer. Розкажіть, що має змінитися в застосунку та інфраструктурі, що зазвичай ламається і що стане наступним вузьким місцем.",
+              "explanation": "Еталонна відповідь: спершу метриками підтвердити, що вузьке місце — app tier, а не база даних, і зазначити, що більша VM може бути найдешевшим короткостроковим кроком. Для scale out зробити застосунок stateless: перенести сесії в спільне сховище або самодостатні токени, зробити спільним Data Protection key ring, замінити кеші в пам'яті кожного екземпляра на distributed/hybrid cache з інвалідацією, перенести локальне файлове сховище в object storage і не допустити, щоб таймери чи hosted jobs виконувалися N разів (distributed lock, вибір лідера або окремий worker). Поставити попереду L7 load balancer з readiness і liveness checks, graceful shutdown і connection draining, і уникати sticky sessions, окрім випадків, коли їх потребує протокол (SignalR negotiate/long polling). Наступне вузьке місце — база даних: загальна кількість з'єднань зростає з N (використовуйте pooler на кшталт PgBouncer), а навантаження читань можна перенести на репліки лише з планом щодо replication lag (read-your-writes); записи однаково йдуть на один primary.",
+              "rubric": [
+                "Перелічує стан на рівні екземпляра, який треба винести назовні або зробити спільним: сесії, кеші в пам'яті (когерентність/інвалідація), локальні файли та ASP.NET Core Data Protection key ring для cookies/antiforgery.",
+                "Визначає, що запланована/фонова робота, яка запускається в кожному екземплярі, виконується N разів, і пропонує виправлення (distributed lock, вибір лідера або окремий worker).",
+                "Описує налаштування load balancer: health checks (readiness vs liveness), graceful shutdown/дренування під час деплоїв і scale-in, а також обґрунтовану позицію щодо sticky sessions.",
+                "Пояснює, що вузьким місцем стає база даних: кількість з'єднань множиться на кількість екземплярів (pooling/PgBouncer), читання можна перенести на репліки зі стратегією щодо replication lag, а записи однаково йдуть на один primary.",
+                "Згадує, що спершу треба виміряти, і що вертикальне масштабування може бути коректним або дешевшим проміжним варіантом."
+              ]
             }
           }
         }
@@ -369,6 +575,10 @@
         "en": {
           "title": "Data Modeling Choices: SQL vs NoSQL, Partitioning, Sharding, Hot Keys",
           "note": "## What it is\n\nThe storage decision in a design interview is really a decision about **access patterns**: what you look up by, what must change atomically together, how much data there is, how fast it grows and how much write throughput one node must absorb. \"SQL vs NoSQL\" is shorthand for a set of trade-offs, and partitioning, sharding and hot-key handling are what you reach for once one node is no longer enough.\n\n## SQL vs NoSQL, properly framed\n\nA relational database (Postgres, SQL Server) gives you a flexible query model (joins, ad-hoc filters, aggregates), multi-row ACID transactions, constraints and mature tooling. Its limit is that writes go through one primary; scaling writes beyond a single node requires sharding, which the database does not do for you (outside distributed SQL systems such as Citus, CockroachDB, Spanner or YugabyteDB).\n\n\"NoSQL\" covers different families: **key-value** (Redis, DynamoDB) for lookups by key, **document** (MongoDB, Cosmos DB) for aggregates read and written as a unit, **wide-column** (Cassandra, ScyllaDB) for very high write throughput with queries designed per table, and **graph** databases for relationship traversal. Most are built to partition horizontally from the start, which is their real advantage, and they pay for it: you design tables around known queries, cross-partition transactions are limited or expensive, and secondary access paths cost extra writes.\n\nA good rule: default to a relational database, and choose a NoSQL store when the access patterns are known and key-based, the data model is aggregate-shaped, and the required write throughput or data volume clearly exceeds one node. \"We need flexible JSON\" is not such a reason; Postgres `jsonb` covers it.\n\n## Partitioning vs sharding\n\n**Partitioning** splits a large table into smaller pieces by a key. In Postgres (declarative partitioning since 10, hash partitioning since 11) all partitions live on the same server: you gain partition pruning for queries that filter on the key, cheap retention (`DROP` or detach an old partition instead of a huge `DELETE`), smaller indexes and faster vacuum, but not more write capacity. **Sharding** distributes partitions across nodes, so each node owns a subset of keys; that adds capacity and costs cross-shard queries, transactions, global uniqueness and rebalancing.\n\n```sql\nCREATE TABLE events (\n    tenant_id  bigint      NOT NULL,\n    id         bigint      NOT NULL,\n    created_at timestamptz NOT NULL,\n    payload    jsonb,\n    PRIMARY KEY (tenant_id, id, created_at)      -- must include the partition key\n) PARTITION BY RANGE (created_at);\n\nCREATE TABLE events_2026_10 PARTITION OF events\n    FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');\n-- Retention: ALTER TABLE events DETACH PARTITION events_2025_10; DROP TABLE events_2025_10;\n```\n\n**Choosing a shard key** is the decision that is hardest to undo. It needs high cardinality, an even distribution of both data and traffic, and locality: the queries you run most should hit one shard. Strategies: **range** (good for range scans, but sequential keys such as timestamps send every new write to the last shard), **hash** (even spread, but range queries become scatter-gather), and **directory/lookup** (a mapping table from key to shard, which lets you move a big tenant to its own shard). Consistent hashing or a large fixed number of logical shards mapped onto fewer physical nodes makes rebalancing incremental instead of a full reshuffle.\n\n## Hot keys and hot partitions\n\nEven a good key distribution can have one key that receives a disproportionate share of traffic: a celebrity's post, a flash-sale product, a giant tenant. One partition's limits then cap the whole system (DynamoDB documents per-partition limits of 3,000 read and 1,000 write capacity units per second, regardless of the table's total). Mitigations depend on the direction:\n\n- **Hot reads:** cache in front (with request coalescing so a miss does not stampede), replicate the hot item, serve from a CDN.\n- **Hot writes:** split the key into N sub-keys (`post#42#7`), write to a random one and sum on read; or buffer and aggregate increments in memory or a stream before writing.\n- **Hot tenants:** isolate them via a directory to dedicated shards, or sub-shard by a composite key.\n\n## What an interviewer probes\n\n- Justify the store from access patterns and numbers, not fashion.\n- What happens to a query that does not include the shard key? (Scatter-gather to every shard; latency is the slowest shard.)\n- How do you generate unique IDs across shards? (Snowflake-style IDs, UUIDv7, or per-shard ranges.)\n- How would you reshard without downtime? (Logical shards, dual writes or change data capture, backfill, cut-over.)\n\n## Common misconceptions\n\n- \"NoSQL has no schema, so no migrations.\" The schema moves into application code, and old documents still need handling.\n- \"SQL databases cannot scale.\" Replicas, partitioning and caching carry most systems far; sharding is a later step.\n- \"Partitioning always makes queries faster.\" Queries without the partition key scan every partition.\n- \"More total capacity fixes a hot key.\" Per-partition limits stay the same.\n"
+        },
+        "uk": {
+          "title": "Вибір моделі даних: SQL vs NoSQL, партиціонування, шардинг, hot keys",
+          "note": "## Що це\n\nРішення щодо сховища на співбесіді — це насправді рішення щодо **access patterns**: за чим ви шукаєте, що має змінюватися атомарно разом, скільки даних, як швидко вони ростуть і яку пропускну здатність записів має витримати один вузол. «SQL vs NoSQL» — це скорочення для набору trade-offs, а партиціонування, шардинг і обробка hot keys — те, до чого звертаються, коли одного вузла вже недостатньо.\n\n## SQL vs NoSQL у правильній постановці\n\nРеляційна база даних (Postgres, SQL Server) дає гнучку модель запитів (joins, довільні фільтри, агрегати), багаторядкові ACID-транзакції, constraints і зрілий інструментарій. Її межа в тому, що записи проходять через один primary; масштабування записів за межі одного вузла потребує шардингу, якого база за вас не робить (поза distributed SQL системами на кшталт Citus, CockroachDB, Spanner чи YugabyteDB).\n\n«NoSQL» охоплює різні сімейства: **key-value** (Redis, DynamoDB) для пошуку за ключем, **document** (MongoDB, Cosmos DB) для агрегатів, які читаються й записуються як одне ціле, **wide-column** (Cassandra, ScyllaDB) для дуже високої пропускної здатності записів із запитами, спроєктованими під кожну таблицю, і **graph**-бази для обходу зв'язків. Більшість із них від початку побудовані для горизонтального партиціонування — у цьому їхня справжня перевага, — і вони за це платять: ви проєктуєте таблиці під відомі запити, міжпартиційні транзакції обмежені або дорогі, а вторинні шляхи доступу коштують додаткових записів.\n\nДобре правило: за замовчуванням обирайте реляційну базу, а NoSQL-сховище — тоді, коли access patterns відомі й базуються на ключах, модель даних має форму агрегатів, а потрібна пропускна здатність записів чи обсяг даних явно перевищують один вузол. «Нам потрібен гнучкий JSON» — не така причина; це покриває `jsonb` у Postgres.\n\n## Партиціонування vs шардинг\n\n**Партиціонування** розбиває велику таблицю на менші частини за ключем. У Postgres (декларативне партиціонування з версії 10, hash-партиціонування з 11) усі партиції живуть на одному сервері: ви отримуєте partition pruning для запитів, що фільтрують за ключем, дешеве видалення застарілих даних (`DROP` або detach старої партиції замість величезного `DELETE`), менші індекси й швидший vacuum, але не більше потужності для записів. **Шардинг** розподіляє партиції між вузлами, тож кожен вузол володіє підмножиною ключів; це додає потужності, але коштує міжшардових запитів, транзакцій, глобальної унікальності й ребалансування.\n\n```sql\nCREATE TABLE events (\n    tenant_id  bigint      NOT NULL,\n    id         bigint      NOT NULL,\n    created_at timestamptz NOT NULL,\n    payload    jsonb,\n    PRIMARY KEY (tenant_id, id, created_at)      -- must include the partition key\n) PARTITION BY RANGE (created_at);\n\nCREATE TABLE events_2026_10 PARTITION OF events\n    FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');\n-- Retention: ALTER TABLE events DETACH PARTITION events_2025_10; DROP TABLE events_2025_10;\n```\n\n**Вибір shard key** — рішення, яке найважче скасувати. Ключ потребує високої кардинальності, рівномірного розподілу і даних, і трафіку, а також локальності: найчастіші запити мають потрапляти в один шард. Стратегії: **range** (добре для range scans, але послідовні ключі, як-от timestamps, відправляють кожен новий запис в останній шард), **hash** (рівномірний розподіл, але range-запити стають scatter-gather) і **directory/lookup** (таблиця відповідності ключа шарду, що дає змогу перенести великого tenant в окремий шард). Consistent hashing або велика фіксована кількість логічних шардів, відображених на меншу кількість фізичних вузлів, роблять ребалансування інкрементальним, а не повним перетасуванням.\n\n## Hot keys і hot partitions\n\nНавіть за хорошого розподілу ключів може знайтися один ключ, що отримує непропорційну частку трафіку: пост знаменитості, товар на флеш-розпродажі, гігантський tenant. Тоді ліміти однієї партиції обмежують усю систему (DynamoDB документує ліміти на партицію: 3 000 read і 1 000 write capacity units за секунду незалежно від загальної потужності таблиці). Способи пом'якшення залежать від напрямку:\n\n- **Гарячі читання:** кеш попереду (з request coalescing, щоб промах не спричиняв stampede), реплікація гарячого елемента, віддача з CDN.\n- **Гарячі записи:** розбити ключ на N підключів (`post#42#7`), писати у випадковий і підсумовувати під час читання; або буферизувати й агрегувати інкременти в пам'яті чи в потоці перед записом.\n- **Гарячі tenants:** ізолювати їх через directory в окремі шарди або дошардувати за складеним ключем.\n\n## Що перевіряє інтерв'юер\n\n- Обґрунтуйте вибір сховища access patterns і цифрами, а не модою.\n- Що відбувається із запитом, який не містить shard key? (Scatter-gather до кожного шарду; latency визначає найповільніший шард.)\n- Як генерувати унікальні ID між шардами? (ID у стилі Snowflake, UUIDv7 або діапазони на кожен шард.)\n- Як перешардувати без простою? (Логічні шарди, dual writes або change data capture, backfill, cut-over.)\n\n## Поширені хибні уявлення\n\n- «У NoSQL немає схеми, тож немає й міграцій». Схема переїжджає в код застосунку, а старі документи все одно треба обробляти.\n- «SQL-бази не масштабуються». Репліки, партиціонування й кешування доводять більшість систем дуже далеко; шардинг — пізніший крок.\n- «Партиціонування завжди пришвидшує запити». Запити без ключа партиціонування сканують кожну партицію.\n- «Більша загальна потужність вирішує проблему hot key». Ліміти на партицію залишаються тими самими.\n"
         }
       },
       "questions": [
@@ -405,6 +615,28 @@
                 }
               ],
               "explanation": "NoSQL stores earn their place when their trade-off matches the workload: designing tables or documents around known key-based queries, giving up joins and multi-entity transactions, in exchange for built-in horizontal partitioning and write scale. That only pays off when the numbers say one node is not enough and the access patterns are stable. \"Schemaless\" means schema-on-read: the schema lives in application code, old document shapes must still be handled, and data migrations do not disappear. Relational databases scale reads with replicas, data volume with partitioning, and writes with sharding or distributed SQL; many very large systems run on them, so \"cannot scale\" is false. Varying JSON attributes are well served by Postgres `jsonb` (indexable with GIN), so that alone is not a reason to change database family."
+            },
+            "uk": {
+              "prompt": "На співбесіді вас питають: «SQL чи NoSQL для цього сервісу і чому?» Яке обґрунтування вибору NoSQL (key-value/document) сховища найсильніше?",
+              "options": [
+                {
+                  "text": "NoSQL-бази schemaless, тож команда повністю уникає міграцій бази даних у міру еволюції доменної моделі.",
+                  "correct": false
+                },
+                {
+                  "text": "Реляційні бази не масштабуються за межі одного сервера, тож будь-яка система, що очікує значного зростання, має починати з NoSQL.",
+                  "correct": false
+                },
+                {
+                  "text": "Сервіс зберігає напівструктуровані JSON-атрибути, що відрізняються від запису до запису, а реляційні таблиці не можуть їх представити без безлічі nullable-колонок.",
+                  "correct": false
+                },
+                {
+                  "text": "Доступ базується на ключах і відомий заздалегідь, сутності — самодостатні агрегати, а оцінені записи явно перевищують можливості одного реляційного primary.",
+                  "correct": true
+                }
+              ],
+              "explanation": "NoSQL-сховища виправдані, коли їхній trade-off відповідає навантаженню: таблиці чи документи проєктуються під відомі запити за ключем, ви відмовляєтеся від joins і транзакцій між кількома сутностями в обмін на вбудоване горизонтальне партиціонування й масштабування записів. Це окупається лише тоді, коли цифри кажуть, що одного вузла недостатньо, а access patterns стабільні. «Schemaless» означає schema-on-read: схема живе в коді застосунку, старі форми документів однаково треба обробляти, і міграції даних не зникають. Реляційні бази масштабують читання репліками, обсяг даних — партиціонуванням, а записи — шардингом або distributed SQL; на них працює багато дуже великих систем, тож «не масштабуються» — неправда. Змінні JSON-атрибути добре обслуговує `jsonb` у Postgres (з індексацією через GIN), тож лише це не привід змінювати сімейство баз даних."
             }
           }
         },
@@ -440,6 +672,28 @@
                 }
               ],
               "explanation": "Partitioning is a single-node feature: one logical table, many physical tables on the same server. Its benefits are pruning (the planner skips partitions that cannot match the key predicate), retention (dropping a monthly partition is a metadata operation instead of a massive `DELETE` plus vacuum) and smaller per-partition indexes. Spreading data across servers is sharding, which needs an extension (Citus) or application-level routing; vanilla Postgres partitioning does not do it, although partitions can technically be foreign tables. Queries that do not filter on the partition key must visit every partition and can be slower than on an unpartitioned table, so 'every query' is wrong. Hash partitioning distributes values pseudo-randomly, so a range on the key maps to all partitions; range pruning needs range (or list) partitioning."
+            },
+            "uk": {
+              "prompt": "Яке твердження про декларативне партиціонування в Postgres правдиве?",
+              "options": [
+                {
+                  "text": "Воно розподіляє партиції таблиці між кількома серверами — саме так Postgres горизонтально масштабує пропускну здатність записів без розширень.",
+                  "correct": false
+                },
+                {
+                  "text": "Партиції залишаються на одному сервері: ви отримуєте partition pruning і дешеве видалення застарілих даних (detach/drop партиції), але не потужність записів понад цей вузол.",
+                  "correct": true
+                },
+                {
+                  "text": "Воно пришвидшує кожен запит до таблиці, бо кожна партиція має менші індекси, а планувальник завжди сканує менше сторінок.",
+                  "correct": false
+                },
+                {
+                  "text": "За hash-партиціонування за `customer_id` range-запит на кшталт `customer_id BETWEEN 1000 AND 2000` зачіпає лише партиції, що містять цей діапазон.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Партиціонування — можливість одного вузла: одна логічна таблиця, багато фізичних таблиць на тому самому сервері. Його переваги — pruning (планувальник пропускає партиції, які не можуть відповідати предикату за ключем), видалення застарілих даних (видалення місячної партиції — операція з метаданими замість масового `DELETE` плюс vacuum) і менші індекси на партицію. Розподіл даних між серверами — це шардинг, який потребує розширення (Citus) або маршрутизації на рівні застосунку; звичайне партиціонування Postgres цього не робить, хоча технічно партиції можуть бути foreign tables. Запити, що не фільтрують за ключем партиціонування, мусять обійти кожну партицію й можуть бути повільнішими, ніж на непартиціонованій таблиці, тож «кожен запит» — неправильно. Hash-партиціонування розподіляє значення псевдовипадково, тож діапазон за ключем відображається на всі партиції; range pruning потребує range- (або list-) партиціонування."
             }
           }
         },
@@ -476,6 +730,28 @@
                 }
               ],
               "explanation": "The shard key must give both locality (the dominant query hits one shard) and an even load. `tenant_id` gives locality; a directory adds the ability to place tenants deliberately, so the three heavy tenants can be isolated or split further while small ones are packed together, and tenants can be moved without rehashing everyone. Range sharding by time sends all current writes to the newest shard (a moving hot spot) and every tenant query spans shards. Hashing `order_id` spreads data evenly but turns every per-tenant query into a scatter-gather across all shards. Plain hashing by `tenant_id` keeps locality but is not self-balancing: whichever shards the three big tenants hash to become hot, and you cannot move one tenant without changing the hash scheme."
+            },
+            "uk": {
+              "prompt": "Таблицю `orders` мультитенантного SaaS треба шардувати. Майже кожен запит фільтрує за `tenant_id`; три tenants генерують близько 40% усього трафіку. Який підхід до шардингу підходить найкраще?",
+              "options": [
+                {
+                  "text": "Range-шардинг за `created_at`, щоб нещодавні замовлення були в найновішому шарді, а старіші шарди можна було архівувати або перенести на дешевше сховище.",
+                  "correct": false
+                },
+                {
+                  "text": "Hash-шардинг за `order_id`, що дає ідеально рівномірний розподіл рядків і записів незалежно від розміру окремих tenants.",
+                  "correct": false
+                },
+                {
+                  "text": "Directory-based шардинг за `tenant_id`: lookup-таблиця відображає tenants на шарди, а великі tenants отримують окрему або додатково шардовану потужність.",
+                  "correct": true
+                },
+                {
+                  "text": "Звичайний hash-шардинг за `tenant_id`, що тримає запити кожного tenant в одному шарді й автоматично балансує навантаження в міру зростання tenants.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Shard key має давати і локальність (домінуючий запит потрапляє в один шард), і рівномірне навантаження. `tenant_id` дає локальність; directory додає можливість розміщувати tenants свідомо, тож три важкі tenants можна ізолювати або розбити далі, а дрібні — пакувати разом, і переносити tenants без перехешування всіх. Range-шардинг за часом відправляє всі поточні записи в найновіший шард (рухома гаряча точка), а кожен запит tenant охоплює кілька шардів. Хешування `order_id` розподіляє дані рівномірно, але перетворює кожен запит у межах tenant на scatter-gather по всіх шардах. Звичайне хешування за `tenant_id` зберігає локальність, але не балансується саме: шарди, на які потрапили три великі tenants, стають гарячими, і перенести одного tenant без зміни схеми хешування не можна."
             }
           }
         },
@@ -512,6 +788,28 @@
                 }
               ],
               "explanation": "The bottleneck is a single partition key, and per-partition throughput is capped (DynamoDB documents 1,000 WCU/s per partition) no matter how much capacity the table has; adaptive capacity can shift capacity between partitions but cannot split one item's key. Write sharding turns one hot key into N keys that land on different partitions, trading a cheap multi-key read (or a periodically refreshed cached total) for write scalability; buffering and aggregating increments before writing is the other common answer. Raising table capacity does not raise the per-partition ceiling. A secondary index does not distribute writes to the base item; it adds write amplification, because every write must also update the index. Read consistency is unrelated to write throttling."
+            },
+            "uk": {
+              "prompt": "Лічильник лайків одного вірусного поста зберігається як один елемент у сховищі на кшталт DynamoDB й отримує ~50 000 інкрементів за секунду; записи тротлінгуються, хоча загальна provisioned throughput таблиці використана далеко не повністю. Яке виправлення усуває першопричину?",
+              "options": [
+                {
+                  "text": "Збільшити provisioned write capacity таблиці вдесятеро, щоб інкременти, які тротлінгуються, вільно вміщалися в загальну пропускну здатність таблиці.",
+                  "correct": false
+                },
+                {
+                  "text": "Розбити лічильник на N підключів (`post#42#0`..`post#42#99`), інкрементувати випадковий і підсумовувати їх (або кешовану суму) під час читання.",
+                  "correct": true
+                },
+                {
+                  "text": "Додати global secondary index за id поста, щоб записи для цього поста розподілялися по партиціях індексу.",
+                  "correct": false
+                },
+                {
+                  "text": "Перевести читання лічильника на strongly consistent reads, щоб конкурентні інкременти серіалізувалися й перестали конфліктувати.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Вузьке місце — один partition key, а пропускна здатність на партицію обмежена (DynamoDB документує 1 000 WCU/с на партицію) незалежно від потужності таблиці; adaptive capacity може перерозподіляти потужність між партиціями, але не може розбити ключ одного елемента. Write sharding перетворює один гарячий ключ на N ключів, що потрапляють у різні партиції, обмінюючи дешеве читання кількох ключів (або періодично оновлювану кешовану суму) на масштабованість записів; інша поширена відповідь — буферизувати й агрегувати інкременти перед записом. Збільшення потужності таблиці не піднімає стелю на партицію. Secondary index не розподіляє записи до базового елемента; він додає write amplification, бо кожен запис має оновити ще й індекс. Консистентність читань не пов'язана з тротлінгом записів."
             }
           }
         },
@@ -537,6 +835,17 @@
                 "Addresses hot keys or hot shards with a mitigation (directory-based placement, isolating or sub-sharding large keys/tenants).",
                 "Explains a rebalancing approach: logical shards mapped to physical nodes or consistent hashing, plus an online data migration (backfill + CDC or dual writes, then cut-over)."
               ]
+            },
+            "uk": {
+              "prompt": "Коли ви шардували б реляційну базу даних, що спробували б перед цим і чого вам коштує шардинг? Опишіть, як ви обирали б shard key і як додавали б шарди пізніше.",
+              "explanation": "Еталонна відповідь: шардинг — крайній захід для пропускної здатності записів чи обсягу даних понад можливості одного primary. Перед ним: масштабувати вертикально, додати read replicas, кешування, партиціонувати й архівувати холодні дані, винести аналітику в окреме сховище, побудувати read models, виправити запити й індекси. Обирати shard key з високою кардинальністю, рівномірним розподілом даних і трафіку та локальністю для домінуючих запитів (наприклад, tenant id) і планувати hot keys (directory-розміщення або дошардування великих tenants). Ціна: міжшардові запити стають scatter-gather, міжшардові транзакції потребують sagas або two-phase commit, глобальні unique constraints та ID потребують окремої схеми (Snowflake/UUIDv7), міграції схеми й бекапи виконуються для кожного шарду, а експлуатація ускладнюється. Щоб додавати шарди, використовувати багато логічних шардів, відображених на меншу кількість фізичних вузлів, або consistent hashing, щоб переміщувалася лише частка даних, мігруючи їх через backfill плюс change data capture або dual writes і cut-over.",
+              "rubric": [
+                "Перелічує альтернативи, які варто спробувати спершу: вертикальне масштабування, read replicas, кешування, партиціонування/архівування, винесення аналітики чи read models, тюнінг запитів/індексів.",
+                "Називає критерії shard key: висока кардинальність, рівномірний розподіл даних і трафіку та локальність, щоб найчастіші запити потрапляли в один шард.",
+                "Називає конкретні витрати: scatter-gather запити, міжшардові транзакції, глобальна унікальність/генерація ID і операційні накладні витрати (міграції, бекапи, моніторинг для кожного шарду).",
+                "Розглядає hot keys або hot shards і спосіб пом'якшення (directory-based розміщення, ізоляція чи дошардування великих ключів/tenants).",
+                "Пояснює підхід до ребалансування: логічні шарди, відображені на фізичні вузли, або consistent hashing, плюс онлайн-міграція даних (backfill + CDC або dual writes, потім cut-over)."
+              ]
             }
           }
         }
@@ -550,6 +859,10 @@
         "en": {
           "title": "Design a URL Shortener",
           "note": "## What it is\n\n\"Design a URL shortener\" (TinyURL, bit.ly) is the classic warm-up: small enough to finish, rich enough to show requirements, estimation, key generation, caching and the read path. The interviewer expects you to finish the basic design quickly and spend the time on the one hard part: generating short, unique keys at scale.\n\n## Requirements and estimates\n\nFunctional: create a short link for a long URL, redirect on visit, optional custom alias and expiry. Often out of scope or secondary: click analytics, user accounts, link editing. Non-functional: redirects must be fast (low tens of ms at p99) and highly available; creation can be slower; links must never collide or change target unexpectedly.\n\n```text\nWrites: 100M new links/month ≈ 100e6 / 2.6e6 s ≈ 40/s (peak ~200/s)\nReads:  100:1 read/write      ≈ 4,000/s (peak ~20k/s)\nStorage: 100M x 12 months x 5 years x ~500 B ≈ 3 TB\nKey space: base62 (a-z A-Z 0-9); 62^6 ≈ 5.7e10, 62^7 ≈ 3.5e12 → 7 characters is ample\n```\n\nThe numbers say: tiny write load, moderate read load, a few terabytes total. One relational database or a key-value store is enough; the read path wants a cache.\n\n## Key generation: the deep dive\n\n1. **Hash and truncate.** Hash the long URL (MD5/SHA-256), base62-encode, take 7 characters. Same URL yields the same key (free deduplication, which may be unwanted across users), but truncation makes collisions real: by the birthday bound, with 3.5e12 possible keys there is a 50% chance of at least one collision after only about 2.2 million links. You must check-and-retry (append a salt, rehash) using a unique constraint or conditional insert.\n2. **Counter + base62.** A unique integer encoded in base62 never collides. A single database sequence is a bottleneck and a single point of failure only if every write goes to it; instead, each app node leases a **range** (for example 1M ids) from a ticket service or ZooKeeper/etcd and hands them out locally. Raw counters are sequential and therefore enumerable (anyone can walk your links); scramble them with a bijective function over the key space (multiply by a constant coprime to 62^7 modulo 62^7, or a small Feistel network) to keep uniqueness while hiding order.\n3. **Pre-generated key service.** A separate service pre-generates random unique keys into a table and hands out batches; nodes mark keys used. Simple uniqueness, at the cost of another stateful component.\n\nCustom aliases go through the same uniqueness check (unique index) and need validation (reserved words, profanity, length).\n\n```csharp\nstatic string ToBase62(ulong value)\n{\n    const string Alphabet = \"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\";\n    Span<char> buffer = stackalloc char[11];        // ulong.MaxValue needs 11 base62 digits\n    int pos = buffer.Length;\n    do\n    {\n        buffer[--pos] = Alphabet[(int)(value % 62)];\n        value /= 62;\n    } while (value > 0);\n    return new string(buffer[pos..]);\n}\n```\n\n## Read path\n\n`GET /{key}` looks the key up in a cache (Redis, cache-aside with a long TTL since mappings rarely change), falls back to the database and responds with a redirect. The status code is a product decision: **301 Moved Permanently** is cached by browsers, so repeat visits never reach you (less load, no analytics, and you can never change or expire the target for that browser); **302 Found / 307 Temporary Redirect** keeps every click flowing through you. Most commercial shorteners use 302/307 (or 301 with short cache headers) for analytics. Click analytics must not slow the redirect: emit an event to a queue or log stream and aggregate asynchronously.\n\n## What an interviewer probes\n\n- Key length math and collision handling, not just \"use a hash\".\n- How you avoid the single-sequence bottleneck (range leasing).\n- 301 vs 302 and what it means for analytics and link changes.\n- Hot links (one link shared in a viral post): cache, CDN or edge redirect.\n- Abuse: rate limits on creation, malware/phishing URL scanning, expiry and deletion.\n\n## Common misconceptions\n\n- \"MD5 is 128 bits, so collisions are impossible.\" You keep only ~42 bits after truncation.\n- \"Base62 of a counter is random-looking.\" It is sequential and guessable.\n- \"We need Cassandra for this.\" 40 writes/s and 3 TB do not demand it; justify the store from the numbers.\n"
+        },
+        "uk": {
+          "title": "Спроєктуйте URL shortener",
+          "note": "## Що це\n\n«Спроєктуйте URL shortener» (TinyURL, bit.ly) — класична розминка: достатньо мала, щоб її завершити, і достатньо насичена, щоб показати вимоги, оцінку, генерацію ключів, кешування й шлях читання. Інтерв'юер очікує, що ви швидко завершите базовий дизайн і витратите час на одну складну частину: генерацію коротких унікальних ключів у масштабі.\n\n## Вимоги та оцінки\n\nФункціональні: створити коротке посилання для довгого URL, редирект під час відвідування, опційні власний alias і термін дії. Часто поза scope або другорядні: аналітика кліків, облікові записи користувачів, редагування посилань. Нефункціональні: редиректи мають бути швидкими (низькі десятки мс на p99) і високодоступними; створення може бути повільнішим; посилання ніколи не повинні колізувати чи несподівано змінювати ціль.\n\n```text\nWrites: 100M new links/month ≈ 100e6 / 2.6e6 s ≈ 40/s (peak ~200/s)\nReads:  100:1 read/write      ≈ 4,000/s (peak ~20k/s)\nStorage: 100M x 12 months x 5 years x ~500 B ≈ 3 TB\nKey space: base62 (a-z A-Z 0-9); 62^6 ≈ 5.7e10, 62^7 ≈ 3.5e12 → 7 characters is ample\n```\n\nЦифри кажуть: мізерне навантаження записів, помірне навантаження читань, кілька терабайтів загалом. Однієї реляційної бази або key-value сховища достатньо; шлях читання потребує кешу.\n\n## Генерація ключів: deep dive\n\n1. **Хеш і обрізання.** Захешувати довгий URL (MD5/SHA-256), закодувати в base62, взяти 7 символів. Однаковий URL дає однаковий ключ (безкоштовна дедуплікація, яка може бути небажаною між різними користувачами), але через обрізання колізії стають реальними: за birthday bound, маючи 3,5e12 можливих ключів, ви отримуєте 50% імовірності щонайменше однієї колізії вже приблизно після 2,2 мільйона посилань. Треба перевіряти й повторювати спробу (додати сіль, перехешувати), використовуючи unique constraint або умовний insert.\n2. **Лічильник + base62.** Унікальне ціле число, закодоване в base62, ніколи не колізує. Одна sequence у базі даних стає вузьким місцем і single point of failure лише тоді, коли кожен запис звертається до неї; натомість кожен вузол застосунку бере в оренду **діапазон** (наприклад, 1M id) у ticket service або ZooKeeper/etcd і видає їх локально. Сирі лічильники послідовні, а отже перелічувані (будь-хто може обійти всі ваші посилання); перемішуйте їх біективною функцією на просторі ключів (множення на константу, взаємно просту з 62^7, за модулем 62^7, або невелика мережа Фейстеля), щоб зберегти унікальність і приховати порядок.\n3. **Сервіс попередньо згенерованих ключів.** Окремий сервіс заздалегідь генерує випадкові унікальні ключі в таблицю й видає їх пакетами; вузли позначають ключі використаними. Проста унікальність ціною ще одного stateful-компонента.\n\nВласні aliases проходять ту саму перевірку унікальності (unique index) і потребують валідації (зарезервовані слова, нецензурна лексика, довжина).\n\n```csharp\nstatic string ToBase62(ulong value)\n{\n    const string Alphabet = \"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\";\n    Span<char> buffer = stackalloc char[11];        // ulong.MaxValue needs 11 base62 digits\n    int pos = buffer.Length;\n    do\n    {\n        buffer[--pos] = Alphabet[(int)(value % 62)];\n        value /= 62;\n    } while (value > 0);\n    return new string(buffer[pos..]);\n}\n```\n\n## Шлях читання\n\n`GET /{key}` шукає ключ у кеші (Redis, cache-aside з довгим TTL, бо відповідності рідко змінюються), у разі промаху звертається до бази й відповідає редиректом. Код статусу — продуктове рішення: **301 Moved Permanently** кешується браузерами, тож повторні відвідування до вас ніколи не доходять (менше навантаження, жодної аналітики, і ви вже ніколи не зможете змінити ціль чи завершити термін дії для цього браузера); **302 Found / 307 Temporary Redirect** пропускає кожен клік через вас. Більшість комерційних shorteners використовують 302/307 (або 301 з короткими cache-заголовками) заради аналітики. Аналітика кліків не повинна сповільнювати редирект: надсилайте подію в чергу чи потік логів і агрегуйте асинхронно.\n\n## Що перевіряє інтерв'юер\n\n- Математику довжини ключа й обробку колізій, а не просто «використаємо хеш».\n- Як ви уникаєте вузького місця однієї sequence (оренда діапазонів).\n- 301 vs 302 і що це означає для аналітики та зміни посилань.\n- Гарячі посилання (одне посилання у вірусному пості): кеш, CDN або редирект на edge.\n- Зловживання: rate limits на створення, сканування URL на malware/phishing, термін дії й видалення.\n\n## Поширені хибні уявлення\n\n- «MD5 — це 128 біт, тож колізії неможливі». Після обрізання ви зберігаєте лише ~42 біти.\n- «Base62 від лічильника виглядає випадково». Він послідовний і вгадуваний.\n- «Для цього нам потрібна Cassandra». 40 записів/с і 3 TB цього не вимагають; обґрунтовуйте сховище цифрами.\n"
         }
       },
       "questions": [
@@ -586,6 +899,28 @@
                 }
               ],
               "explanation": "A 301 is cacheable by default and browsers keep it aggressively, so after the first visit the browser jumps straight to the target: you lose every subsequent click for analytics and can no longer change or expire the destination for that browser. 302/307 are not cached unless explicit cache headers say so, keeping the service in the path for each click. The first option names a real trade-off (less load, permanent signal to search engines) but it violates the stated requirements. The third option reverses the caching semantics of the two codes. The fourth is wrong because the browser must first visit the short URL to learn the target at all, and the status code determines whether it ever needs to again."
+            },
+            "uk": {
+              "prompt": "Ваш URL shortener має звітувати про кількість кліків для кожного посилання й дозволяти власникам пізніше змінювати ціль посилання. Який статус редиректу має повертати `GET /{key}` і чому?",
+              "options": [
+                {
+                  "text": "301 Moved Permanently, бо це SEO-коректний вибір для коротких посилань, і тоді браузери уникають зайвого round trip під час кожного наступного кліку.",
+                  "correct": false
+                },
+                {
+                  "text": "302 Found (або 307): за замовчуванням браузери їх не кешують, тож кожен клік доходить до сервісу, де його рахують і резолвлять у поточну ціль.",
+                  "correct": true
+                },
+                {
+                  "text": "301, бо відповіді 302 браузери кешують назавжди, а відповіді 301 перевіряються на сервері під час кожного відвідування.",
+                  "correct": false
+                },
+                {
+                  "text": "Будь-який: браузери однаково завжди спершу звертаються до shortener, тож код статусу не впливає на кешування, аналітику чи пізнішу зміну цілі.",
+                  "correct": false
+                }
+              ],
+              "explanation": "301 за замовчуванням кешується, і браузери агресивно його зберігають, тож після першого відвідування браузер переходить одразу на ціль: ви втрачаєте для аналітики кожен наступний клік і більше не можете змінити ціль чи завершити її термін дії для цього браузера. 302/307 не кешуються, якщо явні cache-заголовки не кажуть інакше, тож сервіс залишається на шляху кожного кліку. Перший варіант називає реальний trade-off (менше навантаження, постійний сигнал для пошукових систем), але порушує сформульовані вимоги. Третій варіант перевертає семантику кешування цих двох кодів. Четвертий неправильний, бо браузер мусить спершу відвідати короткий URL, щоб узагалі дізнатися ціль, а код статусу визначає, чи доведеться йому робити це знову."
             }
           }
         },
@@ -621,6 +956,28 @@
                 }
               ],
               "explanation": "62^6 ≈ 5.7 x 10^10 (about 57 billion), which is too small for 10^12. 62^7 ≈ 3.5 x 10^12 (about 3.5 trillion), which covers a trillion keys with headroom, so 7 is the minimum. 8 characters (≈ 2.2 x 10^14) works but is not minimal and wastes length, the product's main feature. 10 characters is what you get by reasoning in base 10 or by assuming hex-like alphabets; it also ignores that each base62 character carries about 5.95 bits. If you hash-and-truncate instead of using a counter, the key space must be much larger than the number of keys to keep collisions rare, which is a separate argument from this minimum."
+            },
+            "uk": {
+              "prompt": "Короткі ключі використовують символи base62 (`a-z`, `A-Z`, `0-9`). Система має бути здатна видати близько 1 трильйона унікальних ключів за весь час роботи. Яка мінімальна фіксована довжина ключа?",
+              "options": [
+                {
+                  "text": "6 символів",
+                  "correct": false
+                },
+                {
+                  "text": "7 символів",
+                  "correct": true
+                },
+                {
+                  "text": "8 символів",
+                  "correct": false
+                },
+                {
+                  "text": "10 символів",
+                  "correct": false
+                }
+              ],
+              "explanation": "62^6 ≈ 5,7 x 10^10 (близько 57 мільярдів) — замало для 10^12. 62^7 ≈ 3,5 x 10^12 (близько 3,5 трильйона) покриває трильйон ключів із запасом, тож 7 — мінімум. 8 символів (≈ 2,2 x 10^14) підходять, але не є мінімальними й марнують довжину — головну характеристику продукту. 10 символів виходить, якщо міркувати в десятковій системі або припускати алфавіт, схожий на hex; це також ігнорує те, що кожен символ base62 несе близько 5,95 біта. Якщо замість лічильника використовувати хеш з обрізанням, простір ключів має бути значно більшим за кількість ключів, щоб колізії залишалися рідкісними, — але це окремий аргумент, не пов'язаний із цим мінімумом."
             }
           }
         },
@@ -657,6 +1014,28 @@
                 }
               ],
               "explanation": "Truncation keeps only 7 base62 characters (about 42 bits), so the 128-bit size of MD5 is irrelevant. The birthday bound says a 50% collision probability arrives at roughly 1.18 x sqrt(N) items; sqrt(3.5e12) ≈ 1.9e6, so around 2.2 million links, a tiny fraction of the key space. The design therefore needs a conditional insert or unique constraint plus a retry strategy. MD5's cryptographic weaknesses (deliberate collision construction) are not the main problem here; predictability comes from the fact that anyone can compute the hash of a known URL, which is a property of any unsalted hash. Distinct long URLs can and do map to the same truncated prefix, so never shortening the same URL twice does not prevent collisions; it only explains why identical URLs map to identical keys."
+            },
+            "uk": {
+              "prompt": "Дизайн генерує короткий ключ як перші 7 символів base62 від `MD5(longUrl)` і вставляє його без перевірки. Яке твердження правильне?",
+              "options": [
+                {
+                  "text": "Колізії практично неможливі, бо MD5 дає 128-бітні дайджести, а ймовірність того, що два URL матимуть однаковий дайджест, мізерна.",
+                  "correct": false
+                },
+                {
+                  "text": "Дизайн небезпечний насамперед тому, що MD5 криптографічно зламаний, а це дає змогу зловмисникам конструювати URL, які передбачають або перехоплюють ключі інших користувачів.",
+                  "correct": false
+                },
+                {
+                  "text": "Колізії з'являються рано: з ~3,5 x 10^12 ключів birthday bound досягає ~50% приблизно після двох мільйонів посилань, тож вставки потребують перевірки унікальності й повтору.",
+                  "correct": true
+                },
+                {
+                  "text": "Колізії неможливі, доки той самий довгий URL ніколи не скорочується двічі, бо різні вхідні дані дають різні дайджести.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Обрізання залишає лише 7 символів base62 (близько 42 біт), тож 128-бітний розмір MD5 не має значення. Birthday bound каже, що ймовірність колізії 50% досягається приблизно на 1,18 x sqrt(N) елементах; sqrt(3,5e12) ≈ 1,9e6, тобто близько 2,2 мільйона посилань — крихітна частка простору ключів. Тому дизайн потребує умовного insert або unique constraint плюс стратегії повтору. Криптографічні слабкості MD5 (навмисне конструювання колізій) тут не головна проблема; передбачуваність виникає через те, що будь-хто може обчислити хеш відомого URL, а це властивість будь-якого хешу без солі. Різні довгі URL можуть відображатися — і відображаються — на той самий обрізаний префікс, тож те, що той самий URL ніколи не скорочується двічі, не запобігає колізіям; це лише пояснює, чому однакові URL дають однакові ключі."
             }
           }
         },
@@ -693,6 +1072,28 @@
                 }
               ],
               "explanation": "The objections are a central bottleneck/single point of failure (one sequence hit per write) and enumerability (sequential keys let anyone crawl all links). Range leasing removes the per-write coordination: an instance contacts the coordinator once per million IDs, and a crashed instance only wastes the rest of its block. A bijection (multiplication by a constant coprime to 62^7 modulo 62^7, or a Feistel network) maps the counter to a scrambled value with no collisions. Base62 of consecutive integers stays consecutive (…abc, …abd), so encoding hides nothing. A 128-bit UUID needs about 22 base62 characters; truncating it to 7 brings back the collision problem. Millisecond timestamps collide whenever two instances (or two requests on one instance) create links in the same millisecond, and they are as enumerable as a counter."
+            },
+            "uk": {
+              "prompt": "Для генерації ключів на 20 екземплярах застосунку ви обираєте «унікальний лічильник + кодування base62». Яке уточнення знімає два класичні заперечення проти цього підходу?",
+              "options": [
+                {
+                  "text": "Використовувати одну sequence у базі даних для кожного запиту; кодування base62 уже робить послідовні ключі схожими на випадкові, а одну sequence легко експлуатувати.",
+                  "correct": false
+                },
+                {
+                  "text": "Замінити лічильник на випадковий 128-бітний UUID і закодувати його в base62, що зберігає 7-символьні ключі й робить їх невгадуваними.",
+                  "correct": false
+                },
+                {
+                  "text": "Використовувати як лічильник поточний Unix timestamp у мілісекундах, щоб екземпляри не потребували координації, а ключі залишалися унікальними й упорядкованими.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожен екземпляр орендує блоки ID (наприклад, 1M) у координатора й пропускає кожен ID через біективне перемішування перед кодуванням base62.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Заперечення такі: центральне вузьке місце/single point of failure (звернення до однієї sequence на кожен запис) і перелічуваність (послідовні ключі дають змогу будь-кому обійти всі посилання). Оренда діапазонів прибирає координацію на кожен запис: екземпляр звертається до координатора раз на мільйон ID, а екземпляр, що впав, марнує лише залишок свого блоку. Біекція (множення на константу, взаємно просту з 62^7, за модулем 62^7, або мережа Фейстеля) відображає лічильник на перемішане значення без колізій. Base62 від послідовних цілих залишається послідовним (…abc, …abd), тож кодування нічого не приховує. 128-бітний UUID потребує близько 22 символів base62; обрізання до 7 повертає проблему колізій. Мілісекундні timestamps колізують щоразу, коли два екземпляри (або два запити на одному екземплярі) створюють посилання в ту саму мілісекунду, і вони такі ж перелічувані, як лічильник."
             }
           }
         },
@@ -718,6 +1119,17 @@
                 "Discusses 301 vs 302/307 and its consequences for analytics and changing or expiring targets.",
                 "Keeps analytics off the hot path (asynchronous events/queue and aggregation) and mentions abuse controls such as rate limiting on creation or malicious-URL checks."
               ]
+            },
+            "uk": {
+              "prompt": "Спроєктуйте URL shortener на кшталт bit.ly. Розгляньте вимоги, приблизні оцінки потужностей, API, генерацію ключів, сховище, шлях редиректу й аналітику. Поясніть основні trade-offs, на які ви йдете.",
+              "explanation": "Еталонна відповідь: функціональні вимоги — створити коротке посилання (опційні власний alias, термін дії) і редирект; аналітика другорядна. Оцінка, наприклад, ~40 записів/с, ~4k читань/с (100:1), ~3 TB за 5 років: мізерні записи, переважно читання, помірний обсяг даних. API: `POST /links {url, alias?, expiresAt?} -> {key}`, `GET /{key} -> 302`. Ключі: 7 символів base62 (62^7 ≈ 3,5e12); або лічильник з орендою діапазонів плюс перемішування (без колізій, потрібен координатор), або хеш/випадкове значення з unique constraint і повтором (колізії за birthday bound). Сховище: одна реляційна БД або KV-сховище з коротким ключем як ключем і unique index; шар Redis cache-aside на шляху читання, CDN/edge для гарячих посилань. Використовувати 302/307, якщо важливі аналітика чи змінювані цілі (301 дає браузерам змогу обходити вас). Записувати кліки асинхронно через чергу/потік і агрегувати офлайн, щоб шлях редиректу залишався швидким. Додати rate limiting на створення, перевірку безпечності URL, очищення прострочених посилань.",
+              "rubric": [
+                "Формулює функціональні й нефункціональні вимоги та дає оцінки читань/записів і сховища, що показують навантаження з перевагою читань, і використовує їх для обґрунтування скромного вибору сховища та кешу.",
+                "Обґрунтовує довжину ключа математикою простору ключів base62 і обирає стратегію генерації ключів, розглядаючи або колізії (хеш/випадкове значення з перевіркою унікальності й повтором), або координацію й перелічуваність (лічильник з орендою діапазонів і перемішуванням).",
+                "Описує шлях читання для редиректу з кешем (cache-aside, довгий TTL) перед сховищем і обробляє гарячі посилання.",
+                "Обговорює 301 vs 302/307 і наслідки для аналітики та зміни чи завершення терміну дії цілей.",
+                "Виносить аналітику з гарячого шляху (асинхронні події/черга й агрегація) і згадує захист від зловживань, як-от rate limiting на створення або перевірку шкідливих URL."
+              ]
             }
           }
         }
@@ -731,6 +1143,10 @@
         "en": {
           "title": "Design a Notification Service",
           "note": "## What it is\n\nA notification service is a shared platform that lets many product services send messages to users through several channels (email, SMS, mobile push, in-app, sometimes webhooks or chat) without each team integrating providers, templates and preferences on its own. In an interview it tests asynchronous pipelines, fan-out, retries with idempotency, prioritisation and rate limiting.\n\n## Requirements to pin down\n\n- **Who sends what:** transactional (OTP, password reset, order shipped: low volume, urgent) vs bulk (marketing, digests: huge volume, deferrable). These need different latency targets and must not interfere.\n- **Channels and providers:** SES/SendGrid for email, Twilio for SMS, APNs/FCM for push, plus an in-app inbox.\n- **User preferences:** per category and channel opt-outs, quiet hours and time zones, frequency caps, legal unsubscribe rules. Transactional security messages usually bypass marketing opt-outs.\n- **Guarantees:** at-least-once delivery towards providers with deduplication; delivery status tracking; templates with localisation.\n\n## Architecture\n\n1. **Ingestion API** (`POST /notifications`) accepts `{eventType, recipients or audience, data, idempotencyKey, priority}`, validates, stores a record and enqueues. Producers can also publish domain events that the service subscribes to (an outbox on the producer side makes that reliable).\n2. **Fan-out.** One event can target one user or a million (a newsletter, \"your followed artist posted\"). A fan-out stage expands audiences in batches into per-recipient, per-channel jobs, so a huge audience becomes many small, retryable units instead of one giant transaction.\n3. **Resolution at send time:** load preferences, quiet hours and locale, render the template. Resolving late matters because preferences can change between enqueue and send, and scheduled messages may wait hours.\n4. **Per-channel, per-priority queues and worker pools.** Separate queues (and provider quota) for transactional vs bulk mean a 5M-email campaign cannot delay a login code. Workers scale independently per channel.\n5. **Provider adapters** with timeouts, retries using exponential backoff with jitter, a dead-letter queue for poison or permanently failing messages, and failover to a secondary provider for critical channels.\n6. **Status tracking:** provider callbacks (delivered, bounced, opened, unsubscribed) update the notification record; hard bounces and invalid tokens feed back into the contact data so you stop sending to them.\n\n## Retries, idempotency and duplicates\n\nQueues give at-least-once delivery, so a worker may process the same job twice, and a provider call that times out has an **unknown outcome**: the SMS may already have been sent. Use the notification id as a deduplication key in your own store (skip if already marked sent), pass it to providers that support an idempotency key or client reference, and for an ambiguous timeout prefer checking status (status API or callback) before resending. Some duplicates remain possible; decide per message type whether a duplicate or a loss is worse.\n\n```csharp\npublic async Task HandleAsync(SendJob job, CancellationToken ct)\n{\n    // Dedup: the queue is at-least-once; claim the job atomically.\n    if (!await _store.TryMarkSendingAsync(job.NotificationId, job.Channel, ct)) return;\n\n    var prefs = await _preferences.GetAsync(job.UserId, ct);              // resolved at send time\n    if (!prefs.Allows(job.Category, job.Channel) && !job.IsTransactional)\n    {\n        await _store.MarkSuppressedAsync(job.NotificationId, job.Channel, ct);\n        return;\n    }\n\n    await _limiter.WaitAsync(job.Channel, job.UserId, ct);              // per-provider and per-user limits\n    var result = await _provider.SendAsync(job, idempotencyKey: job.NotificationId.ToString(), ct);\n    await _store.RecordAsync(job.NotificationId, job.Channel, result, ct);\n}\n```\n\n## Rate limits\n\nTwo directions: **outbound** limits imposed by providers (SMS throughput per number, push quotas, email sending rates) enforced with a shared token bucket per provider account; and **per-user** caps that protect users from being spammed by buggy producers (\"at most 3 marketing pushes per day\"). Bulk traffic should absorb throttling; transactional traffic gets reserved capacity.\n\n## What an interviewer probes\n\n- How a million-recipient campaign is fanned out without blocking urgent messages.\n- Exactly what happens when a provider times out, and how you avoid both loss and duplicates.\n- Where preferences are enforced and why there.\n- How you know a notification was delivered, and what you do with bounces.\n\n## Common misconceptions\n\n- \"The queue guarantees exactly-once delivery.\" Brokers are at-least-once; the external call is outside any transaction.\n- \"More workers fix delays.\" If the shared provider quota is the limit, more workers only add 429s.\n- \"Producers should check preferences.\" It duplicates logic across teams and reads stale data.\n"
+        },
+        "uk": {
+          "title": "Спроєктуйте notification service",
+          "note": "## Що це\n\nNotification service — це спільна платформа, через яку багато продуктових сервісів надсилають повідомлення користувачам кількома каналами (email, SMS, mobile push, in-app, інколи webhooks або чат), щоб кожна команда не інтегрувала провайдерів, шаблони й налаштування самостійно. На співбесіді вона перевіряє асинхронні пайплайни, fan-out, повтори з ідемпотентністю, пріоритизацію й rate limiting.\n\n## Вимоги, які треба зафіксувати\n\n- **Хто що надсилає:** транзакційні (OTP, скидання пароля, «замовлення відправлено»: малий обсяг, терміново) vs масові (маркетинг, дайджести: величезний обсяг, можна відкласти). Вони потребують різних цільових latency і не повинні заважати одне одному.\n- **Канали й провайдери:** SES/SendGrid для email, Twilio для SMS, APNs/FCM для push, плюс in-app inbox.\n- **Налаштування користувача:** відмови за категорією й каналом, тихі години й часові пояси, frequency caps, юридичні правила відписки. Транзакційні повідомлення безпеки зазвичай обходять маркетингові відмови.\n- **Гарантії:** доставка at-least-once до провайдерів з дедуплікацією; відстеження статусу доставки; шаблони з локалізацією.\n\n## Архітектура\n\n1. **Ingestion API** (`POST /notifications`) приймає `{eventType, recipients or audience, data, idempotencyKey, priority}`, валідує, зберігає запис і ставить у чергу. Продюсери можуть також публікувати доменні події, на які підписаний сервіс (outbox на боці продюсера робить це надійним).\n2. **Fan-out.** Одна подія може бути адресована одному користувачу або мільйону (розсилка, «артист, на якого ви підписані, опублікував пост»). Етап fan-out пакетами розгортає аудиторії в задачі на кожного отримувача й кожен канал, тож величезна аудиторія стає безліччю малих одиниць, які можна повторити, а не однією гігантською транзакцією.\n3. **Резолвінг у момент надсилання:** завантажити налаштування, тихі години й локаль, відрендерити шаблон. Пізній резолвінг важливий, бо налаштування можуть змінитися між постановкою в чергу й надсиланням, а заплановані повідомлення можуть чекати годинами.\n4. **Черги й пули workers окремо для кожного каналу та пріоритету.** Окремі черги (і квота провайдера) для транзакційного й масового трафіку означають, що кампанія на 5M email не може затримати код входу. Workers масштабуються незалежно для кожного каналу.\n5. **Адаптери провайдерів** з таймаутами, повторами з exponential backoff і jitter, dead-letter queue для отруйних або остаточно невдалих повідомлень і failover на резервного провайдера для критичних каналів.\n6. **Відстеження статусу:** callbacks провайдерів (delivered, bounced, opened, unsubscribed) оновлюють запис сповіщення; hard bounces і невалідні токени повертаються в контактні дані, щоб ви перестали на них надсилати.\n\n## Повтори, ідемпотентність і дублікати\n\nЧерги дають доставку at-least-once, тож worker може обробити ту саму задачу двічі, а виклик провайдера, що завершився таймаутом, має **невідомий результат**: SMS могло вже бути надіслане. Використовуйте id сповіщення як ключ дедуплікації у власному сховищі (пропускати, якщо вже позначено надісланим), передавайте його провайдерам, які підтримують idempotency key або client reference, а в разі неоднозначного таймауту краще перевірити статус (status API або callback), ніж надсилати повторно. Деякі дублікати все одно можливі; для кожного типу повідомлення вирішіть, що гірше — дублікат чи втрата.\n\n```csharp\npublic async Task HandleAsync(SendJob job, CancellationToken ct)\n{\n    // Dedup: the queue is at-least-once; claim the job atomically.\n    if (!await _store.TryMarkSendingAsync(job.NotificationId, job.Channel, ct)) return;\n\n    var prefs = await _preferences.GetAsync(job.UserId, ct);              // resolved at send time\n    if (!prefs.Allows(job.Category, job.Channel) && !job.IsTransactional)\n    {\n        await _store.MarkSuppressedAsync(job.NotificationId, job.Channel, ct);\n        return;\n    }\n\n    await _limiter.WaitAsync(job.Channel, job.UserId, ct);              // per-provider and per-user limits\n    var result = await _provider.SendAsync(job, idempotencyKey: job.NotificationId.ToString(), ct);\n    await _store.RecordAsync(job.NotificationId, job.Channel, result, ct);\n}\n```\n\n## Rate limits\n\nДва напрямки: **вихідні** ліміти, які встановлюють провайдери (пропускна здатність SMS на номер, квоти push, швидкість надсилання email), що забезпечуються спільним token bucket на обліковий запис провайдера; і **ліміти на користувача**, що захищають користувачів від спаму через баги продюсерів («не більше 3 маркетингових push на день»). Масовий трафік має поглинати тротлінг; транзакційний отримує зарезервовану потужність.\n\n## Що перевіряє інтерв'юер\n\n- Як кампанія на мільйон отримувачів розгортається через fan-out, не блокуючи термінові повідомлення.\n- Що саме відбувається, коли провайдер відповідає таймаутом, і як ви уникаєте і втрат, і дублікатів.\n- Де забезпечуються налаштування користувача і чому саме там.\n- Як ви дізнаєтеся, що сповіщення доставлено, і що робите з bounces.\n\n## Поширені хибні уявлення\n\n- «Черга гарантує доставку exactly-once». Брокери дають at-least-once; зовнішній виклик перебуває поза будь-якою транзакцією.\n- «Більше workers усувають затримки». Якщо обмеженням є спільна квота провайдера, більше workers лише додають 429.\n- «Налаштування мають перевіряти продюсери». Це дублює логіку між командами й читає застарілі дані.\n"
         }
       },
       "questions": [
@@ -766,6 +1182,28 @@
                 }
               ],
               "explanation": "Provider calls are slow, rate-limited and sometimes failing; coupling them to the producer's request would make producers wait and fail along with the provider. A queue lets the API persist and acknowledge the request, absorbs bursts, supports retries with backoff and dead-lettering, and allows per-channel concurrency and throttling. Exactly-once is the classic misconception: brokers deliver at least once, and the external HTTP call to the provider can never be part of a broker transaction, so deduplication is still needed. A queue adds latency rather than removing it; its value is reliability and isolation, and brokers do not call third-party APIs themselves. Providers expose ordinary HTTP APIs and have no requirement about where calls originate."
+            },
+            "uk": {
+              "prompt": "Навіщо notification services ставлять message queue між API, що приймає запити на сповіщення, і workers, які викликають провайдерів email/SMS/push?",
+              "options": [
+                {
+                  "text": "Черга забезпечує наскрізну доставку exactly-once, тож користувачі ніколи не отримують те саме сповіщення двічі, навіть коли worker падає посеред надсилання.",
+                  "correct": false
+                },
+                {
+                  "text": "Доставка стає швидшою, бо брокер надсилає повідомлення напряму в API провайдерів без накладних витрат на workers застосунку.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона відокремлює продюсерів від повільних, ненадійних провайдерів: запити швидко підтверджуються, сплески буферизуються, збої повторюються, а кожен канал тротлиться й масштабується незалежно.",
+                  "correct": true
+                },
+                {
+                  "text": "Провайдери на кшталт Twilio і SendGrid приймають трафік лише через інтеграцію з message broker і ніколи — через прямі HTTP-виклики із застосунку.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Виклики провайдерів повільні, обмежені rate limits і інколи невдалі; прив'язка їх до запиту продюсера змусила б продюсерів чекати й падати разом із провайдером. Черга дає API змогу зберегти й підтвердити запит, поглинає сплески, підтримує повтори з backoff і dead-lettering, а також дає змогу налаштовувати конкурентність і тротлінг для кожного каналу. Exactly-once — класичне хибне уявлення: брокери доставляють щонайменше один раз, а зовнішній HTTP-виклик до провайдера ніколи не може бути частиною транзакції брокера, тож дедуплікація однаково потрібна. Черга додає latency, а не прибирає її; її цінність — надійність та ізоляція, і брокери самі не викликають сторонні API. Провайдери надають звичайні HTTP API й не висувають вимог до того, звідки надходять виклики."
             }
           }
         },
@@ -802,6 +1240,28 @@
                 }
               ],
               "explanation": "This is a head-of-line blocking problem: OTPs wait behind millions of bulk messages in a FIFO queue and compete for the same provider quota. Isolation by priority (separate queues or topics, separate consumers, and a reserved share of provider rate limits) is the structural fix; it is the bulkhead pattern applied to notifications. Scaling workers helps only until the provider's rate limit is reached, after which extra workers just collect 429 responses, and it does not change the queue order. Retrying faster does nothing for a message that has not been dequeued yet, and aggressive retries increase load. A TTL drops campaign messages that took too long, losing them silently, and does not move OTPs ahead of the backlog."
+            },
+            "uk": {
+              "prompt": "Маркетингова кампанія ставить 5 мільйонів email і push-сповіщень у ту саму чергу й пул workers, що використовуються для одноразових кодів (OTP). Тепер доставка OTP займає 20 хвилин. Яка зміна структурно вирішує проблему?",
+              "options": [
+                {
+                  "text": "Збільшити спільний пул workers у 10 разів на час кампаній, щоб backlog розібрався раніше, ніж OTP доведеться за ним чекати.",
+                  "correct": false
+                },
+                {
+                  "text": "Розділити транзакційний і масовий трафік на окремі черги з власними workers і зарезервованою потужністю провайдера, щоб масові backlogs не могли затримувати OTP.",
+                  "correct": true
+                },
+                {
+                  "text": "Повторювати OTP-повідомлення агресивніше з коротшим backoff, щоб вони обганяли повідомлення кампанії, які вже чекають у черзі.",
+                  "correct": false
+                },
+                {
+                  "text": "Встановити короткий time-to-live для повідомлень кампанії, щоб застарілі викидалися з черги, а OTP за ними оброблялися раніше.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Це проблема head-of-line blocking: OTP чекають за мільйонами масових повідомлень у FIFO-черзі й конкурують за ту саму квоту провайдера. Ізоляція за пріоритетом (окремі черги чи топіки, окремі consumers і зарезервована частка rate limits провайдера) — структурне виправлення; це патерн bulkhead, застосований до сповіщень. Масштабування workers допомагає лише до досягнення rate limit провайдера, після чого додаткові workers лише збирають відповіді 429, і порядок у черзі воно не змінює. Швидші повтори нічого не дають повідомленню, яке ще не вийняли з черги, а агресивні повтори збільшують навантаження. TTL викидає повідомлення кампанії, які надто довго чекали, мовчки втрачаючи їх, і не переміщує OTP попереду backlog."
             }
           }
         },
@@ -838,6 +1298,28 @@
                 }
               ],
               "explanation": "A timeout means you do not know whether the provider accepted the request. Making the request idempotent at the provider (where an idempotency key or reference is supported), reconciling via status before resending, and keeping your own record keyed by notification id reduces duplicates while still retrying genuinely lost sends; where no idempotency is available you choose consciously between a rare duplicate and a rare loss. Never retrying turns every slow response into a lost notification, which is worse for most transactional messages. Broker-level exactly-once (where it exists) covers the broker's own delivery to the consumer, not the side effect of an external HTTP call. A shorter timeout makes ambiguous outcomes more frequent, not less: the provider may still process the original request after you give up."
+            },
+            "uk": {
+              "prompt": "Worker викликає SMS-провайдера; HTTP-виклик завершується таймаутом через 10 с. Задача повторюється, і користувач отримує той самий код двічі. Як найкраще обробляти цей клас збоїв?",
+              "options": [
+                {
+                  "text": "Вважати таймаут невідомим результатом: передавати id сповіщення як idempotency key або reference провайдера, перевіряти статус перед повторним надсиланням і дедуплікувати за id.",
+                  "correct": true
+                },
+                {
+                  "text": "Ніколи не повторювати після таймауту; позначити сповіщення як невдале, щоб користувач міг запросити новий код, — це гарантує, що користувач ніколи не отримає дубліката.",
+                  "correct": false
+                },
+                {
+                  "text": "Увімкнути доставку exactly-once у message broker, щоб задачу не можна було обробити двічі, а отже провайдера викликали лише один раз.",
+                  "correct": false
+                },
+                {
+                  "text": "Зменшити HTTP-таймаут до 2 секунд, щоб повтор відбувався раніше, ніж провайдер встигне доставити перше повідомлення.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Таймаут означає, що ви не знаєте, чи прийняв провайдер запит. Зробити запит ідемпотентним на боці провайдера (де підтримується idempotency key чи reference), звіряти статус перед повторним надсиланням і вести власний запис за id сповіщення — це зменшує кількість дублікатів і водночас дає змогу повторювати справді втрачені надсилання; там, де ідемпотентність недоступна, ви свідомо обираєте між рідкісним дублікатом і рідкісною втратою. Відмова від повторів перетворює кожну повільну відповідь на втрачене сповіщення, що для більшості транзакційних повідомлень гірше. Exactly-once на рівні брокера (там, де він існує) покриває доставку від брокера до consumer, а не побічний ефект зовнішнього HTTP-виклику. Коротший таймаут робить неоднозначні результати частішими, а не рідшими: провайдер може все одно обробити вихідний запит після того, як ви здалися."
             }
           }
         },
@@ -873,6 +1355,28 @@
                 }
               ],
               "explanation": "Preferences are owned by the notification platform and must be evaluated as late as possible: a user can unsubscribe between enqueue and send, quiet hours depend on the moment of delivery, and scheduled digests may wait hours. The send-time check also centralises the rules, including the explicit exceptions (security codes and legally required notices bypass marketing opt-outs). Pushing the check into producers duplicates the logic in every team's code and reads preferences that may already be stale. Checking only at enqueue time misses changes during the wait and makes quiet-hours logic wrong for delayed messages. Client-side hiding still sends (and pays for) SMS and email, only works for push and in-app, and does not honour opt-out obligations."
+            },
+            "uk": {
+              "prompt": "Де мають забезпечуватися налаштування сповіщень користувача (відмови від каналів, тихі години)?",
+              "options": [
+                {
+                  "text": "У кожному сервісі-продюсері перед публікацією запиту, щоб небажані сповіщення ніколи не потрапляли в пайплайн і потужність черги на них не марнувалася.",
+                  "correct": false
+                },
+                {
+                  "text": "Один раз, у момент постановки в чергу всередині notification service, шляхом фільтрації списку отримувачів до створення будь-яких задач для каналів.",
+                  "correct": false
+                },
+                {
+                  "text": "На клієнтських пристроях, які можуть приховувати вимкнені користувачем сповіщення, щоб сервер залишався простим і не залежав від налаштувань.",
+                  "correct": false
+                },
+                {
+                  "text": "У notification service у момент надсилання, щоб враховувалися пізніші зміни налаштувань і відкладені повідомлення, з винятками для обов'язкових повідомлень.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Налаштуваннями володіє платформа сповіщень, і їх треба оцінювати якомога пізніше: користувач може відписатися між постановкою в чергу й надсиланням, тихі години залежать від моменту доставки, а заплановані дайджести можуть чекати годинами. Перевірка в момент надсилання також централізує правила, включно з явними винятками (коди безпеки й юридично обов'язкові повідомлення обходять маркетингові відмови). Перенесення перевірки в продюсери дублює логіку в коді кожної команди й читає налаштування, які вже можуть бути застарілими. Перевірка лише в момент постановки в чергу пропускає зміни під час очікування й робить логіку тихих годин неправильною для відкладених повідомлень. Приховування на клієнті все одно надсилає SMS і email (і платить за них), працює лише для push та in-app і не виконує зобов'язань щодо відписки."
             }
           }
         },
@@ -908,6 +1412,28 @@
                 }
               ],
               "explanation": "Large fan-out must be broken into small, resumable, idempotent units: a batch can fail and be retried without redoing or duplicating the rest, workers scale horizontally, and the bulk queue keeps it from starving transactional traffic. Recording progress (a cursor over the follower list) lets a crashed fan-out resume. A single 2M-row transaction holds locks and log space for a long time, times out the API request and fails as one huge unit, making retries expensive and duplication-prone. Synchronous calls from the producer couple it to provider latency and rate limits for hours. Fan-out on read (clients fetching the feed) is a valid technique for in-app feeds, especially for celebrity accounts, but push notifications must be sent by the server to each device, so it does not solve the push requirement."
+            },
+            "uk": {
+              "prompt": "Користувач із 2 мільйонами підписників публікує пост, і кожен підписник має отримати in-app і push-сповіщення. Який підхід до fan-out найнадійніший?",
+              "options": [
+                {
+                  "text": "Розгорнути аудиторію всередині API-запиту, що приймає подію, вставивши 2 мільйони рядків в одній транзакції, щоб fan-out або повністю вдався, або повністю провалився.",
+                  "correct": false
+                },
+                {
+                  "text": "Прийняти подію, після чого fan-out workers посторінково проходять підписників пакетами (наприклад, по 1 000) і ставлять у чергу незалежно повторювані ідемпотентні задачі з масовим пріоритетом.",
+                  "correct": true
+                },
+                {
+                  "text": "Надсилати один push-запит на кожного підписника синхронно із сервісу-продюсера, щоб він точно знав, коли доставка завершилася для кожного підписника.",
+                  "correct": false
+                },
+                {
+                  "text": "Пропустити fan-out: клієнти натомість опитують стрічку активності автора, що покриває і push-сповіщення, і in-app inbox.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Великий fan-out треба розбивати на малі, відновлювані, ідемпотентні одиниці: пакет може впасти й бути повтореним без повторного виконання чи дублювання решти, workers масштабуються горизонтально, а масова черга не дає йому витісняти транзакційний трафік. Збереження прогресу (курсор по списку підписників) дає змогу відновити fan-out, що впав. Одна транзакція на 2M рядків довго утримує блокування й місце в лозі, призводить до таймауту API-запиту й падає як одна величезна одиниця, роблячи повтори дорогими й схильними до дублювання. Синхронні виклики з продюсера на години прив'язують його до latency і rate limits провайдера. Fan-out on read (клієнти отримують стрічку) — коректна техніка для in-app стрічок, особливо для акаунтів знаменитостей, але push-сповіщення має надсилати сервер на кожен пристрій, тож вимогу щодо push це не вирішує."
             }
           }
         },
@@ -933,6 +1459,17 @@
                 "Handles failures: timeouts as unknown outcomes, retries with exponential backoff and jitter, deduplication by notification id, a dead-letter queue, and optionally provider failover.",
                 "Covers rate limiting towards providers (shared across workers) and per user, plus delivery tracking via provider callbacks feeding bounces and invalid tokens back into the system."
               ]
+            },
+            "uk": {
+              "prompt": "Спроєктуйте notification service, яким користується багато внутрішніх продуктових команд, щоб надсилати користувачам email, SMS і mobile push-сповіщення. Розгляньте API, пайплайн обробки, налаштування користувачів, повтори й збої, rate limiting і відстеження доставки.",
+              "explanation": "Еталонна відповідь: ingestion API (або підписка на події), що приймає тип події, отримувачів чи аудиторію, дані шаблону, пріоритет та idempotency key; запити зберігаються й ставляться в чергу. Fan-out workers пакетами розгортають аудиторії в задачі на кожного отримувача й канал в окремих чергах за каналом і пріоритетом (транзакційний vs масовий). Workers каналів резолвлять налаштування, тихі години й локаль у момент надсилання, рендерять шаблони й викликають провайдерів через адаптери з таймаутами, exponential backoff з jitter, DLQ, дедуплікацією за id сповіщення, idempotency keys там, де провайдери їх підтримують, і failover на резервного провайдера для критичних каналів. Rate limits: спільний token bucket на обліковий запис провайдера плюс frequency caps на користувача, із зарезервованою потужністю для транзакційного трафіку. Webhooks провайдерів оновлюють статус доставки (delivered, bounced, unsubscribed), повертаючи bounces і невалідні push-токени в контактні дані; метрики за каналами й провайдерами для алертингу.",
+              "rubric": [
+                "Визначає контракт прийому (API або події), що включає idempotency key, пріоритет/категорію й дані шаблону, і робить обробку асинхронною через чергу.",
+                "Розділяє трафік за каналом і пріоритетом (транзакційний vs масовий) з незалежними чергами/пулами workers і обробляє fan-out на велику аудиторію пакетами.",
+                "Забезпечує налаштування користувача (відмови, тихі години, frequency caps) централізовано в момент надсилання, з явною обробкою обов'язкових транзакційних повідомлень.",
+                "Обробляє збої: таймаути як невідомий результат, повтори з exponential backoff і jitter, дедуплікація за id сповіщення, dead-letter queue і, за бажанням, failover провайдера.",
+                "Розглядає rate limiting щодо провайдерів (спільний для всіх workers) і на користувача, а також відстеження доставки через callbacks провайдерів, що повертають bounces і невалідні токени в систему."
+              ]
             }
           }
         }
@@ -946,6 +1483,10 @@
         "en": {
           "title": "Design a Carrier Integration Platform",
           "note": "## What it is\n\nA carrier integration platform puts many shipping carriers (global express carriers, national posts, regional couriers) behind one API, so that merchants or internal systems can get rates, create shipments and labels, schedule pickups, cancel, and track parcels without caring which carrier is involved. It is a strong lead-level story because it combines integration design, protecting third parties from your traffic, failure semantics of non-idempotent external calls, inbound webhooks, and developer experience (test mode). Tell it as your own: the business context, the decisions you made, what went wrong, and measurable outcomes.\n\n## Architecture\n\n**Canonical model plus adapters.** The public API speaks one model: `Shipment`, `Parcel`, `Address`, `Rate`, `Label`, `TrackingEvent`, with a normalised status set (`InfoReceived`, `InTransit`, `OutForDelivery`, `Delivered`, `Exception`, `Returned`). Each carrier gets an adapter (an anti-corruption layer) that maps to and from the carrier's protocol: REST, SOAP, SFTP manifests, OAuth client credentials or API keys, multi-step flows. A **capability matrix** per carrier and service (supports pickups? returns? multi-parcel? customs documents? webhooks or polling?) drives validation up front instead of failing deep inside an adapter. Credentials are per tenant and per carrier account, stored in a secret store.\n\n```csharp\npublic interface ICarrierAdapter\n{\n    string CarrierCode { get; }\n    CarrierCapabilities Capabilities { get; }\n    Task<IReadOnlyList<Rate>> GetRatesAsync(RateRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult> CreateLabelAsync(ShipmentRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult?> FindByReferenceAsync(string clientReference, CarrierAccount account, CancellationToken ct);\n    Task<IReadOnlyList<TrackingEvent>> TrackAsync(string trackingNumber, CarrierAccount account, CancellationToken ct);\n}\n```\n\n**Rate limiting per carrier.** Carriers enforce quotas per account or per client ID (requests per second or per day) and answer 429 or, worse, temporarily block you. The limit is a property of the *carrier account*, not of your instance, so an in-process limiter (`System.Threading.RateLimiting`) is only correct with one instance. Across a scaled-out fleet you need a shared budget: a token bucket in Redis keyed by `carrier:account`, or routing all calls for a carrier through queue consumers with bounded concurrency. Honour `Retry-After`, and keep separate budgets so bulk tracking polls cannot starve label creation.\n\n**Isolation.** One carrier's outage must not take the platform down: separate `HttpClient` handlers, timeouts, concurrency limits (bulkheads) and circuit breakers per carrier, per-carrier dashboards and alerts (error rate, p95 latency, 429 rate).\n\n## Failure semantics: retries\n\nClassify each outcome: **transient** (5xx, 429, connection reset) → retry with backoff and jitter within a budget; **permanent** (validation error, invalid postcode, unsupported service) → fail fast with a normalised error; **ambiguous** (timeout after the request was sent) → do not blindly retry. Label creation is usually *not idempotent* at the carrier: a blind retry can create two shipments and two charges. Mitigate with a client reference you generate and store before the call, a lookup by that reference (where the carrier supports it) before retrying, or marking the shipment `PendingReconciliation` for a background job. Read-only calls (rates, tracking) can be retried freely and cached briefly.\n\nLong-running or batch operations (end-of-day manifests, pickups) run asynchronously from a queue; the API returns `202 Accepted` with a resource to poll or a webhook to the client.\n\n## Inbound webhooks and tracking\n\nCarriers push tracking events by webhook; others must be polled. For webhooks: verify the signature or shared secret (and source restrictions), persist the raw payload with a deduplication key, return 2xx immediately, and process asynchronously. Carriers retry on non-2xx or slow responses, so duplicates are normal. Events also arrive **out of order**; apply them idempotently by carrier event id, order by event timestamp, and never let a late `InTransit` overwrite `Delivered`. For polling carriers, schedule polls adaptively (more frequent near expected delivery, stop after a terminal status) within the carrier's quota. Re-emit normalised events to your own customers as signed webhooks with their own retry policy.\n\n## Test mode\n\nMerchants need to integrate without creating real shipments. Model it like Stripe test keys: a test API key routes the same request through the same pipeline, but adapters switch to the carrier sandbox where one exists and reliable, otherwise to an internal **carrier simulator** with deterministic scenarios (magic postcodes or references trigger \"address invalid\", \"timeout\", \"delivered after 3 events\"). Test data is isolated, labels are watermarked, and nothing ever reaches a production carrier account or billing. Sandboxes are often flaky, slow or rate-limited, so your own CI uses recorded fixtures and contract tests per adapter.\n\n## What an interviewer probes\n\n- How you add carrier number 31 without touching the core (adapter, capabilities, mapping tests).\n- What exactly happens on a timeout during label creation.\n- How per-carrier limits are enforced across N instances.\n- How you handle duplicate and out-of-order webhooks.\n- What you would do differently now and how you measured success (onboarding time per carrier, label success rate, incident counts).\n\n## Common misconceptions\n\n- \"A generic JSON-configured mapper can integrate any carrier.\" It covers simple REST carriers and collapses on auth flows, multi-step processes and quirks; configuration is good for mappings, code for behaviour.\n- \"Retries with Polly make it reliable.\" Retrying a non-idempotent call creates duplicates.\n- \"Return 500 for a duplicate webhook so the carrier stops.\" Non-2xx makes it retry.\n"
+        },
+        "uk": {
+          "title": "Спроєктуйте платформу інтеграції з перевізниками",
+          "note": "## Що це\n\nПлатформа інтеграції з перевізниками ставить багатьох перевізників (глобальні експрес-перевізники, національні пошти, регіональні кур'єри) за один API, щоб мерчанти чи внутрішні системи могли отримувати тарифи, створювати відправлення й етикетки, планувати забір, скасовувати й відстежувати посилки, не переймаючись тим, який перевізник задіяний. Це сильна історія рівня лідера, бо вона поєднує дизайн інтеграцій, захист третіх сторін від вашого трафіку, семантику збоїв неідемпотентних зовнішніх викликів, вхідні webhooks і developer experience (test mode). Розповідайте її як власну: бізнес-контекст, рішення, які ви ухвалили, що пішло не так і вимірювані результати.\n\n## Архітектура\n\n**Канонічна модель плюс адаптери.** Публічний API говорить однією моделлю: `Shipment`, `Parcel`, `Address`, `Rate`, `Label`, `TrackingEvent` з нормалізованим набором статусів (`InfoReceived`, `InTransit`, `OutForDelivery`, `Delivered`, `Exception`, `Returned`). Кожен перевізник отримує адаптер (anti-corruption layer), що відображає дані в протокол перевізника й назад: REST, SOAP, SFTP-маніфести, OAuth client credentials або API keys, багатокрокові флоу. **Матриця можливостей** для кожного перевізника й послуги (чи підтримує забір? повернення? кілька посилок? митні документи? webhooks чи polling?) керує валідацією наперед, замість падіння глибоко всередині адаптера. Облікові дані — окремі для кожного tenant і кожного облікового запису перевізника, зберігаються в secret store.\n\n```csharp\npublic interface ICarrierAdapter\n{\n    string CarrierCode { get; }\n    CarrierCapabilities Capabilities { get; }\n    Task<IReadOnlyList<Rate>> GetRatesAsync(RateRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult> CreateLabelAsync(ShipmentRequest request, CarrierAccount account, CancellationToken ct);\n    Task<LabelResult?> FindByReferenceAsync(string clientReference, CarrierAccount account, CancellationToken ct);\n    Task<IReadOnlyList<TrackingEvent>> TrackAsync(string trackingNumber, CarrierAccount account, CancellationToken ct);\n}\n```\n\n**Rate limiting для кожного перевізника.** Перевізники встановлюють квоти на обліковий запис або на client ID (запити за секунду чи за добу) і відповідають 429 або, що гірше, тимчасово вас блокують. Ліміт — властивість *облікового запису перевізника*, а не вашого екземпляра, тож in-process limiter (`System.Threading.RateLimiting`) коректний лише з одним екземпляром. Для горизонтально масштабованого парку потрібен спільний бюджет: token bucket у Redis з ключем `carrier:account` або маршрутизація всіх викликів до перевізника через queue consumers з обмеженою конкурентністю. Дотримуйтеся `Retry-After` і тримайте окремі бюджети, щоб масові polls відстеження не витісняли створення етикеток.\n\n**Ізоляція.** Збій одного перевізника не повинен класти платформу: окремі handlers `HttpClient`, таймаути, ліміти конкурентності (bulkheads) і circuit breakers для кожного перевізника, окремі дашборди й алерти для кожного перевізника (частка помилок, p95 latency, частка 429).\n\n## Семантика збоїв: повтори\n\nКласифікуйте кожен результат: **тимчасовий** (5xx, 429, скидання з'єднання) → повтор з backoff і jitter у межах бюджету; **остаточний** (помилка валідації, невалідний поштовий індекс, непідтримувана послуга) → швидка відмова з нормалізованою помилкою; **неоднозначний** (таймаут після надсилання запиту) → не повторювати наосліп. Створення етикетки зазвичай *не ідемпотентне* на боці перевізника: сліпий повтор може створити два відправлення й два списання. Пом'якшення: client reference, який ви генеруєте й зберігаєте до виклику, пошук за цим reference (якщо перевізник це підтримує) перед повтором або позначення відправлення як `PendingReconciliation` для фонової задачі. Виклики лише для читання (тарифи, відстеження) можна вільно повторювати й коротко кешувати.\n\nДовготривалі чи пакетні операції (маніфести наприкінці дня, забори) виконуються асинхронно з черги; API повертає `202 Accepted` з ресурсом для опитування або webhook клієнту.\n\n## Вхідні webhooks і відстеження\n\nОдні перевізники надсилають події відстеження через webhook; інших доводиться опитувати. Для webhooks: перевірити підпис чи shared secret (і обмеження за джерелом), зберегти сирий payload з ключем дедуплікації, одразу повернути 2xx і обробити асинхронно. Перевізники повторюють надсилання у разі відповідей не 2xx або повільних відповідей, тож дублікати — норма. Події також надходять **не по порядку**; застосовуйте їх ідемпотентно за id події перевізника, впорядковуйте за timestamp події й ніколи не дозволяйте запізнілому `InTransit` перезаписати `Delivered`. Для перевізників з polling плануйте опитування адаптивно (частіше ближче до очікуваної доставки, зупинка після термінального статусу) в межах квоти перевізника. Перевидавайте нормалізовані події власним клієнтам як підписані webhooks із власною політикою повторів.\n\n## Test mode\n\nМерчантам потрібно інтегруватися, не створюючи реальних відправлень. Моделюйте це як test keys у Stripe: тестовий API key проводить той самий запит через той самий пайплайн, але адаптери перемикаються на sandbox перевізника там, де він існує й надійний, а інакше — на внутрішній **симулятор перевізника** з детермінованими сценаріями (магічні поштові індекси чи references запускають «address invalid», «timeout», «delivered after 3 events»). Тестові дані ізольовані, етикетки мають водяний знак, і ніщо ніколи не потрапляє в продакшн-обліковий запис перевізника чи білінг. Sandboxes часто нестабільні, повільні або обмежені rate limits, тож ваш власний CI використовує записані fixtures і contract tests для кожного адаптера.\n\n## Що перевіряє інтерв'юер\n\n- Як ви додаєте 31-го перевізника, не торкаючись ядра (адаптер, можливості, тести відображення).\n- Що саме відбувається під час таймауту при створенні етикетки.\n- Як ліміти кожного перевізника забезпечуються на N екземплярах.\n- Як ви обробляєте дублікати й webhooks, що прийшли не по порядку.\n- Що ви зробили б інакше зараз і як вимірювали успіх (час підключення перевізника, частка успішних етикеток, кількість інцидентів).\n\n## Поширені хибні уявлення\n\n- «Generic mapper, налаштований через JSON, може інтегрувати будь-якого перевізника». Він покриває прості REST-перевізники й розвалюється на флоу автентифікації, багатокрокових процесах і особливостях; конфігурація добра для відображень, код — для поведінки.\n- «Повтори з Polly роблять систему надійною». Повтор неідемпотентного виклику створює дублікати.\n- «Поверніть 500 на дублікат webhook, щоб перевізник зупинився». Відповідь не 2xx змушує його повторювати.\n"
         }
       },
       "questions": [
@@ -982,6 +1523,28 @@
                 }
               ],
               "explanation": "A canonical model keeps the public contract stable while adapters absorb each carrier's protocol, auth and quirks; the capability matrix makes differences explicit (pickups, returns, customs, webhook vs polling) so requests fail fast with clear errors instead of deep inside an adapter. Exposing the union of all fields leaks carrier specifics into every client, makes the contract unbounded and couples clients to individual carriers, which is exactly what the platform should hide. A configuration-driven generic mapper is tempting and works for simple REST carriers, but breaks down on OAuth token flows, SOAP, multi-step label creation, SFTP manifests and error quirks; configuration suits field mappings, code suits behaviour. Sending clients directly to carriers removes the platform's value (one integration, rate limiting, normalised tracking, test mode) and spreads credentials to clients."
+            },
+            "uk": {
+              "prompt": "Як платформа має інтегрувати 30+ перевізників з дуже різними API (REST, SOAP, SFTP-маніфести; API keys, OAuth; одно- та багатокрокові флоу) за одним публічним API?",
+              "options": [
+                {
+                  "text": "Відкрити в публічному API об'єднання полів усіх перевізників як опційні властивості, щоб жодна специфічна для перевізника можливість чи опція ніколи не втрачалася для клієнтів.",
+                  "correct": false
+                },
+                {
+                  "text": "Канонічна модель, по одному адаптеру (anti-corruption layer) на перевізника за спільним інтерфейсом і матриця можливостей для кожного перевізника для валідації наперед.",
+                  "correct": true
+                },
+                {
+                  "text": "Побудувати один generic HTTP mapper, керований JSON-конфігурацією для кожного перевізника, щоб додавання перевізника потребувало лише конфігурації, без коду й деплою.",
+                  "correct": false
+                },
+                {
+                  "text": "Опублікувати окремий SDK для кожного перевізника й дати клієнтам викликати перевізників напряму, щоб платформа не стояла на критичному за latency шляху запиту.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Канонічна модель тримає публічний контракт стабільним, а адаптери поглинають протокол, автентифікацію й особливості кожного перевізника; матриця можливостей робить відмінності явними (забір, повернення, митниця, webhook vs polling), тож запити швидко відмовляють із зрозумілими помилками, а не глибоко всередині адаптера. Відкриття об'єднання всіх полів протікає специфікою перевізників у кожного клієнта, робить контракт необмеженим і прив'язує клієнтів до окремих перевізників — саме те, що платформа мала б приховувати. Generic mapper, керований конфігурацією, спокусливий і працює для простих REST-перевізників, але ламається на OAuth token flows, SOAP, багатокроковому створенні етикеток, SFTP-маніфестах і особливостях помилок; конфігурація підходить для відображення полів, код — для поведінки. Відправлення клієнтів напряму до перевізників знищує цінність платформи (одна інтеграція, rate limiting, нормалізоване відстеження, test mode) і розносить облікові дані по клієнтах."
             }
           }
         },
@@ -1018,6 +1581,28 @@
                 }
               ],
               "explanation": "The limit belongs to the carrier account, so it must be enforced against a single shared budget; six independent 50/s buckets allow up to 300/s in total. A distributed token bucket (Redis with an atomic script) or funnelling calls through a queue with bounded consumers gives one budget regardless of instance count or autoscaling, and `Retry-After` tells you when to resume. Even load balancing does not divide each instance's limit by six; each limiter allows its own 50/s. Immediate retries on 429 multiply traffic against an already exceeded quota and are how accounts get blocked. A circuit breaker reacts after you have already exceeded the limit and then blocks all traffic, including the share that would have been within quota; it complements, not replaces, proactive limiting."
+            },
+            "uk": {
+              "prompt": "Перевізник дозволяє 50 запитів/секунду на обліковий запис. Integration API працює в 6 екземплярах, кожен з in-process token bucket limiter на 50 запитів/секунду для цього перевізника. У пікові періоди перевізник повертає відповіді 429 і одного разу тимчасово заблокував обліковий запис. Яке правильне виправлення?",
+              "options": [
+                {
+                  "text": "Залишити limiter на рівні екземпляра: load balancer рівномірно розподіляє запити між шістьма екземплярами, тож сумарна швидкість залишається 50 запитів/секунду.",
+                  "correct": false
+                },
+                {
+                  "text": "Додати політику повторів, яка негайно повторює відповіді 429 до трьох разів, щоб тротлені запити зрештою приймалися без помилок, видимих користувачу.",
+                  "correct": false
+                },
+                {
+                  "text": "Забезпечувати один спільний бюджет на обліковий запис перевізника (token bucket на Redis або queue consumer з обмеженою конкурентністю) і дотримуватися `Retry-After` на 429.",
+                  "correct": true
+                },
+                {
+                  "text": "Замінити rate limiting на circuit breaker за відповідями 429, щоб виклики автоматично зупинялися щоразу, коли перевізник сигналізує про досягнення ліміту.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Ліміт належить обліковому запису перевізника, тож його треба забезпечувати щодо одного спільного бюджету; шість незалежних buckets по 50/с дозволяють сумарно до 300/с. Розподілений token bucket (Redis з атомарним скриптом) або спрямування викликів через чергу з обмеженою кількістю consumers дає один бюджет незалежно від кількості екземплярів чи autoscaling, а `Retry-After` каже, коли відновлювати. Рівномірне балансування не ділить ліміт кожного екземпляра на шість; кожен limiter дозволяє свої 50/с. Негайні повтори на 429 множать трафік до вже перевищеної квоти — саме так облікові записи й потрапляють у блок. Circuit breaker реагує після того, як ліміт уже перевищено, а потім блокує весь трафік, включно з часткою, яка вмістилася б у квоту; він доповнює проактивне обмеження, а не замінює його."
             }
           }
         },
@@ -1054,6 +1639,28 @@
                 }
               ],
               "explanation": "A timeout after sending is an ambiguous outcome: the carrier may have created the shipment (and charged for it). Generating and persisting a client reference before the call, then checking by that reference before retrying, turns a non-idempotent operation into an effectively idempotent one; when the check cannot be made, a reconciliation state with a background job avoids both duplicates and lost labels. Blind retries are exactly how duplicate labels and charges happen. Pushing the error to the merchant does not prevent duplicates, it moves the blind retry to the merchant (who knows even less). A longer timeout reduces but never eliminates ambiguous outcomes (the connection can still drop) and ties up resources during carrier slowdowns, risking thread/connection exhaustion."
+            },
+            "uk": {
+              "prompt": "Виклик endpoint перевізника «створити відправлення й етикетку» завершується таймаутом через 30 с. Перевізник не підтримує idempotency keys, але дає змогу шукати відправлення за client reference, який ви надсилаєте. Що має зробити платформа?",
+              "options": [
+                {
+                  "text": "Перед повтором знайти відправлення за збереженим client reference; якщо знайдено — використати його, якщо ні — повторити, а якщо й пошук не вдався — позначити для reconciliation.",
+                  "correct": true
+                },
+                {
+                  "text": "Негайно повторити з exponential backoff; таймаути — тимчасові мережеві помилки, і перевізник просто обробить другий запит як справжній.",
+                  "correct": false
+                },
+                {
+                  "text": "Повернути помилку мерчанту, щоб він сам повторив запит, — це гарантує, що платформа ніколи не створить дублікатів відправлень.",
+                  "correct": false
+                },
+                {
+                  "text": "Збільшити таймаут до 120 с, щоб платформа завжди чекала достатньо довго й отримувала справжню відповідь перевізника, а не вгадувала.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Таймаут після надсилання — неоднозначний результат: перевізник міг створити відправлення (і виставити за нього рахунок). Генерування й збереження client reference перед викликом, а потім перевірка за цим reference перед повтором перетворює неідемпотентну операцію на фактично ідемпотентну; коли перевірку виконати неможливо, стан reconciliation з фоновою задачею дає змогу уникнути і дублікатів, і втрачених етикеток. Сліпі повтори — саме те, через що з'являються дублікати етикеток і списань. Передавання помилки мерчанту не запобігає дублікатам, а лише перекладає сліпий повтор на мерчанта (який знає ще менше). Довший таймаут зменшує, але ніколи не усуває неоднозначних результатів (з'єднання однаково може обірватися) і тримає ресурси зайнятими під час уповільнень у перевізника, ризикуючи вичерпати потоки чи з'єднання."
             }
           }
         },
@@ -1090,6 +1697,28 @@
                 }
               ],
               "explanation": "Webhook senders retry on non-2xx responses and on timeouts, so the endpoint should do the minimum (authenticate, store durably, ack) and move the work to a queue; deduplication by carrier event id handles the inevitable retries, and timestamp or status-precedence rules handle out-of-order arrival. Synchronous processing makes response time depend on your database and downstream calls; slow responses trigger carrier retries and duplicate floods during incidents, and a downstream failure means the carrier keeps resending. Returning 500 for duplicates does the opposite of the intent: it tells the carrier delivery failed, so it retries. Carriers do not guarantee ordering: retries, parallel senders and scan uploads from devices regularly deliver events out of sequence."
+            },
+            "uk": {
+              "prompt": "Перевізники надсилають оновлення відстеження на ваш webhook endpoint. Яка обробка правильна?",
+              "options": [
+                {
+                  "text": "Обробляти кожну подію синхронно (відобразити, оновити відправлення, сповістити мерчанта) і лише потім повертати 200, щоб перевізник повторював щоразу, коли будь-який крок не вдався.",
+                  "correct": false
+                },
+                {
+                  "text": "Повертати HTTP 500 для вже оброблених подій, щоб перевізник розпізнав їх як дублікати й припинив надсилати їх знову.",
+                  "correct": false
+                },
+                {
+                  "text": "Застосовувати події в порядку надходження, бо перевізники генерують скани відстеження хронологічно, а HTTP-доставки зберігають цей порядок.",
+                  "correct": false
+                },
+                {
+                  "text": "Перевірити підпис, зберегти сирий payload з ключем дедуплікації, швидко повернути 2xx і обробити асинхронно, застосовуючи події ідемпотентно й за часом події, а не за порядком надходження.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Відправники webhooks повторюють у разі відповідей не 2xx і таймаутів, тож endpoint має робити мінімум (автентифікувати, надійно зберегти, підтвердити) і переносити роботу в чергу; дедуплікація за id події перевізника обробляє неминучі повтори, а правила за timestamp чи пріоритетом статусів — надходження не по порядку. Синхронна обробка робить час відповіді залежним від вашої бази даних і викликів далі по ланцюгу; повільні відповіді спричиняють повтори з боку перевізника й лавини дублікатів під час інцидентів, а збій далі по ланцюгу означає, що перевізник продовжуватиме повторно надсилати. Повернення 500 на дублікати робить протилежне задуму: воно каже перевізнику, що доставка не вдалася, тож він повторює. Перевізники не гарантують порядку: повтори, паралельні відправники й завантаження сканів із пристроїв регулярно доставляють події не в тій послідовності."
             }
           }
         },
@@ -1126,6 +1755,28 @@
                 }
               ],
               "explanation": "Keying test mode off the credential (as Stripe does with test keys) means merchants switch modes without changing code, the same validation, mapping and pipeline run in both modes, and isolation is enforced centrally. The simulator gives deterministic, fast scenarios for errors that sandboxes cannot reproduce on demand. A body flag checked in each adapter duplicates logic in every adapter, bypasses most of the real code path and is one forgotten check away from leaking test traffic to production. Carrier sandboxes are useful but frequently flaky, slow, rate-limited, incomplete or missing entirely, so depending on them alone gives merchants a poor and inconsistent experience. A separate staging environment differs from production in configuration and version, and merchants want test mode against the production API they will go live on."
+            },
+            "uk": {
+              "prompt": "Мерчантам потрібен test mode, щоб інтегруватися з вашою платформою перевізників, не створюючи реальних відправлень. Який дизайн найкращий?",
+              "options": [
+                {
+                  "text": "Прапорець `\"test\": true` у тілі запиту; кожен адаптер перевіряє його й повертає заготовлену успішну відповідь замість виклику перевізника, тож реальне відправлення не створюється.",
+                  "correct": false
+                },
+                {
+                  "text": "Завжди спрямовувати тестовий трафік у власні sandbox-середовища перевізників, бо вони найточніше відтворюють продакшн-поведінку й помилки кожного перевізника.",
+                  "correct": false
+                },
+                {
+                  "text": "Тестові API keys, що проганяють той самий пайплайн і адаптери проти надійного sandbox або внутрішнього симулятора з детермінованими сценаріями, ніколи не проти продакшн-облікових записів.",
+                  "correct": true
+                },
+                {
+                  "text": "Окреме staging-розгортання всієї платформи за іншим URL з власною базою даних, яким мерчанти користуються під час інтеграції перед переходом на продакшн.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Прив'язка test mode до облікових даних (як у Stripe з test keys) означає, що мерчанти перемикають режими без зміни коду, ті самі валідація, відображення й пайплайн працюють в обох режимах, а ізоляція забезпечується централізовано. Симулятор дає детерміновані швидкі сценарії для помилок, які sandboxes не можуть відтворити на вимогу. Прапорець у тілі, що перевіряється в кожному адаптері, дублює логіку в кожному адаптері, оминає більшу частину реального шляху коду, і одна забута перевірка — і тестовий трафік протікає в продакшн. Sandboxes перевізників корисні, але часто нестабільні, повільні, обмежені rate limits, неповні або відсутні взагалі, тож залежність лише від них дає мерчантам поганий і непослідовний досвід. Окреме staging-середовище відрізняється від продакшну конфігурацією й версією, а мерчанти хочуть test mode проти того продакшн-API, на якому вони запускатимуться."
             }
           }
         },
@@ -1150,6 +1801,17 @@
                 "Classifies failures (transient, permanent, ambiguous) and explains how non-idempotent operations such as label creation are protected from duplicates on timeout (client reference lookup, reconciliation).",
                 "Handles inbound tracking via webhooks (signature verification, store-then-ack, async processing, dedupe, out-of-order tolerance) and polling for carriers without webhooks.",
                 "Provides a test mode that keeps the same code path (test credentials, sandbox or internal simulator with deterministic scenarios, isolated data) and per-carrier isolation/observability (bulkheads, circuit breakers, metrics)."
+              ]
+            },
+            "uk": {
+              "prompt": "Розкажіть про дизайн платформи інтеграції з кількома перевізниками, яку ви побудували (або побудували б): один API для тарифів, етикеток, заборів і відстеження для багатьох перевізників. Розгляньте архітектуру інтеграції, rate limiting для кожного перевізника, повтори, webhooks/відстеження і test mode, а також trade-offs, на які ви пішли.",
+              "explanation": "Еталонна відповідь: канонічна модель відправлень/відстеження з нормалізованими статусами, адаптер для кожного перевізника за спільним інтерфейсом і матриця можливостей для валідації наперед; облікові записи перевізників для кожного tenant із секретами у vault. Rate limits на обліковий запис перевізника забезпечуються спільним бюджетом (Redis token bucket або queue consumers з обмеженою конкурентністю) з дотриманням `Retry-After` і окремими бюджетами для polls відстеження та створення етикеток. Класифікація помилок: тимчасові (повтор з backoff/jitter), остаточні (швидка відмова з нормалізованими помилками), неоднозначні таймаути неідемпотентних викликів (пошук за client reference або reconciliation, ніколи не сліпий повтор). Webhooks: перевірка підпису, store-then-ack, асинхронна обробка, дедуплікація за id події, впорядкування за timestamp/пріоритетом статусів, polling як запасний варіант для перевізників без webhooks і вихідні підписані webhooks до мерчантів. Test mode через test keys, що спрямовуються в sandboxes або внутрішній симулятор з детермінованими сценаріями, ізольований від продакшну. Bulkheads, circuit breakers і дашборди для кожного перевізника, з конкретними результатами, як-от час підключення перевізника чи частка успішних етикеток.",
+              "rubric": [
+                "Описує канонічну модель з адаптером (anti-corruption layer) для кожного перевізника за спільним інтерфейсом і спосіб виражати відмінності перевізників (можливості), щоб нові перевізники не змінювали ядро.",
+                "Забезпечує rate limits на обліковий запис перевізника бюджетом, спільним для всіх екземплярів (розподілений token bucket або тротлінг через чергу), і дотримується 429/`Retry-After`.",
+                "Класифікує збої (тимчасові, остаточні, неоднозначні) і пояснює, як неідемпотентні операції, як-от створення етикетки, захищаються від дублікатів під час таймауту (пошук за client reference, reconciliation).",
+                "Обробляє вхідне відстеження через webhooks (перевірка підпису, store-then-ack, асинхронна обробка, дедуплікація, стійкість до порушеного порядку) і polling для перевізників без webhooks.",
+                "Надає test mode, що зберігає той самий шлях коду (тестові облікові дані, sandbox або внутрішній симулятор з детермінованими сценаріями, ізольовані дані), і ізоляцію/observability для кожного перевізника (bulkheads, circuit breakers, метрики)."
               ]
             }
           }
@@ -1176,6 +1838,17 @@
                 "Offers a degraded mode for label creation (accept asynchronously and complete later, or reroute to an alternative carrier) and keeps ambiguous timeouts in reconciliation rather than blind retry.",
                 "Covers detection and communication: per-carrier metrics/alerts and informing merchants (status page or notifications)."
               ]
+            },
+            "uk": {
+              "prompt": "Один із ваших найбільших перевізників деградує: p99 latency зростає до 25 секунд, а 30% запитів на етикетки повертають 5xx. Що станеться з платформою без захисту і що має робити ваш дизайн, щоб цей інцидент залишився в межах цього перевізника?",
+              "explanation": "Еталонна відповідь: без захисту запити до повільного перевізника утримують з'єднання, потоки й транзакції бази даних; спільні пули `HttpClient`, конкурентність workers і черги заповнюються, тож запити до інших перевізників і навіть webhooks відстеження сповільнюються або падають (каскадний збій), а наївні повтори множать навантаження на деградованого перевізника. Локалізація: bulkheads для кожного перевізника (окремі ліміти конкурентності, пули з'єднань і черги), агресивні таймаути для кожного перевізника, circuit breaker, що відкривається за порогом помилок/latency і швидко відмовляє зі зрозумілою нормалізованою помилкою або перемикає створення етикеток на асинхронну обробку (прийняти з 202, створити, коли перевізник відновиться), і бюджет повторів з backoff і jitter замість необмежених повторів. Неоднозначні таймаути під час створення етикетки йдуть у reconciliation. Операційно: алерти й дашборди для кожного перевізника, status page або сповіщення мерчантам і, за бажанням, перенаправлення мерчантів до альтернативного перевізника, якщо це дозволяють бізнес-правила.",
+              "rubric": [
+                "Пояснює механізм каскадного збою: повільні виклики вичерпують спільні ресурси (пули з'єднань, конкурентність workers, потоки, черги), зачіпаючи непов'язаних перевізників, а повтори посилюють навантаження на перевізника, який і так має проблеми.",
+                "Пропонує bulkheads для кожного перевізника (окремі ліміти конкурентності, пули з'єднань чи черги) і таймаути для кожного перевізника.",
+                "Використовує circuit breaker для кожного перевізника й обмежену політику повторів (backoff з jitter, бюджет повторів), щоб швидко відмовляти й зменшувати тиск на перевізника.",
+                "Пропонує деградований режим для створення етикеток (прийняти асинхронно й завершити пізніше або перенаправити до альтернативного перевізника) і тримає неоднозначні таймаути в reconciliation, а не в сліпому повторі.",
+                "Розглядає виявлення й комунікацію: метрики/алерти для кожного перевізника й інформування мерчантів (status page або сповіщення)."
+              ]
             }
           }
         }
@@ -1189,6 +1862,10 @@
         "en": {
           "title": "Design File Upload and Processing",
           "note": "## What it is\n\n\"Users upload files (images, videos, CSVs, PDFs) that the system processes: virus scan, thumbnails, transcoding, parsing, and the UI shows progress until the result is ready.\" The interviewer is looking for three decisions: do not stream bytes through your API servers, process asynchronously with a reliable trigger, and choose how the client learns the status.\n\n## Upload: presigned URLs\n\nProxying uploads through the API ties up app server bandwidth, memory and connections for the full duration of a slow mobile upload, and needs large body limits (Kestrel's `MaxRequestBodySize` defaults to about 30 MB). Instead, the API authorises the upload and the client sends bytes **directly to object storage** using a **presigned URL** (S3, GCS) or **SAS token** (Azure Blob): a URL carrying a signature that allows exactly one operation on one key until a short expiry.\n\nFlow:\n\n1. `POST /uploads {fileName, size, contentType}`: the API checks permissions and quotas, creates an `Upload` record (`Pending`), generates the object key itself (`tenants/42/uploads/{uuid}`, never the client's file name) and returns a presigned PUT (or POST) URL valid for minutes.\n2. The client uploads directly. Large files use **multipart upload**: S3 accepts at most 5 GB in a single PUT, so bigger files are split into parts (5 MiB to 5 GiB each, up to 10,000 parts) that are presigned individually, uploaded in parallel, resumed after failures and then completed. A lifecycle rule aborts incomplete multipart uploads, which otherwise keep costing storage.\n3. Constraints: a presigned POST policy can enforce `content-length-range` and a content-type prefix; for PUT, sign the expected content type and verify size after upload. Never trust client metadata: detect the real type from the bytes.\n\n```csharp\n// AWSSDK.S3: short-lived, key-scoped upload URL\nvar key = $\"tenants/{tenantId}/uploads/{uploadId:N}\";\nvar url = await _s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest\n{\n    BucketName  = _options.QuarantineBucket,\n    Key         = key,\n    Verb        = HttpVerb.PUT,\n    ContentType = request.ContentType,               // client must send the same header\n    Expires     = DateTime.UtcNow.AddMinutes(10),\n});\nawait _db.Uploads.AddAsync(new Upload(uploadId, tenantId, key, UploadStatus.Pending), ct);\nawait _db.SaveChangesAsync(ct);\nreturn new UploadTicket(uploadId, url);\n```\n\n## Processing: a reliable trigger\n\nUpload completion must start processing even if the browser closes immediately after the last byte. The robust trigger is the storage's own **event notification** (S3 Event Notifications or EventBridge, Azure Event Grid `BlobCreated`) delivered to a queue. A client `POST /uploads/{id}/complete` call is a useful fast path and a place to validate, but not the only trigger. Workers pick up the job, move the `Upload` through a state machine (`Pending → Uploaded → Processing → Ready | Failed | Rejected`), and must be **idempotent**, because events are delivered at least once and a job may be retried after a crash halfway through. Use a DLQ for files that repeatedly fail, and a sweeper for `Pending` records whose URLs expired without an upload.\n\nSecurity: upload into a **quarantine** bucket or prefix, scan for malware and validate format before promoting to the clean location; keep buckets private and serve downloads through short-lived presigned GET URLs or a CDN with signed URLs. Treat files as untrusted input for parsers (zip bombs, huge images, CSV injection).\n\n## Status: polling vs push\n\n- **Polling** `GET /uploads/{id}`: simplest, stateless, works through every proxy and with load balancers, cacheable with `ETag`. Costs: latency up to the poll interval and wasted requests; use backoff (1 s, 2 s, 5 s...) and stop at a terminal state.\n- **Push** via SSE, WebSockets or SignalR: the server sends the change immediately. Costs: long-lived connections, a backplane when the worker and the connection are on different instances, reconnection handling. Push is a notification channel, not the source of truth: after reconnecting, the client must still fetch current state, so a status endpoint is needed anyway.\n- **Webhooks** for server-to-server integrations: the API client registers a callback URL instead of polling.\n\nMany designs combine them: push for the interactive UI with polling as a fallback, webhooks for API customers. Upload *progress* (bytes sent) is measured in the client itself (XHR/`HttpClient` progress events), not by the server.\n\n## What an interviewer probes\n\n- Why presigned URLs, and how the API still controls who uploads what and how big.\n- Large files: multipart, resumability, abandoned uploads.\n- What triggers processing if the client disappears, and what happens if processing crashes halfway.\n- Where scanning happens and how unscanned files are kept from being served.\n- Polling vs push trade-offs and why both often coexist.\n\n## Common misconceptions\n\n- \"Presigned URLs bypass authorisation.\" The API decides who gets a URL, for which key, for how long.\n- \"The storage event fires exactly once.\" It is at-least-once; processing must be idempotent.\n- \"With WebSockets I don't need a status endpoint.\" Reconnects and missed messages require one.\n"
+        },
+        "uk": {
+          "title": "Спроєктуйте завантаження й обробку файлів",
+          "note": "## Що це\n\n«Користувачі завантажують файли (зображення, відео, CSV, PDF), які система обробляє: перевірка на віруси, мініатюри, транскодування, парсинг, а UI показує прогрес, доки результат не буде готовий». Інтерв'юер шукає три рішення: не пропускати байти через ваші API-сервери, обробляти асинхронно з надійним тригером і обрати, як клієнт дізнається статус.\n\n## Завантаження: presigned URLs\n\nПроксування завантажень через API займає bandwidth, пам'ять і з'єднання app-сервера на весь час повільного мобільного завантаження й потребує великих лімітів на тіло запиту (`MaxRequestBodySize` у Kestrel за замовчуванням близько 30 MB). Натомість API авторизує завантаження, а клієнт надсилає байти **напряму в object storage** за **presigned URL** (S3, GCS) або **SAS token** (Azure Blob): URL з підписом, що дозволяє рівно одну операцію над одним ключем до короткого терміну дії.\n\nФлоу:\n\n1. `POST /uploads {fileName, size, contentType}`: API перевіряє дозволи й квоти, створює запис `Upload` (`Pending`), сам генерує ключ об'єкта (`tenants/42/uploads/{uuid}`, ніколи не ім'я файлу від клієнта) і повертає presigned PUT (або POST) URL, дійсний кілька хвилин.\n2. Клієнт завантажує напряму. Великі файли використовують **multipart upload**: S3 приймає щонайбільше 5 GB в одному PUT, тож більші файли розбиваються на частини (від 5 MiB до 5 GiB кожна, до 10 000 частин), які підписуються окремо, завантажуються паралельно, відновлюються після збоїв і потім завершуються. Lifecycle rule перериває незавершені multipart uploads, які інакше продовжують коштувати грошей за сховище.\n3. Обмеження: presigned POST policy може забезпечувати `content-length-range` і префікс content type; для PUT підписуйте очікуваний content type і перевіряйте розмір після завантаження. Ніколи не довіряйте метаданим від клієнта: визначайте справжній тип за байтами.\n\n```csharp\n// AWSSDK.S3: short-lived, key-scoped upload URL\nvar key = $\"tenants/{tenantId}/uploads/{uploadId:N}\";\nvar url = await _s3.GetPreSignedURLAsync(new GetPreSignedUrlRequest\n{\n    BucketName  = _options.QuarantineBucket,\n    Key         = key,\n    Verb        = HttpVerb.PUT,\n    ContentType = request.ContentType,               // client must send the same header\n    Expires     = DateTime.UtcNow.AddMinutes(10),\n});\nawait _db.Uploads.AddAsync(new Upload(uploadId, tenantId, key, UploadStatus.Pending), ct);\nawait _db.SaveChangesAsync(ct);\nreturn new UploadTicket(uploadId, url);\n```\n\n## Обробка: надійний тригер\n\nЗавершення завантаження має запускати обробку, навіть якщо браузер закриється одразу після останнього байта. Надійний тригер — власне **event notification** сховища (S3 Event Notifications або EventBridge, Azure Event Grid `BlobCreated`), що доставляється в чергу. Клієнтський виклик `POST /uploads/{id}/complete` — корисний швидкий шлях і місце для валідації, але не єдиний тригер. Workers беруть задачу, переводять `Upload` через state machine (`Pending → Uploaded → Processing → Ready | Failed | Rejected`) і мають бути **ідемпотентними**, бо події доставляються at-least-once, а задача може бути повторена після падіння посередині. Використовуйте DLQ для файлів, обробка яких постійно падає, і sweeper для записів `Pending`, URL яких спливли без завантаження.\n\nБезпека: завантажуйте в **карантинний** bucket або префікс, скануйте на malware й валідуйте формат перед перенесенням у чисте місце; тримайте buckets приватними й віддавайте завантаження через короткоживучі presigned GET URLs або CDN з підписаними URL. Вважайте файли недовіреними вхідними даними для парсерів (zip bombs, величезні зображення, CSV injection).\n\n## Статус: polling vs push\n\n- **Polling** `GET /uploads/{id}`: найпростіший, stateless, працює через будь-який проксі й з load balancers, кешується з `ETag`. Ціна: затримка до інтервалу опитування й марні запити; використовуйте backoff (1 с, 2 с, 5 с...) і зупиняйтеся на термінальному стані.\n- **Push** через SSE, WebSockets або SignalR: сервер надсилає зміну одразу. Ціна: довгоживучі з'єднання, backplane, коли worker і з'єднання на різних екземплярах, обробка перепідключень. Push — канал сповіщень, а не джерело істини: після перепідключення клієнт однаково має отримати поточний стан, тож status endpoint потрібен у будь-якому разі.\n- **Webhooks** для інтеграцій server-to-server: API-клієнт реєструє callback URL замість опитування.\n\nБагато дизайнів поєднують їх: push для інтерактивного UI з polling як запасним варіантом, webhooks для API-клієнтів. *Прогрес* завантаження (надіслані байти) вимірює сам клієнт (progress events у XHR/`HttpClient`), а не сервер.\n\n## Що перевіряє інтерв'юер\n\n- Чому presigned URLs і як API при цьому контролює, хто що завантажує й якого розміру.\n- Великі файли: multipart, відновлюваність, покинуті завантаження.\n- Що запускає обробку, якщо клієнт зник, і що відбувається, якщо обробка впала посередині.\n- Де відбувається сканування і як не допустити віддачі неперевірених файлів.\n- Trade-offs polling vs push і чому вони часто співіснують.\n\n## Поширені хибні уявлення\n\n- «Presigned URLs обходять авторизацію». API вирішує, хто отримує URL, для якого ключа й на скільки часу.\n- «Подія сховища спрацьовує рівно один раз». Вона at-least-once; обробка має бути ідемпотентною.\n- «З WebSockets мені не потрібен status endpoint». Перепідключення й пропущені повідомлення його вимагають.\n"
         }
       },
       "questions": [
@@ -1225,6 +1902,28 @@
                 }
               ],
               "explanation": "The point is to offload the data path to a service built for it, while keeping the control path (who may upload, what key, how big, how long) in the API. Object storage does not scan for malware by default; scanning is something you add (quarantine bucket plus scanner). Kestrel's `MaxRequestBodySize` defaults to about 30 MB but is configurable, and ASP.NET Core can stream bodies without buffering; the reason for presigned URLs is efficiency and scalability, not a hard limit. The URL's signature covers a specific bucket, key, operation and expiry chosen by the server; letting clients pick keys would allow overwriting other users' objects, and the server still needs an upload record to track processing."
+            },
+            "uk": {
+              "prompt": "Чому дизайни для великих завантажень від користувачів зазвичай видають клієнту presigned URL (або SAS token), а не завантажують через API застосунку?",
+              "options": [
+                {
+                  "text": "Presigned URLs безпечніші, бо object storage автоматично сканує кожен завантажений об'єкт на malware, перш ніж він стане доступним для читання.",
+                  "correct": false
+                },
+                {
+                  "text": "ASP.NET Core не може приймати тіла запитів, більші за приблизно 30 MB, тож будь-який великий файл мусить повністю оминати сервери застосунку.",
+                  "correct": false
+                },
+                {
+                  "text": "Presigned URLs дають клієнту змогу самому обирати bucket і ключ об'єкта, що прибирає потребу вести облік завантажень на сервері.",
+                  "correct": false
+                },
+                {
+                  "text": "Байти йдуть напряму в сховище, звільняючи app-сервери від навантаження на bandwidth і з'єднання, а API все одно авторизує кожне завантаження короткоживучим URL, прив'язаним до ключа.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Сенс у тому, щоб віддати шлях даних сервісу, створеному для цього, залишивши шлях керування (хто може завантажувати, який ключ, якого розміру, на скільки часу) в API. Object storage за замовчуванням не сканує на malware; сканування — це те, що ви додаєте самі (карантинний bucket плюс сканер). `MaxRequestBodySize` у Kestrel за замовчуванням близько 30 MB, але налаштовується, і ASP.NET Core вміє стрімити тіла без буферизації; причина використання presigned URLs — ефективність і масштабованість, а не жорсткий ліміт. Підпис URL покриває конкретні bucket, ключ, операцію й термін дії, обрані сервером; якби клієнти обирали ключі, вони могли б перезаписувати об'єкти інших користувачів, а серверу все одно потрібен запис про завантаження для відстеження обробки."
             }
           }
         },
@@ -1261,6 +1960,28 @@
                 }
               ],
               "explanation": "S3 caps a single PUT at 5 GB, so a 20 GB file must use multipart upload (parts of 5 MiB to 5 GiB, at most 10,000 parts). Multipart also brings what unreliable connections need: parallelism and resumption at part granularity instead of restarting from zero. Incomplete multipart uploads keep their stored parts (and cost) until aborted, hence the lifecycle rule. A single PUT cannot exceed 5 GB however long the URL lives, and any interruption restarts the whole transfer. Base64 chunks in a database inflate size by a third, put large objects into the relational store and route all bytes through the API, defeating the purpose. Streaming 20 GB through the API is possible but ties up app servers and connections for the whole transfer and still restarts from zero on failure."
+            },
+            "uk": {
+              "prompt": "Користувачі мають завантажувати відеофайли розміром до 20 GB через ненадійні з'єднання напряму в S3. Який підхід правильний?",
+              "options": [
+                {
+                  "text": "Один presigned PUT URL з довгим терміном дії (наприклад, 24 години), щоб навіть повільні з'єднання, що часто обриваються, мали досить часу для завершення.",
+                  "correct": false
+                },
+                {
+                  "text": "Multipart upload: підписати кожну частину, завантажувати частини паралельно, повторювати лише невдалі частини, завершити з ETags і прибирати покинуті завантаження lifecycle rule.",
+                  "correct": true
+                },
+                {
+                  "text": "Завантажувати через API частинами по 1 MB у base64, що зберігаються в базі даних, потім зібрати фінальний файл у фоновій задачі й скопіювати його в S3.",
+                  "correct": false
+                },
+                {
+                  "text": "Підняти ліміт тіла запиту Kestrel до 20 GB і стрімити завантаження через API в S3, щоб API повністю контролював кожен байт.",
+                  "correct": false
+                }
+              ],
+              "explanation": "S3 обмежує один PUT 5 GB, тож файл на 20 GB мусить використовувати multipart upload (частини від 5 MiB до 5 GiB, щонайбільше 10 000 частин). Multipart також дає те, чого потребують ненадійні з'єднання: паралелізм і відновлення на рівні частини замість перезапуску з нуля. Незавершені multipart uploads зберігають завантажені частини (і їхню вартість), доки їх не перервуть, — звідси lifecycle rule. Один PUT не може перевищити 5 GB, хоч скільки живе URL, а будь-який обрив перезапускає всю передачу. Частини в base64 у базі даних збільшують розмір на третину, кладуть великі об'єкти в реляційне сховище й проганяють усі байти через API, що зводить нанівець увесь задум. Стрімінг 20 GB через API можливий, але займає app-сервери й з'єднання на весь час передачі й однаково перезапускається з нуля у разі збою."
             }
           }
         },
@@ -1297,6 +2018,28 @@
                 }
               ],
               "explanation": "The storage event fires whenever the object is actually written, independent of whether the client survives, and a queue gives durability and retries. Because notifications are at-least-once, workers must be idempotent (state machine on the upload record, conditional transitions). A sweeper catches records that never received an upload. Relying only on the client call loses work when the browser closes, the tab crashes or the network drops right after the last byte, leaving orphan files that are never processed. Polling bucket listings scales poorly with object count, adds latency and costs per request, and needs its own bookkeeping to avoid reprocessing. Waiting inside the request that issues the URL holds a server request open for the whole upload, which is precisely what presigned URLs were meant to avoid."
+            },
+            "uk": {
+              "prompt": "Після того як клієнт завантажив файл в object storage через presigned URL, має стартувати обробка (сканування, мініатюра). Який дизайн тригера найнадійніший?",
+              "options": [
+                {
+                  "text": "Покладатися лише на те, що клієнт викличе `POST /uploads/{id}/complete` після надсилання останнього байта; тоді API валідує об'єкт і ставить задачу в чергу.",
+                  "correct": false
+                },
+                {
+                  "text": "Фоновий worker кожні кілька секунд отримує список вмісту bucket і обробляє всі нові об'єкти, для яких ще немає запису про обробку.",
+                  "correct": false
+                },
+                {
+                  "text": "Події створення об'єкта у сховищі надходять у чергу, яку споживають ідемпотентні workers; клієнтський виклик 'complete' — опційний швидкий шлях, плюс sweeper для завислих завантажень.",
+                  "correct": true
+                },
+                {
+                  "text": "Запускати обробку в тому самому API-запиті, що видає presigned URL, чекаючи, доки об'єкт з'явиться у сховищі, перш ніж відповісти.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Подія сховища спрацьовує щоразу, коли об'єкт справді записано, незалежно від того, чи «вижив» клієнт, а черга дає durability і повтори. Оскільки сповіщення at-least-once, workers мають бути ідемпотентними (state machine на записі завантаження, умовні переходи). Sweeper підхоплює записи, для яких завантаження так і не відбулося. Покладання лише на клієнтський виклик втрачає роботу, коли браузер закривається, вкладка падає чи мережа обривається одразу після останнього байта, залишаючи файли-сироти, які ніколи не обробляться. Опитування списку вмісту bucket погано масштабується з кількістю об'єктів, додає затримку й вартість за кожен запит і потребує власного обліку, щоб уникнути повторної обробки. Очікування всередині запиту, що видає URL, тримає серверний запит відкритим на весь час завантаження — саме того, чого presigned URLs мали допомогти уникнути."
             }
           }
         },
@@ -1333,6 +2076,28 @@
                 }
               ],
               "explanation": "Both approaches are legitimate; the trade-off is latency and request volume (polling, mitigated by backoff and ETags) against connection state, backplanes and reconnect logic (push). Push is a notification mechanism, not a durable log: messages sent while a client is disconnected are lost, so the client must fetch current state on reconnect, which means the status endpoint exists either way. SSE is plain HTTP with a streaming `text/event-stream` response, one-directional and simpler than WebSockets, not built on them. Polling with sensible intervals scales well for short-lived jobs (many large services use it, and HTTP caching helps); dismissing it outright is dogma. SignalR does not guarantee delivery of messages across disconnects, so the 'no status endpoint' claim is false."
+            },
+            "uk": {
+              "prompt": "UI має показувати, коли обробку завантаженого файлу завершено (зазвичай 5–60 секунд). Яке твердження про polling vs push точне?",
+              "options": [
+                {
+                  "text": "Polling простий і stateless, але додає затримку й запити; push миттєвий, але потребує довгоживучих з'єднань, а клієнтам однаково потрібен status endpoint для ресинхронізації.",
+                  "correct": true
+                },
+                {
+                  "text": "Server-Sent Events під капотом потребують WebSocket-з'єднання, тож мають ту саму інфраструктурну вартість і проблеми з проксі, що й самі WebSockets.",
+                  "correct": false
+                },
+                {
+                  "text": "Polling ніколи не масштабується й не повинен використовуватися в продакшн-системах; push завжди кращий, щойно онлайн більше кількох сотень користувачів.",
+                  "correct": false
+                },
+                {
+                  "text": "З push через WebSocket або SignalR status endpoint не потрібен, бо сервер надійно й по порядку доставляє клієнту кожну зміну стану.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Обидва підходи легітимні; trade-off — затримка й обсяг запитів (polling, що пом'якшується backoff і ETags) проти стану з'єднань, backplanes і логіки перепідключення (push). Push — механізм сповіщень, а не надійний журнал: повідомлення, надіслані, поки клієнт відключений, губляться, тож після перепідключення клієнт має отримати поточний стан, а отже status endpoint існує в будь-якому разі. SSE — звичайний HTTP зі стрімінговою відповіддю `text/event-stream`, односпрямований і простіший за WebSockets, а не побудований на них. Polling з розумними інтервалами добре масштабується для короткоживучих задач (багато великих сервісів ним користуються, і допомагає HTTP-кешування); відкидати його з порога — догма. SignalR не гарантує доставки повідомлень через розриви з'єднання, тож твердження «status endpoint не потрібен» хибне."
             }
           }
         },
@@ -1357,6 +2122,17 @@
                 "Makes workers idempotent and handles failures with retries, a dead-letter queue and a sweeper for abandoned or stuck uploads.",
                 "Covers security: quarantine plus malware scanning before files are served, validation of real size and type, private buckets with short-lived download URLs.",
                 "Compares polling and push (SSE/WebSockets/SignalR) for status, explains the trade-offs and keeps a status endpoint for resynchronisation."
+              ]
+            },
+            "uk": {
+              "prompt": "Спроєктуйте функціональність, де користувачі завантажують файли розміром до кількох GB, які перевіряються на віруси, а потім обробляються (мініатюри або парсинг), а UI показує статус, доки результат не стане доступним. Розгляньте шлях завантаження, пайплайн обробки, безпеку й оновлення статусу.",
+              "explanation": "Еталонна відповідь: API авторизує завантаження, створює запис завантаження в стані `Pending` і повертає короткоживучий presigned URL (або SAS) для згенерованого сервером ключа в карантинному bucket; великі файли використовують multipart upload з presigned URLs для кожної частини, паралельними й відновлюваними частинами та lifecycle rule для переривання незавершених завантажень. Події створення об'єкта (плюс опційний клієнтський виклик 'complete') надходять у чергу; ідемпотентні workers керують state machine (`Uploaded → Scanning → Processing → Ready/Failed/Rejected`) з повторами, DLQ і sweeper для завислих pending-завантажень. Безпека: перевіряти розмір і справжній content type на сервері, сканувати перед перенесенням у чистий bucket, тримати buckets приватними й віддавати завантаження через короткоживучі presigned GET URLs, а також вважати файли ворожими вхідними даними для парсерів. Статус: polling з backoff на `GET /uploads/{id}` або push через SSE/SignalR з polling чи повторним отриманням стану як запасним варіантом, і webhooks для API-клієнтів; прогрес самого завантаження відстежується на клієнті.",
+              "rubric": [
+                "Використовує presigned URLs або SAS tokens для завантаження напряму в сховище з коротким терміном дії та згенерованими сервером ключами, а також multipart (відновлюване, паралельне) завантаження для файлів на кілька GB, включно з очищенням незавершених завантажень.",
+                "Моделює завантаження як збережену state machine (pending → uploaded → processing → ready/failed) і надійно запускає обробку через події сховища й чергу, а не лише через клієнта.",
+                "Робить workers ідемпотентними й обробляє збої повторами, dead-letter queue і sweeper для покинутих чи завислих завантажень.",
+                "Розглядає безпеку: карантин плюс сканування на malware до того, як файли віддаються, валідація справжнього розміру й типу, приватні buckets з короткоживучими URL для завантаження.",
+                "Порівнює polling і push (SSE/WebSockets/SignalR) для статусу, пояснює trade-offs і залишає status endpoint для ресинхронізації."
               ]
             }
           }
