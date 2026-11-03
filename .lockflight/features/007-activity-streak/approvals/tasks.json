@@ -1,0 +1,14 @@
+{
+  "schema": "lockflight.approval/v2",
+  "feature": "007-activity-streak",
+  "phase": "tasks",
+  "artifacts": {
+    "tasks.md": "35a07fb0ae5aae405bca11e7a0e101c26e3ed43bcd37df98d9bb22a7660bae4f",
+    "plan.md": "18221d2daabd5b71b6c350d30d7497f3df02d9e3155fcbc1196e9405f1004916"
+  },
+  "state": "person",
+  "approvedBy": "108990247+bohdan-ivaniichuk@users.noreply.github.com",
+  "at": "2026-11-03T14:48:37Z",
+  "engineVersion": "0.3.0",
+  "rule": null
+}

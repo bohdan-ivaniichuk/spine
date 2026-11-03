@@ -19,6 +19,10 @@
 - [x] 006 Weak spots — weak review mode, weak-spots view, summary drill; 356 .NET + 188 web tests, gate PASS,
       Lockflight review approve (2026-10-28, ADR 0008).
 
+- [x] Public release on GitHub, MIT, README with screenshots, CI gates on PRs (2026-11-03).
+- [x] 007 Activity and streak — streak card, `GET /api/review/activity`; 381 .NET + 202 web tests, gate `pr` PASS,
+      Lockflight review approve (2026-11-03).
+
 ## In progress
 
 - [x] 001 tests: 57 unit + 27 integration + 19 API green; both reviewers clean; clean-clone run 30 s to healthy (2026-09-06).

@@ -18,6 +18,7 @@ import { KnowledgeTreeSource } from '../../knowledge/api/knowledge-tree.source';
 import { liveConcepts } from '../../knowledge/api/knowledge-tree.models';
 import { EnBadge } from '../../shared/badges/en-badge';
 import { I18n } from '../../shared/i18n/i18n';
+import { ActivityCard } from '../activity-card/activity-card';
 import { coverageUrl, overviewUrl } from '../api/review-api';
 import {
   Coverage,
@@ -63,7 +64,7 @@ export interface AtlasDomain {
  */
 @Component({
   selector: 'app-review-overview',
-  imports: [ReactiveFormsModule, EnBadge],
+  imports: [ReactiveFormsModule, EnBadge, ActivityCard],
   templateUrl: './review-overview.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

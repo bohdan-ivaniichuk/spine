@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IReviewSessions, ReviewSessions>();
         services.AddScoped<IReadinessQueries, ReadinessQueries>();
         services.AddScoped<IWeakSpotsQueries, WeakSpotsQueries>();
+        services.AddScoped<IActivityQueries, ActivityQueries>();
         services.AddOptions<ReviewOptions>().Configure(o =>
         {
             o.DefaultTotalLimit = configuration.GetValue(ReviewOptions.TotalLimitKey, o.DefaultTotalLimit);

@@ -10,8 +10,8 @@ Add items as they are discovered; remove them when fixed (with the commit).
 |---|---|---|
 | Critical | 0 | — |
 | High | 0 | — |
-| Medium | 2 | Start/Answer race; retried commit can 409 |
-| Low | 12 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
+| Medium | 3 | Start/Answer race; retried commit can 409; trace blind to web tests |
+| Low | 14 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
 
 ## 1. Content pipeline
 
@@ -98,6 +98,20 @@ _2.1 (light-theme contrast) closed by the 003 Atlas palette: every light token p
 - **Fix:** inject `TimeProvider` into both and use `clock.GetUtcNow()`.
 - **Effort:** XS
 
+### 2.13 [LOW] Activity accepts only UTC and Area/Location zone ids
+- **Files:** `src/Api/Endpoints/Review/GetActivityEndpoint.cs` (`IsKnownZone`)
+- **Problem:** slash-less IANA ids other than `UTC` (`GMT`, `Japan`, `Etc` aliases without a slash) get a 400. Browsers
+  report `Area/Location` or `UTC`, so the web app is unaffected (Lockflight review minor 15ba7b1bb925, 2026-11-03).
+- **Fix:** accept slash-less ids the tzdata knows, still refusing Windows ids, `posix/` and `right/`.
+- **Effort:** XS
+
+### 2.14 [LOW] The container's tzdata is checked by hand only
+- **Files:** `src/Api/Dockerfile`, `specs/007-activity-streak/quickstart.md` step 2
+- **Problem:** tests run on the host's zone data; dropping `tzdata` from the Alpine image would turn every non-UTC
+  activity request into a 400 while CI stays green.
+- **Fix:** a compose smoke step in CI (`curl …/activity?tz=Europe/Kyiv` → 200), or a container-level test.
+- **Effort:** S
+
 ## 3. Tooling
 
 _3.2 (`npm audit` advisories) closed 2026-11-03: Angular 22.2.4, `npm audit` reports 0 vulnerabilities._
@@ -109,10 +123,12 @@ _3.2 (`npm audit` advisories) closed 2026-11-03: Angular 22.2.4, `npm audit` rep
   during feature 004.
 - **Effort:** XS (decide at 004 planning)
 
-### 3.3 [LOW] Lockflight trace sees only .NET tests
+### 3.3 [MEDIUM] Lockflight trace sees only .NET tests
 - **Files:** `specs/004-knowledge-atlas-notes/`
 - **Problem:** `lockflight trace` reports FR-001…007, FR-011, FR-013…015 of 004 as "not covered" because
-  they are verified by Vitest specs, which Lockflight does not run or trace.
+  they are verified by Vitest specs, which Lockflight does not run or trace. Same for 007 (FR-006…FR-009). Since
+  the CI judge's `trace` check is required, `lockflight ci` reports FAIL for every feature with web-only FRs; the PR
+  workflow runs the gates only, so pull requests are not blocked yet (2026-11-03).
 - **Fix:** a Lockflight-side mapping for non-.NET evidence, or accept and record the gap per feature.
 - **Effort:** — (engine change)
 

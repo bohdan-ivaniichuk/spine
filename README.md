@@ -37,9 +37,12 @@ visible badge in the app.
 
 ## Features
 
+![The streak card: days in a row, the longest streak and a 14-day bar chart](docs/images/activity-card.png)
+
 - **Spaced repetition** — SM-2 behind an `ISchedulingAlgorithm` interface, due + new limits per session.
 - **Scoped review** — all content, a domain, a topic or a single concept; the scope lives in the URL.
 - **Weak-spots mode** — drill every question whose latest answer was wrong; ranking by 30-day accuracy.
+- **Streak and activity** — current and longest streak plus the last 14 days of answers, in your own time zone.
 - **Knowledge atlas** — domain → topic → concept pages with safe Markdown notes and highlighted code.
 - **Readiness** — per-concept progress: a question counts once its review interval reaches 7 days.
 - **Bilingual** — English is canonical; Ukrainian is a separate translation pass with visible fallback.
@@ -111,6 +114,7 @@ Spine is also an experiment in **AI-augmented, spec-driven development**:
 | 003 Atlas redesign, EN/UK UI | [specs/003-atlas-redesign-i18n](specs/003-atlas-redesign-i18n/) |
 | 004 Knowledge atlas and notes | [specs/004-knowledge-atlas-notes](specs/004-knowledge-atlas-notes/) |
 | 006 Weak spots | [specs/006-weak-spots](specs/006-weak-spots/) |
+| 007 Activity and streak — first feature built end to end under Lockflight | [specs/007-activity-streak](specs/007-activity-streak/) |
 | 005 LLM grading of open answers and katas | planned |
 
 ## Develop

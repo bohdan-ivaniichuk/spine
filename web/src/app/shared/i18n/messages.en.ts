@@ -192,6 +192,18 @@ export const EN = {
     loading: 'Loading your weak spots…',
     loadError: 'Could not load your weak spots.',
   },
+  activity: {
+    title: 'Streak',
+    inARow: (n: number) => plural('en', n, { one: 'day in a row', other: 'days in a row' }),
+    longest: (n: number) => `Longest: ${n} ${plural('en', n, { one: 'day', other: 'days' })}`,
+    keepStreak: 'Answer a question today to keep it going.',
+    empty: 'No streak yet — answer your first question to start one.',
+    startReview: 'Start a review',
+    error: 'Activity could not be loaded.',
+    loading: 'Loading activity…',
+    chartSummary: (days: number, n: number) =>
+      `Last ${days} days: ${n} ${plural('en', n, { one: 'answer', other: 'answers' })}.`,
+  },
   feedback: {
     correct: 'Correct',
     incorrect: 'Incorrect',
