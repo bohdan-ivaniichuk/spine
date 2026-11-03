@@ -10,6 +10,10 @@
         "en": {
           "title": "Code Review Culture: What to Review, PR Size, Automation vs Human Review",
           "note": "## What it is\n\nCode review is the team's main mechanism for **shared ownership** of a codebase: a second engineer reads a change before it merges and either approves it or asks for changes. For a tech lead it is less about catching bugs personally and more about designing a review *system*: what humans look at, what machines enforce, how big a change may be, how fast reviews happen and how disagreements end.\n\n## How it works underneath\n\n**What review actually delivers.** Microsoft's study of modern code review (Bacchelli & Bird, ICSE 2013) found that developers *expect* review to find defects, but the outcomes are dominated by knowledge transfer, team awareness, better solutions and maintainability; defect comments are a minority. So optimise for understanding: a reviewer who cannot explain the change afterwards has not reviewed it.\n\n**Split the work between machines and humans.**\n\n- *Automate*: formatting, lint rules, analyzers (`TreatWarningsAsErrors`, Roslyn/ESLint), tests and coverage gates, dependency and secret scanning, build of every PR. A human comment about whitespace is a process bug.\n- *Human review*: design and boundaries (is this the right place for the code?), correctness of non-obvious logic, concurrency and failure modes, security of inputs, naming and readability, whether tests prove the behaviour rather than the implementation, and operability (logs, metrics, migrations, rollback). AI reviewers sit in between: useful first pass, never the approver.\n\n**PR size.** The widely cited SmartBear/Cisco study found defect detection falls sharply once a review exceeds a few hundred lines or an hour of attention. Large PRs get rubber-stamped (\"LGTM\" on 2,000 lines is the classic smell). The lead's levers: split refactors from behaviour changes, stack PRs, hide incomplete work behind feature flags so main stays releasable, and make \"small PR\" an explicit team norm rather than a reviewer's plea.\n\n**Standard of approval.** Google's engineering practices state it well: approve once the change *definitely improves the overall health of the codebase*, even if it is not perfect. Prefix non-blocking remarks with `Nit:`; separate \"must fix\" from \"consider\". Perfectionism in review slows the team and teaches people to batch work into bigger, scarier PRs.\n\n**Latency.** Review wait time is usually the biggest component of PR cycle time. Google's guideline is a first response within one business day at most; many teams aim for same-day. Track time-to-first-review, not number of comments.\n\n**Ownership.** `CODEOWNERS` routes PRs to the right people and, with branch protection, makes their approval mandatory. In GitHub's `CODEOWNERS`, the **last** matching pattern wins, so put broad rules first and specific ones later.\n\n## What an interviewer probes\n\n- \"What do you look for in a review?\" — expect a prioritised list (design → correctness → tests → readability), not \"everything\".\n- \"What do you automate?\" — anything objective and mechanical.\n- \"A 2,000-line PR lands on Friday. What do you do?\" — split it, or walk through it synchronously, never silent approval.\n- \"How do you handle a reviewer and author who disagree?\" — style guide or data first; if neither decides it, the author's choice stands for preference matters; escalate genuine design disputes to a short synchronous discussion and record it (ADR if significant).\n- \"How do juniors review seniors?\" — everyone reviews; it is a learning channel both ways.\n\n## Common misconceptions\n\n- \"Review exists to find bugs.\" Tests and static analysis find most bugs; review mainly spreads knowledge and guards design.\n- \"More approvers means more quality.\" Two required approvals often means two half-reviews and double latency.\n- \"Tone doesn't matter if the point is right.\" Comments are about the code, phrased as questions or suggestions; harsh review drives people to hide work in huge PRs.\n\n## Example: routing and a PR template\n\n```text\n# .github/CODEOWNERS  (last matching pattern wins)\n*                         @team/backend @team/frontend\n/web/                     @team/frontend\n/src/Infrastructure/Persistence/Migrations/  @team/db-owners\n```\n\n```markdown\n<!-- .github/pull_request_template.md -->\n## Why\n## What changed (and what deliberately did not)\n## How it was tested\n## Risk / rollback\n- [ ] Migration is backwards compatible\n- [ ] Feature flag: ___\n```\n"
+        },
+        "uk": {
+          "title": "Культура code review: що рев'юїти, розмір PR, автоматизація проти людського review",
+          "note": "## Що це\n\nCode review — основний механізм команди для **спільного володіння** кодовою базою: другий інженер читає зміну до merge і або схвалює її, або просить змін. Для tech lead ідеться не стільки про те, щоб особисто ловити баги, скільки про проєктування *системи* review: на що дивляться люди, що примусово перевіряють машини, яким великим може бути зміна, як швидко відбувається review і як завершуються розбіжності.\n\n## Як це працює під капотом\n\n**Що review дає насправді.** Дослідження сучасного code review у Microsoft (Bacchelli & Bird, ICSE 2013) показало, що розробники *очікують* від review пошуку дефектів, але в результатах домінують передача знань, обізнаність команди, кращі рішення та підтримуваність; коментарі про дефекти — меншість. Тож оптимізуйте під розуміння: рев'юер, який не може потім пояснити зміну, її не рев'юїв.\n\n**Розподіліть роботу між машинами та людьми.**\n\n- *Автоматизуйте*: форматування, lint-правила, аналізатори (`TreatWarningsAsErrors`, Roslyn/ESLint), тести й coverage gates, сканування залежностей і секретів, build кожного PR. Людський коментар про пробіли — це баг процесу.\n- *Людський review*: дизайн і межі (чи правильне це місце для коду?), коректність неочевидної логіки, конкурентність і режими відмов, безпека вхідних даних, іменування й читабельність, чи доводять тести поведінку, а не реалізацію, і operability (логи, метрики, міграції, rollback). AI-рев'юери посередині: корисний перший прохід, але ніколи не той, хто схвалює.\n\n**Розмір PR.** Широко цитоване дослідження SmartBear/Cisco показало, що виявлення дефектів різко падає, щойно review перевищує кілька сотень рядків або годину уваги. Великі PR отримують формальне схвалення («LGTM» на 2 000 рядків — класичний запах). Важелі lead: відокремлювати рефакторинг від змін поведінки, робити stacked PRs, ховати незавершену роботу за feature flags, щоб main лишався придатним до релізу, і зробити «малий PR» явною нормою команди, а не проханням рев'юера.\n\n**Стандарт схвалення.** Engineering practices Google формулюють це добре: схвалюйте, щойно зміна *безперечно покращує загальний стан кодової бази*, навіть якщо вона не ідеальна. Позначайте неблокувальні зауваження префіксом `Nit:`; відокремлюйте «треба виправити» від «варто розглянути». Перфекціонізм у review гальмує команду і привчає людей збирати роботу у більші та страшніші PR.\n\n**Затримка.** Час очікування review зазвичай найбільша складова PR cycle time. Настанова Google — перша відповідь щонайпізніше протягом одного робочого дня; багато команд цілять у той самий день. Відстежуйте time-to-first-review, а не кількість коментарів.\n\n**Ownership.** `CODEOWNERS` спрямовує PR до потрібних людей і разом із branch protection робить їхнє схвалення обов'язковим. У GitHub `CODEOWNERS` перемагає **останній** збіжний шаблон, тож ставте широкі правила першими, а специфічні — пізніше.\n\n## Що перевіряє інтерв'юер\n\n- «На що ви дивитеся під час review?» — очікують пріоритезований список (дизайн → коректність → тести → читабельність), а не «на все».\n- «Що ви автоматизуєте?» — усе об'єктивне й механічне.\n- «У п'ятницю приходить PR на 2 000 рядків. Що робите?» — розбити його або пройти синхронно разом, але ніколи не мовчазне схвалення.\n- «Як ви вирішуєте суперечку між рев'юером і автором?» — спершу style guide або дані; якщо ні те, ні інше не вирішує, у питаннях смаку лишається вибір автора; справжні суперечки щодо дизайну переносяться в коротке синхронне обговорення і фіксуються (ADR, якщо рішення значуще).\n- «Як джуніори рев'юять сеньйорів?» — рев'юять усі; це канал навчання в обидва боки.\n\n## Поширені хибні уявлення\n\n- «Review існує, щоб знаходити баги.» Більшість багів знаходять тести та статичний аналіз; review передусім поширює знання і захищає дизайн.\n- «Більше approvers — більше якості.» Два обов'язкові схвалення часто означають два половинчасті review і подвійну затримку.\n- «Тон не важливий, якщо суть правильна.» Коментарі стосуються коду й формулюються як запитання чи пропозиції; різкий review штовхає людей ховати роботу у величезних PR.\n\n## Приклад: маршрутизація і шаблон PR\n\n```text\n# .github/CODEOWNERS  (last matching pattern wins)\n*                         @team/backend @team/frontend\n/web/                     @team/frontend\n/src/Infrastructure/Persistence/Migrations/  @team/db-owners\n```\n\n```markdown\n<!-- .github/pull_request_template.md -->\n## Why\n## What changed (and what deliberately did not)\n## How it was tested\n## Risk / rollback\n- [ ] Migration is backwards compatible\n- [ ] Feature flag: ___\n```\n"
         }
       },
       "questions": [
@@ -45,6 +49,28 @@
                 }
               ],
               "explanation": "Mature teams push every objective, mechanical rule (formatting, lint, analyzers, tests, secret scanning) into CI and spend scarce human attention on what tools cannot judge: design, non-obvious correctness, failure modes, test quality and readability. Starting with formatting is the classic anti-pattern: it is exactly what a formatter enforces for free, and human comments on it are noise. Line-by-line bug hunting is a common belief, but research on modern code review (Bacchelli & Bird, Microsoft, 2013) shows defects are a minority of review outcomes; knowledge transfer and design improvement dominate, and tests find most bugs. 'Green CI is enough' ignores design and maintainability, which no gate measures, and removes the knowledge-sharing that is review's main benefit."
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «На що людина-рев'юер має витрачати увагу в pull request?» Яка відповідь відображає зрілу культуру review?",
+              "options": [
+                {
+                  "text": "Насамперед форматування, конвенції іменування та порядок імпортів, бо узгодженість — фундамент, на якому будуються всі інші атрибути якості.",
+                  "correct": false
+                },
+                {
+                  "text": "Дизайн і межі, коректність неочевидної логіки та режими відмов, чи доводять тести поведінку, і читабельність; форматування та правила рівня lint примусово перевіряє tooling у CI.",
+                  "correct": true
+                },
+                {
+                  "text": "Передусім пошук багів рядок за рядком, адже знаходження дефектів — головний вимірюваний результат code review.",
+                  "correct": false
+                },
+                {
+                  "text": "Лише те, чи зелений CI, бо якщо автоматичні перевірки пройдено, людина, що читає код, додає мало чого, крім затримки.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Зрілі команди виносять кожне об'єктивне, механічне правило (форматування, lint, аналізатори, тести, сканування секретів) у CI і витрачають обмежену людську увагу на те, чого інструменти оцінити не можуть: дизайн, неочевидну коректність, режими відмов, якість тестів і читабельність. Починати з форматування — класичний антипатерн: саме це formatter забезпечує безкоштовно, а людські коментарі про нього — шум. Пошук багів рядок за рядком — поширене переконання, але дослідження сучасного code review (Bacchelli & Bird, Microsoft, 2013) показують, що дефекти — меншість результатів review; домінують передача знань і покращення дизайну, а більшість багів знаходять тести. «Зеленого CI досить» ігнорує дизайн і підтримуваність, яких не вимірює жодна перевірка, і прибирає обмін знаннями, що є головною користю review."
             }
           }
         },
@@ -80,6 +106,28 @@
                 }
               ],
               "explanation": "Review effectiveness collapses on very large diffs (the SmartBear/Cisco study is the usual citation: detection drops sharply beyond a few hundred lines), and mixing a refactor with a behaviour change makes it impossible to see which diffs change behaviour. Splitting into a pure refactor (reviewable quickly as 'no behaviour change') plus a focused feature PR keeps the work, restores reviewability, and the team norm prevents a repeat. Approving because tests are green is the rubber-stamp failure: tests prove what they test, not the design or the unintended behaviour changes inside the refactor. Sampling gives false confidence; defects and design problems are not uniformly distributed. Rejecting and redoing from scratch throws away good work and punishes the developer for a process gap the lead should fix."
+            },
+            "uk": {
+              "prompt": "Розробник відкриває PR на 1 800 рядків, що змішує великий рефакторинг модуля замовлень із новою функцією знижок. Тести хороші, CI зелений. Яка найкраща реакція lead?",
+              "options": [
+                {
+                  "text": "Схвалити: тести зелені, а прохання розбити PR зараз змарнує вже виконану роботу.",
+                  "correct": false
+                },
+                {
+                  "text": "Ретельно переглянути репрезентативну вибірку файлів і схвалити, якщо вибірка чиста.",
+                  "correct": false
+                },
+                {
+                  "text": "Попросити розбити його на PR з рефакторингом без зміни поведінки та PR з функцією (stacked, якщо потрібно), запропонувати пройти зміни разом і домовитися про норму розміру PR для команди надалі.",
+                  "correct": true
+                },
+                {
+                  "text": "Відхилити його і попросити розробника реалізувати функцію заново з нуля малими кроками.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Ефективність review обвалюється на дуже великих diff (звичне посилання — дослідження SmartBear/Cisco: виявлення різко падає понад кілька сотень рядків), а змішування рефакторингу зі зміною поведінки унеможливлює побачити, які саме diff змінюють поведінку. Розбиття на чистий рефакторинг (який швидко рев'юїться як «без зміни поведінки») і сфокусований PR з функцією зберігає роботу, повертає можливість review, а норма команди запобігає повторенню. Схвалення через зелені тести — це провал формального схвалення: тести доводять те, що вони тестують, а не дизайн чи ненавмисні зміни поведінки всередині рефакторингу. Вибірка дає хибну впевненість; дефекти й проблеми дизайну розподілені нерівномірно. Відхилення й переробка з нуля викидає хорошу роботу і карає розробника за прогалину в процесі, яку має виправити lead."
             }
           }
         },
@@ -115,6 +163,28 @@
                 }
               ],
               "explanation": "This is Google's published standard for reviewers: favour approving a change once it improves code health, even if it isn't perfect, and use `Nit:` for optional polish. Recurring taste debates should be decided once (style guide, `.editorconfig`, analyzer) so they stop consuming review time. Resolving every comment toward the senior's taste is the cause of the problem: it inflates cycle time and teaches authors to batch work into larger PRs. Removing the reviewer treats a calibration issue as a people issue and loses their real design insight. Two mandatory approvals doubles latency and does not change the standard each reviewer applies."
+            },
+            "uk": {
+              "prompt": "Senior-рев'юер раз у раз блокує PR через рішення, що є справою смаку (наприклад, `foreach` проти LINQ, коли обидва варіанти зрозумілі, порядок методів). PR cycle time зростає. Який стандарт схвалення має встановити lead?",
+              "options": [
+                {
+                  "text": "Схвалювати, коли зміна безперечно покращує загальний стан кодової бази, навіть якщо вона не ідеальна; позначати зауваження щодо смаку як неблокувальні (`Nit:`), а повторювані суперечки про стиль вирішити один раз у style guide або правилі аналізатора.",
+                  "correct": true
+                },
+                {
+                  "text": "Вимагати розв'язання кожного коментаря перед merge, щоб кодова база сходилася до вподобань найдосвідченішого рев'юера.",
+                  "correct": false
+                },
+                {
+                  "text": "Прибрати цього рев'юера з ротації review, бо блокування гальмує delivery.",
+                  "correct": false
+                },
+                {
+                  "text": "Вимагати два схвалення на кожен PR, щоб вподобання одного рев'юера можна було переголосувати.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Це опублікований стандарт Google для рев'юерів: схиляйтеся до схвалення зміни, щойно вона покращує стан коду, навіть якщо вона не ідеальна, і використовуйте `Nit:` для необов'язкового шліфування. Повторювані суперечки про смак треба вирішити один раз (style guide, `.editorconfig`, аналізатор), щоб вони перестали з'їдати час review. Розв'язання кожного коментаря на користь смаку сеньйора і є причиною проблеми: це роздуває cycle time і привчає авторів збирати роботу в більші PR. Прибрати рев'юера — означає трактувати проблему калібрування як проблему людей і втратити його справжню експертизу в дизайні. Два обов'язкові схвалення подвоюють затримку і не змінюють стандарту, який застосовує кожен рев'юер."
             }
           }
         },
@@ -150,6 +220,28 @@
                 }
               ],
               "explanation": "GitHub evaluates `CODEOWNERS` so that the last matching pattern in the file takes precedence; specificity does not matter. Here `*` is last and matches everything, so it wins and `@everyone` owns every file, silently disabling the migration and backend rules. The fix is to order rules from broad to specific (`*` first, migrations last). 'Most specific wins' is the intuitive misconception borrowed from routing tables or CSS specificity. Rules are not combined: only one pattern's owners apply per file. The third option picks the right owner but for the wrong reason: `*` wins because it is last, not because it is a wildcard; moved to the top, it would lose."
+            },
+            "uk": {
+              "prompt": "Маючи такий файл GitHub `.github/CODEOWNERS`, кого буде запрошено як code owner для зміни в `src/Infrastructure/Persistence/Migrations/20261001_AddIndex.cs`?\n\n```text\n/src/Infrastructure/Persistence/Migrations/  @db-owners\n/src/                                        @backend\n*                                            @everyone\n```",
+              "options": [
+                {
+                  "text": "`@db-owners`, бо найспецифічніший збіжний шлях завжди має пріоритет.",
+                  "correct": false
+                },
+                {
+                  "text": "`@db-owners`, `@backend` і `@everyone`, бо всі збіжні правила об'єднуються.",
+                  "correct": false
+                },
+                {
+                  "text": "`@everyone`, бо `*` збігається з кожним файлом і тому перекриває інші.",
+                  "correct": false
+                },
+                {
+                  "text": "`@everyone`, бо в `CODEOWNERS` перемагає останній збіжний шаблон, незалежно від специфічності.",
+                  "correct": true
+                }
+              ],
+              "explanation": "GitHub обробляє `CODEOWNERS` так, що пріоритет має останній збіжний шаблон у файлі; специфічність значення не має. Тут `*` стоїть останнім і збігається з усім, тож він перемагає, і `@everyone` володіє кожним файлом, мовчки вимикаючи правила для міграцій і backend. Виправлення — впорядкувати правила від широких до специфічних (`*` першим, міграції останніми). «Перемагає найспецифічніший» — інтуїтивне хибне уявлення, запозичене з таблиць маршрутизації чи CSS specificity. Правила не об'єднуються: для кожного файлу застосовуються власники лише одного шаблону. Третій варіант називає правильного власника, але з хибної причини: `*` перемагає тому, що він останній, а не тому, що це wildcard; якби його перенесли нагору, він би програв."
             }
           }
         },
@@ -174,6 +266,17 @@
                 "Defines an approval standard that avoids perfectionism (approve when it improves code health; non-blocking nits) and a path for resolving disagreements (style guide, synchronous discussion, ADR or escalation).",
                 "Mentions knowledge sharing / shared ownership as a primary purpose of review (e.g. juniors reviewing seniors, rotating reviewers)."
               ]
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Як ви організовуєте code review у своїй команді?» Опишіть, на чому зосереджуються рев'юери, що ви автоматизуєте, як тримаєте PR малими, а review швидкими, і як вирішуються розбіжності в review.",
+              "explanation": "Еталонна відповідь: review існує передусім для спільного володіння та якості дизайну, а не як основний фільтр багів. Усе об'єктивне автоматизовано в CI (formatter, аналізатори як помилки, тести, coverage на зміненому коді, сканування залежностей/секретів, можливо, перший прохід AI), тож люди зосереджуються на дизайні та межах, неочевидній коректності й режимах відмов, якості тестів, читабельності та operability. PR тримають малими за нормою (кілька сотень рядків, рефакторинг окремо від змін поведінки, stacked PRs, feature flags, щоб незавершену роботу можна було merge), а review — швидкими за домовленістю (перша відповідь того ж дня, щонайпізніше протягом робочого дня, відстежується як time-to-first-review). Планка схвалення — «покращує стан коду», з `Nit:` для неблокувальних зауважень; суперечки про смак вирішуються один раз у style guide, справжні розбіжності щодо дизайну переносяться в короткий дзвінок і, якщо вони значущі, в ADR. Рев'юять усі, включно з джуніорами, що рев'юять сеньйорів, бо це поширює знання.",
+              "rubric": [
+                "Розрізняє, що автоматизовано (форматування, lint/аналізатори, тести, сканування безпеки), і що рев'юять люди (дизайн, неочевидна коректність, режими відмов, якість тестів, читабельність).",
+                "Дає конкретний підхід до розміру PR: малі PR як норма, відокремлення рефакторингу від змін поведінки і щонайменше одна техніка на кшталт stacked PRs або feature flags.",
+                "Розглядає затримку review з конкретним очікуванням (наприклад, перша відповідь протягом робочого дня) або метрикою (time-to-first-review / cycle time).",
+                "Визначає стандарт схвалення, що уникає перфекціонізму (схвалювати, коли зміна покращує стан коду; неблокувальні nits), і шлях розв'язання розбіжностей (style guide, синхронне обговорення, ADR або ескалація).",
+                "Згадує обмін знаннями / спільне володіння як основну мету review (наприклад, джуніори рев'юять сеньйорів, ротація рев'юерів)."
+              ]
             }
           }
         }
@@ -187,6 +290,10 @@
         "en": {
           "title": "Tech Debt Management: Classification, Prioritisation, Negotiating with Product",
           "note": "## What it is\n\nTechnical debt is the gap between the code you have and the code that would make the *next* change cheap. Ward Cunningham's original metaphor (1992) was about shipping with an incomplete understanding and paying it back by refactoring as understanding grows; it was never a licence for sloppy code. The debt has **principal** (cost to fix) and **interest** (the extra cost every change, incident or onboarding pays while it stays). A lead's job is to make that interest visible and to spend repayment where interest is highest.\n\n## How it works underneath\n\n**Classification.** Martin Fowler's *technical debt quadrant* crosses *deliberate / inadvertent* with *reckless / prudent*:\n\n| | Reckless | Prudent |\n|---|---|---|\n| **Deliberate** | \"We don't have time for design.\" | \"Ship now, consciously, and repay after the launch.\" |\n| **Inadvertent** | \"What's layering?\" | \"Now we know how we should have built it.\" |\n\nPrudent-inadvertent debt is unavoidable: learning the domain reveals a better design. Reckless debt is a skills or process problem, fixed with review and mentoring, not with a refactoring backlog. Practical categories a lead tracks alongside: code/design debt, architecture debt (wrong boundaries, shared database), test debt, dependency debt (EOL frameworks, CVEs), infrastructure/ops debt, and documentation/knowledge debt (bus factor of one).\n\n**Prioritisation = interest, not ugliness.** Code that is ugly but rarely touched has almost zero interest. Adam Tornhill's *hotspot* analysis multiplies change frequency (from git history) by complexity: the files that are both complex and changed every sprint are where debt costs real money. Other interest signals: incidents and their root causes, lead time for changes in an area, flaky tests, onboarding friction, security exposure. Rank by (interest × risk) / effort, and tie each item to an upcoming roadmap item that will touch that area.\n\n**Repayment strategies.**\n\n- *Continuous*: boy-scout rule, refactor in the same area as the feature (separate PR), a standing capacity share (many teams use 15–25%).\n- *Targeted*: a scoped item with a measurable outcome (\"move order pricing behind an interface; cut pricing-change lead time from 5 days to 1\").\n- *Incremental replacement*: the strangler fig pattern (route traffic piece by piece to new components) instead of a big-bang rewrite, which loses years of embedded bug fixes and stalls feature delivery.\n- *Deliberate debt with an exit*: when you take debt on purpose, write it down with the trigger for repayment (ADR or a ticket linked from a `TODO`).\n\n**Negotiating with product.** Product owners do not buy \"refactoring\"; they buy speed, reliability and risk reduction. Translate: \"every pricing change takes a week and caused two incidents this quarter; three weeks of work brings that to a day\". Show the data (lead time, incident counts, hotspot chart), offer options with trade-offs, and prefer a sustained allocation over periodic \"tech debt sprints\", which are the first thing cut when a deadline appears.\n\n## What an interviewer probes\n\n- \"How do you decide which tech debt to fix first?\" — interest and risk, not aesthetics.\n- \"How do you get product buy-in?\" — business language, data, options, a standing budget.\n- \"Rewrite or refactor?\" — strangler fig almost always; full rewrite only for small, well-understood systems.\n- \"Is all debt bad?\" — no; deliberate, prudent debt with a repayment plan is a legitimate business decision.\n\n## Common misconceptions\n\n- \"Tech debt = bad code.\" Much of it is prudent learning; and bad code nobody touches is not worth paying down.\n- \"We will fix it in a dedicated cleanup sprint.\" It gets cancelled; continuous allocation survives.\n- \"Hide refactoring inside estimates.\" Silent padding erodes trust and hides the cost the business needs to see; refactoring needed to deliver a feature is legitimately part of the estimate, but the debt itself should be visible in the backlog.\n"
+        },
+        "uk": {
+          "title": "Управління технічним боргом: класифікація, пріоритезація, переговори з product",
+          "note": "## Що це\n\nТехнічний борг — це розрив між кодом, який у вас є, і кодом, що зробив би *наступну* зміну дешевою. Оригінальна метафора Ward Cunningham (1992) стосувалася випуску з неповним розумінням і повернення боргу рефакторингом у міру того, як розуміння зростає; вона ніколи не була дозволом на неохайний код. Борг має **principal** (вартість виправлення) і **interest** (додаткова вартість, яку сплачує кожна зміна, інцидент чи onboarding, поки борг лишається). Робота lead — зробити ці відсотки видимими і спрямовувати погашення туди, де відсотки найвищі.\n\n## Як це працює під капотом\n\n**Класифікація.** *Technical debt quadrant* Martin Fowler перетинає *навмисний / ненавмисний* з *безрозсудним / розважливим*:\n\n| | Безрозсудний | Розважливий |\n|---|---|---|\n| **Навмисний** | «У нас немає часу на дизайн.» | «Випускаємо зараз, свідомо, і повертаємо борг після запуску.» |\n| **Ненавмисний** | «Що таке шари?» | «Тепер ми знаємо, як мали це побудувати.» |\n\nРозважливо-ненавмисний борг неминучий: вивчення домену відкриває кращий дизайн. Безрозсудний борг — це проблема навичок або процесу, яку виправляють review і менторингом, а не backlog рефакторингу. Практичні категорії, які lead відстежує паралельно: борг коду/дизайну, архітектурний борг (неправильні межі, спільна база даних), борг тестів, борг залежностей (EOL-фреймворки, CVE), борг інфраструктури/ops і борг документації/знань (bus factor, рівний одиниці).\n\n**Пріоритезація = відсотки, а не потворність.** Код, який потворний, але рідко змінюється, має майже нульові відсотки. Аналіз *hotspot* Adam Tornhill множить частоту змін (з історії git) на складність: файли, що водночас складні й змінюються кожного спринту, — це місця, де борг коштує реальних грошей. Інші сигнали відсотків: інциденти та їхні root causes, lead time змін у певній області, flaky-тести, тертя при onboarding, вразливість з погляду безпеки. Ранжуйте за (відсотки × ризик) / зусилля і прив'язуйте кожен пункт до найближчого елемента roadmap, що зачепить цю область.\n\n**Стратегії погашення.**\n\n- *Безперервне*: правило бойскаута, рефакторинг у тій самій області, що й функція (окремим PR), постійна частка ємності (багато команд використовують 15–25%).\n- *Цільове*: обмежений за обсягом пункт із вимірюваним результатом («винести ціноутворення замовлень за інтерфейс; скоротити lead time змін ціноутворення з 5 днів до 1»).\n- *Поступова заміна*: патерн strangler fig (перенаправляти трафік частинами на нові компоненти) замість big-bang переписування, яке втрачає роки вбудованих виправлень багів і зупиняє постачання функцій.\n- *Навмисний борг зі стратегією виходу*: коли берете борг свідомо, запишіть його разом із тригером для погашення (ADR або тікет, на який посилається `TODO`).\n\n**Переговори з product.** Product owners не купують «рефакторинг»; вони купують швидкість, надійність і зниження ризику. Перекладайте: «кожна зміна ціноутворення займає тиждень і спричинила два інциденти цього кварталу; три тижні роботи скоротять це до одного дня». Покажіть дані (lead time, кількість інцидентів, графік hotspots), запропонуйте варіанти з компромісами і віддавайте перевагу постійному виділенню ресурсу над періодичними «спринтами технічного боргу», які першими вирізають, щойно з'являється дедлайн.\n\n## Що перевіряє інтерв'юер\n\n- «Як ви вирішуєте, який технічний борг виправляти першим?» — відсотки й ризик, а не естетика.\n- «Як ви отримуєте підтримку від product?» — мова бізнесу, дані, варіанти, постійний бюджет.\n- «Переписувати чи рефакторити?» — майже завжди strangler fig; повне переписування — лише для малих, добре зрозумілих систем.\n- «Чи кожен борг поганий?» — ні; навмисний, розважливий борг із планом погашення — легітимне бізнес-рішення.\n\n## Поширені хибні уявлення\n\n- «Технічний борг = поганий код.» Значна його частина — розважливе навчання; а поганий код, якого ніхто не торкається, не варто погашати.\n- «Ми виправимо це в окремому спринті прибирання.» Його скасують; постійне виділення ресурсу виживає.\n- «Ховати рефакторинг в оцінках.» Мовчазне закладання запасу підриває довіру і приховує вартість, яку бізнес має бачити; рефакторинг, потрібний для постачання функції, легітимно входить в оцінку, але сам борг має бути видимим у backlog.\n"
         }
       },
       "questions": [
@@ -222,6 +329,28 @@
                 }
               ],
               "explanation": "Fowler's quadrant crosses deliberate/inadvertent with reckless/prudent. 'Now we know how we should have done it' is his own example of prudent-inadvertent debt: it is the normal by-product of learning a domain, not a failure. Reckless-deliberate would be knowingly skipping design ('no time for design'), which the statement does not describe. Prudent-deliberate requires a conscious decision at the time to take a shortcut and repay later; here the team did not know. 'Not debt because there were no bugs' misreads the metaphor: debt is the extra cost future changes pay, which is independent of whether the code was defect-free when written."
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Як ви класифікуєте технічний борг?» Після року в production команда каже: «Ми не знали патерну outbox, коли будували події замовлень; тепер, коли ми розуміємо режими відмов, ми бачимо, як це треба було побудувати». Де це в technical debt quadrant Fowler?",
+              "options": [
+                {
+                  "text": "Безрозсудний і навмисний: команда випустила систему, не провівши необхідного дослідження дизайну.",
+                  "correct": false
+                },
+                {
+                  "text": "Розважливий і ненавмисний: команда ухвалювала обґрунтовані рішення і дізналася про кращий дизайн лише побудувавши й експлуатуючи систему.",
+                  "correct": true
+                },
+                {
+                  "text": "Розважливий і навмисний: команда свідомо вирішила спершу випустити, а борг повернути пізніше.",
+                  "correct": false
+                },
+                {
+                  "text": "Це взагалі не технічний борг, бо оригінальний код не мав багів, коли його писали.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Квадрант Fowler перетинає навмисний/ненавмисний з безрозсудним/розважливим. «Тепер ми знаємо, як мали це зробити» — його власний приклад розважливо-ненавмисного боргу: це нормальний побічний продукт вивчення домену, а не провал. Безрозсудно-навмисний борг — це свідомий пропуск дизайну («немає часу на дизайн»), чого твердження не описує. Розважливо-навмисний вимагає свідомого рішення на той момент піти на компроміс і повернути борг пізніше; тут команда просто не знала. «Не борг, бо не було багів» неправильно прочитує метафору: борг — це додаткова вартість, яку сплачують майбутні зміни, і вона не залежить від того, чи був код без дефектів на момент написання."
             }
           }
         },
@@ -257,6 +386,28 @@
                 }
               ],
               "explanation": "Debt costs money when work passes through it. Hotspot analysis (Adam Tornhill) multiplies change frequency by complexity; B is touched constantly and is causing incidents, so every improvement there pays back immediately. A is ugly but almost never changed, so its interest is close to zero; poor metrics alone are an aesthetic argument. Untested code is a risk only when it changes or when its behaviour matters in an incident; A changed twice in a year, and characterisation tests can be added if and when it is touched. Splitting the budget evenly spreads effort too thin to finish either and ignores the interest data; it optimises for stakeholder optics, not outcomes."
+            },
+            "uk": {
+              "prompt": "У вас є бюджет, щоб цього кварталу погасити борг в одній області. Модуль A — legacy-клас звітності на 3 000 рядків із поганим іменуванням і без тестів, який змінювали двічі за останній рік. Модуль B — помірно заплутаний сервіс ціноутворення, який змінюють у 70% спринтів і з яким пов'язані два інциденти минулого кварталу. Який вибір і яке обґрунтування найсильніші?",
+              "options": [
+                {
+                  "text": "Модуль A, бо в нього найгірші метрики якості коду і найнижче покриття тестами.",
+                  "correct": false
+                },
+                {
+                  "text": "Модуль A, бо нетестований код — найвищий ризик незалежно від того, як часто він змінюється.",
+                  "correct": false
+                },
+                {
+                  "text": "Модуль B, бо борг слід пріоритезувати за відсотками, які він стягує (частота змін × складність, інциденти, lead time), а B сплачує ці відсотки майже кожного спринту.",
+                  "correct": true
+                },
+                {
+                  "text": "Жоден; розділити бюджет порівну, щоб обидва покращилися і жоден стейкхолдер не почувався проігнорованим.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Борг коштує грошей, коли через нього проходить робота. Аналіз hotspots (Adam Tornhill) множить частоту змін на складність; B зачіпають постійно і він спричиняє інциденти, тож кожне покращення там окуповується одразу. A потворний, але майже ніколи не змінюється, тож його відсотки близькі до нуля; самі лише погані метрики — це естетичний аргумент. Нетестований код є ризиком лише тоді, коли він змінюється або коли його поведінка важить під час інциденту; A змінювали двічі за рік, а characterisation tests можна додати, якщо й коли його зачеплять. Поділ бюджету порівну розпорошує зусилля надто тонко, щоб завершити хоч щось, і ігнорує дані про відсотки; він оптимізує враження стейкхолдерів, а не результати."
             }
           }
         },
@@ -292,6 +443,28 @@
                 }
               ],
               "explanation": "Product owners fund outcomes, so the debt must be expressed as speed, reliability and risk, backed by numbers, with options rather than ultimatums; a standing allocation (often 15–25%) survives deadlines far better than one-off efforts. Silent padding is a common habit but erodes trust when discovered and hides the true cost from the people deciding priorities (refactoring a feature genuinely requires belongs in its estimate openly, which is different). A dedicated cleanup phase 'after the release' is the first thing cut when the next deadline appears. Escalating for a freeze is adversarial, rarely granted, and without data it reads as engineers wanting to polish."
+            },
+            "uk": {
+              "prompt": "Product каже, що в roadmap немає місця для технічного боргу. Який підхід найімовірніше забезпечить стабільне інвестування?",
+              "options": [
+                {
+                  "text": "Тихо додавати 30% до оцінки кожної функції і використовувати запас для рефакторингу, щоб product ніколи не довелося це схвалювати.",
+                  "correct": false
+                },
+                {
+                  "text": "Перекласти борг у бізнес-вплив із даними (lead time в ураженій області, кількість інцидентів, час onboarding), запропонувати варіанти з вартістю та очікуваними результатами і домовитися про постійну частку ємності, прив'язану до областей roadmap.",
+                  "correct": true
+                },
+                {
+                  "text": "Попросити окрему двоспринтову фазу технічного боргу після наступного релізу, коли тиск буде меншим.",
+                  "correct": false
+                },
+                {
+                  "text": "Ескалювати до CTO, що кодова база нежиттєздатна, і вимагати заморожування функцій, доки її не буде прибрано.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Product owners фінансують результати, тож борг треба виразити як швидкість, надійність і ризик, підкріплені цифрами, з варіантами замість ультиматумів; постійне виділення ресурсу (часто 15–25%) переживає дедлайни значно краще за одноразові зусилля. Мовчазне закладання запасу — поширена звичка, але воно підриває довіру, коли розкривається, і приховує справжню вартість від тих, хто визначає пріоритети (рефакторинг, якого справді потребує функція, відкрито входить у її оцінку — це інше). Окрему фазу прибирання «після релізу» першою вирізають, щойно з'являється наступний дедлайн. Ескалація з вимогою заморозки — конфронтаційна, її рідко погоджують, а без даних вона виглядає як бажання інженерів шліфувати код."
             }
           }
         },
@@ -327,6 +500,28 @@
                 }
               ],
               "explanation": "The strangler fig (Fowler) replaces a system incrementally: each extracted capability delivers value and is validated in production, risk is bounded, and you can stop at any point with a working system. Big-bang rewrites chase a moving target, lose the years of edge-case fixes embedded in the old code, and deliver nothing until parity; 'avoid all accumulated debt' ignores that much of the old complexity is real business logic. Freezing features makes the business pay the full cost upfront and is rarely sustainable. Boy-scout refactoring alone is useful but cannot fix architectural debt such as wrong boundaries or a shared database; a structural problem needs a structural (but incremental) plan."
+            },
+            "uk": {
+              "prompt": "10-річний моноліт обробляє білінг і є головним джерелом тертя в delivery. Команда пропонує повне переписування на новому стеку, яке працюватиме паралельно до досягнення паритету функцій. Яка реакція відповідає практиці з найменшим ризиком?",
+              "options": [
+                {
+                  "text": "Схвалити переписування: чиста архітектура, спроєктована з сьогоднішніх вимог, уникне всього накопиченого боргу.",
+                  "correct": false
+                },
+                {
+                  "text": "Заморозити всю роботу над функціями в моноліті, доки переписування не досягне паритету, щоб ціль не рухалася.",
+                  "correct": false
+                },
+                {
+                  "text": "Відхилити будь-які структурні зміни й обмежити роботу правилом бойскаута всередині наявного моноліту.",
+                  "correct": false
+                },
+                {
+                  "text": "Застосувати патерн strangler fig: поставити попереду routing seam, виносити за ним одну можливість за раз, доводити кожну в production і прибирати старий шлях коду в міру міграції кожної частини.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Strangler fig (Fowler) замінює систему поступово: кожна винесена можливість приносить цінність і перевіряється в production, ризик обмежений, і можна зупинитися в будь-який момент із робочою системою. Big-bang переписування женуться за рухомою ціллю, втрачають роки виправлень граничних випадків, вбудованих у старий код, і нічого не постачають до досягнення паритету; «уникне всього накопиченого боргу» ігнорує те, що значна частина старої складності — це реальна бізнес-логіка. Заморожування функцій змушує бізнес сплатити всю вартість наперед і рідко буває стійким. Рефакторинг за правилом бойскаута корисний, але сам по собі не виправить архітектурний борг на кшталт неправильних меж чи спільної бази даних; структурна проблема потребує структурного (але поступового) плану."
             }
           }
         },
@@ -351,6 +546,17 @@
                 "Frames the conversation with product in business terms backed by data and offers options/trade-offs rather than ultimatums or hidden padding.",
                 "Mentions closing the loop: measuring or reporting the outcome after repayment, or recording deliberate debt with a repayment trigger."
               ]
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Як ви керуєте технічним боргом у своїй команді і як переконуєте product витрачати на нього час?» Наведіть конкретний приклад, якщо він у вас є.",
+              "explanation": "Еталонна відповідь: борг робиться видимим (реєстр боргу або позначені елементи backlog, кожен з областю, симптомом і вартістю), класифікується (розважливий проти безрозсудного, навмисний проти ненавмисного; борг коду, архітектури, тестів, залежностей, ops) і пріоритезується за відсотками: hotspots з історії git (частота змін × складність), інциденти, lead time, вразливість з погляду безпеки, ранжовані відносно зусиль і прив'язані до найближчої роботи з roadmap. Погашення безперервне (правило бойскаута, PR з рефакторингом перед функцією в тій самій області, постійна частка ємності 15–25%) плюс цільові пункти з вимірюваними результатами; структурні проблеми розв'язуються міграцією strangler fig, а не переписуванням. Product переконують мовою бізнесу й даними («зміни ціноутворення займають п'ять днів і спричинили два інциденти; три тижні скоротять це до одного дня»), варіантами з компромісами і звітом про результат після погашення, що будує довіру. Навмисний борг фіксується з тригером погашення.",
+              "rubric": [
+                "Пояснює, як борг робиться видимим і класифікується (наприклад, квадрант Fowler або категорії на кшталт боргу коду, архітектури, тестів, залежностей, ops).",
+                "Пріоритезує за відсотками/впливом (частота змін, інциденти, lead time, ризик), а не за естетикою коду, бажано згадуючи hotspots або ранжування за вартістю/вигодою.",
+                "Описує стійку стратегію погашення (постійне виділення ресурсу, правило бойскаута, рефакторинг разом із пов'язаними функціями) і віддає перевагу поступовій заміні (strangler fig) над big-bang переписуванням.",
+                "Будує розмову з product у бізнес-термінах, підкріплених даними, і пропонує варіанти/компроміси замість ультиматумів чи прихованого запасу в оцінках.",
+                "Згадує замикання циклу: вимірювання або звіт про результат після погашення, або фіксацію навмисного боргу з тригером погашення."
+              ]
             }
           }
         }
@@ -364,6 +570,10 @@
         "en": {
           "title": "ADRs and Decision-Making: Recording Decisions, Reversible vs Irreversible",
           "note": "## What it is\n\nAn **Architecture Decision Record (ADR)** is a short document that captures one architecturally significant decision: the context that forced it, the decision itself, and its consequences. Michael Nygard popularised the format in 2011 (\"Documenting Architecture Decisions\"). ADRs live in the repository (`docs/architecture/decisions/0007-use-outbox-for-order-events.md`), are reviewed like code and form an append-only log of *why* the system looks the way it does.\n\nDecision-making is the broader skill: knowing which decisions deserve that rigour, who makes them, how fast, and how to keep options open.\n\n## How it works underneath\n\n**The record.** Nygard's template has five parts: *Title*, *Status* (proposed, accepted, deprecated, superseded by ADR-N), *Context* (forces, constraints, facts at the time), *Decision* (active voice: \"We will…\"), *Consequences* (positive, negative and neutral — what becomes easier and what becomes harder). Variants such as MADR add *considered options* with pros and cons, which is the most valuable part for future readers: it stops the team re-litigating rejected alternatives.\n\n**Immutability.** An accepted ADR is not edited to reflect a new direction. You write a new ADR that supersedes it and update only the old one's status. The log then shows the evolution, including why the first decision made sense at the time.\n\n**What is \"architecturally significant\"?** Decisions that are expensive to reverse, affect structure or cross-cutting qualities (consistency model, security, deployment), constrain other teams, or introduce a new technology. Choosing a variable name is not; choosing PostgreSQL over a document store, introducing an outbox, adopting a modular monolith, or pinning a public API versioning scheme is.\n\n**Reversible vs irreversible.** Jeff Bezos's 2015 shareholder letter split decisions into *Type 1* (one-way doors: consequential and hard or impossible to reverse) and *Type 2* (two-way doors: you can walk back through). Type 2 decisions should be made quickly, by small groups or individuals close to the work; treating them like Type 1 is the typical large-organisation slowness. Type 1 decisions deserve deliberation, prototypes and an ADR. A lead's best move is often to **convert a one-way door into a two-way door**: put the choice behind an interface or adapter, use a feature flag, run a spike, use a parallel run, keep a data migration reversible (expand–contract).\n\n**Timing.** Lean software development's *last responsible moment*: defer a decision until the cost of not deciding exceeds the cost of deciding, so it is made with the most information. It is not \"as late as possible\"; past that moment, delay itself becomes the decision.\n\n**Who decides.** Options range from the lead deciding, through consult-then-decide, to consensus; a good lead states the mode upfront. When peers disagree: agree the decision criteria first (latency, cost, team skills, operability), time-box the debate, gather data with a spike if possible, decide, and ask everyone to *disagree and commit*. Majority votes on technical questions tend to reward popularity over evidence.\n\n## What an interviewer probes\n\n- \"What is an ADR, what goes in it, when do you write one?\"\n- \"How do you treat reversible vs irreversible decisions differently?\"\n- \"Two seniors disagree on an architecture choice — what do you do?\"\n- \"Tell me about a decision you made that turned out wrong\" — the answer should show the reasoning was recorded and the reversal was cheap or planned.\n\n## Common misconceptions\n\n- \"ADRs are design docs you keep up to date.\" They are point-in-time records; the current design is the sum of non-superseded ADRs plus the code.\n- \"Every decision needs an ADR.\" Over-documentation kills the practice; reserve it for significant ones.\n- \"Decide as late as possible.\" Late is only good until the cost of delay overtakes it.\n- \"Record only what we chose.\" Rejected options and their reasons are what save the next debate.\n\n## Template\n\n```markdown\n# 0007. Publish order events through a transactional outbox\n\nStatus: Accepted (2026-03-02). Supersedes 0003.\n\n## Context\nOrder events are published to the broker after `SaveChanges`. A crash between\nthe two loses events; two incidents last quarter. We need at-least-once delivery\nwithout distributed transactions.\n\n## Options considered\n1. Keep publish-after-commit with retries: still loses events on process crash.\n2. Transactional outbox + relay: atomic with the business write; adds a table and a worker.\n3. CDC (Debezium) on the orders table: no app changes; new infrastructure to run.\n\n## Decision\nWe will write events to an `outbox` table in the same transaction and publish\nthem with a background relay. Consumers must be idempotent.\n\n## Consequences\n+ No lost events; replay is possible from the table.\n- At-least-once delivery: duplicates possible; publish latency of up to 1 s.\n- A new worker to monitor; outbox table needs cleanup.\n```\n"
+        },
+        "uk": {
+          "title": "ADR і ухвалення рішень: фіксація рішень, оборотні та необоротні рішення",
+          "note": "## Що це\n\n**Architecture Decision Record (ADR)** — короткий документ, що фіксує одне архітектурно значуще рішення: контекст, який його зумовив, саме рішення та його наслідки. Michael Nygard популяризував цей формат у 2011 році («Documenting Architecture Decisions»). ADR живуть у репозиторії (`docs/architecture/decisions/0007-use-outbox-for-order-events.md`), проходять review як код і утворюють append-only журнал того, *чому* система виглядає саме так.\n\nУхвалення рішень — ширша навичка: розуміти, які рішення заслуговують такої ретельності, хто їх ухвалює, як швидко і як зберегти варіанти відкритими.\n\n## Як це працює під капотом\n\n**Запис.** Шаблон Nygard має п'ять частин: *Title*, *Status* (proposed, accepted, deprecated, superseded by ADR-N), *Context* (сили, обмеження, факти на той момент), *Decision* (в активному стані: «Ми будемо…»), *Consequences* (позитивні, негативні й нейтральні — що стає простішим, а що складнішим). Варіанти на кшталт MADR додають *considered options* з плюсами й мінусами, і це найцінніша частина для майбутніх читачів: вона не дає команді знову й знову переглядати відкинуті альтернативи.\n\n**Незмінність.** Прийнятий ADR не редагують, щоб відобразити новий напрям. Ви пишете новий ADR, що його заміщує, і оновлюєте лише статус старого. Тоді журнал показує еволюцію, включно з тим, чому перше рішення мало сенс на той момент.\n\n**Що є «архітектурно значущим»?** Рішення, які дорого скасувати, що впливають на структуру або наскрізні якості (модель консистентності, безпека, розгортання), обмежують інші команди або вводять нову технологію. Вибір імені змінної — ні; вибір PostgreSQL замість document store, запровадження outbox, перехід на modular monolith чи фіксація схеми версіонування публічного API — так.\n\n**Оборотні та необоротні.** Лист Jeff Bezos акціонерам 2015 року поділив рішення на *Type 1* (односторонні двері: вагомі й такі, що їх важко або неможливо скасувати) і *Type 2* (двосторонні двері: можна пройти назад). Рішення Type 2 слід ухвалювати швидко, малими групами або людьми, найближчими до роботи; ставлення до них як до Type 1 — типова повільність великих організацій. Рішення Type 1 заслуговують обдумування, прототипів і ADR. Найкращий хід lead часто — **перетворити односторонні двері на двосторонні**: сховати вибір за інтерфейсом чи адаптером, використати feature flag, провести spike, паралельний запуск, тримати міграцію даних оборотною (expand–contract).\n\n**Час.** *Last responsible moment* з lean software development: відкладайте рішення, доки вартість неухвалення не перевищить вартість ухвалення, щоб ухвалити його з максимумом інформації. Це не «якомога пізніше»; після цього моменту саме зволікання стає рішенням.\n\n**Хто вирішує.** Варіанти — від рішення lead через «проконсультуватися, потім вирішити» до консенсусу; хороший lead називає режим наперед. Коли колеги не згодні: спершу домовтеся про критерії рішення (затримка, вартість, навички команди, operability), обмежте дискусію в часі, по змозі зберіть дані через spike, вирішіть і попросіть усіх *disagree and commit*. Голосування більшістю в технічних питаннях зазвичай винагороджує популярність, а не докази.\n\n## Що перевіряє інтерв'юер\n\n- «Що таке ADR, що в ньому, коли ви його пишете?»\n- «Як ви по-різному ставитеся до оборотних і необоротних рішень?»\n- «Два сеньйори не згодні щодо архітектурного вибору — що ви робите?»\n- «Розкажіть про рішення, яке виявилося хибним» — відповідь має показати, що міркування було зафіксовано, а скасування було дешевим або запланованим.\n\n## Поширені хибні уявлення\n\n- «ADR — це дизайн-документи, які підтримують в актуальному стані.» Це записи на певний момент часу; поточний дизайн — це сума незаміщених ADR плюс код.\n- «Кожне рішення потребує ADR.» Надмірна документація вбиває практику; лишайте її для значущих рішень.\n- «Вирішуйте якомога пізніше.» Пізно — добре лише доти, доки вартість зволікання не переважить.\n- «Фіксуйте лише те, що обрали.» Відкинуті варіанти та причини їх відкидання — саме те, що рятує від наступної суперечки.\n\n## Шаблон\n\n```markdown\n# 0007. Publish order events through a transactional outbox\n\nStatus: Accepted (2026-03-02). Supersedes 0003.\n\n## Context\nOrder events are published to the broker after `SaveChanges`. A crash between\nthe two loses events; two incidents last quarter. We need at-least-once delivery\nwithout distributed transactions.\n\n## Options considered\n1. Keep publish-after-commit with retries: still loses events on process crash.\n2. Transactional outbox + relay: atomic with the business write; adds a table and a worker.\n3. CDC (Debezium) on the orders table: no app changes; new infrastructure to run.\n\n## Decision\nWe will write events to an `outbox` table in the same transaction and publish\nthem with a background relay. Consumers must be idempotent.\n\n## Consequences\n+ No lost events; replay is possible from the table.\n- At-least-once delivery: duplicates possible; publish latency of up to 1 s.\n- A new worker to monitor; outbox table needs cleanup.\n```\n"
         }
       },
       "questions": [
@@ -399,6 +609,28 @@
                 }
               ],
               "explanation": "Nygard's format (Title, Status, Context, Decision, Consequences) records a single decision at a point in time, and the log is append-only: a new ADR supersedes the old one, whose status is updated to 'Superseded by ADR-N'. That preserves why each choice made sense when it was made. The 'living design document' option describes a design doc, not an ADR; editing ADRs destroys the history that is their whole point. Omitting rejected alternatives has it backwards: recording them with reasons is what prevents re-litigation. ADRs are written by the team, usually as a PR in the repo with status 'Proposed'; they do not require a review board, and treating them as board minutes turns a lightweight practice into bureaucracy."
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Що таке ADR і як ви його підтримуєте?» Яке твердження про Architecture Decision Records правильне?",
+              "options": [
+                {
+                  "text": "ADR — живий дизайн-документ: коли рішення змінюється, ви оновлюєте наявний ADR, щоб він завжди описував поточну архітектуру.",
+                  "correct": false
+                },
+                {
+                  "text": "ADR фіксує одне значуще рішення з його контекстом, самим рішенням і наслідками; після прийняття його не переписують, а пізнішу зміну напряму оформлюють новим ADR, що його заміщує.",
+                  "correct": true
+                },
+                {
+                  "text": "ADR має фіксувати лише обраний варіант; перелік відкинутих альтернатив провокує команду знову відкривати вже закриті суперечки.",
+                  "correct": false
+                },
+                {
+                  "text": "ADR створюють після того, як architecture review board схвалить рішення, як офіційний протокол цієї ради.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Формат Nygard (Title, Status, Context, Decision, Consequences) фіксує одне рішення на певний момент часу, а журнал є append-only: новий ADR заміщує старий, чий статус оновлюють на «Superseded by ADR-N». Це зберігає пояснення, чому кожен вибір мав сенс у момент ухвалення. Варіант «живий дизайн-документ» описує дизайн-документ, а не ADR; редагування ADR знищує історію, яка і є їхнім сенсом. Пропуск відкинутих альтернатив перевертає все догори дриґом: саме їх фіксація з причинами запобігає повторним суперечкам. ADR пише команда, зазвичай як PR у репозиторії зі статусом «Proposed»; рада для review їм не потрібна, а ставлення до них як до протоколу ради перетворює легку практику на бюрократію."
             }
           }
         },
@@ -434,6 +666,28 @@
                 }
               ],
               "explanation": "A public contract consumed by external partners is expensive or impossible to reverse: once partners integrate, any change requires versioning, migration windows and coordination you do not control, so it is a Type 1 decision. The logging library sits behind the `ILogger<T>` abstraction, so swapping it later is cheap: a two-way door, even though it feels 'architectural'. A feature-flagged rollout to 5% is the archetype of a two-way door: you can turn it off. The CSS choice for one internal screen is local and cheap to change. The interview insight is that abstractions, flags and staged rollouts are tools for turning one-way doors into two-way doors."
+            },
+            "uk": {
+              "prompt": "Якщо застосувати розрізнення Bezos між односторонніми та двосторонніми дверима, що з переліченого найочевидніше є односторонніми дверима, які заслуговують повільного, обдуманого ухвалення рішення та ADR?",
+              "options": [
+                {
+                  "text": "Вибір між Serilog і NLog за `ILogger<T>` для нового сервісу.",
+                  "correct": false
+                },
+                {
+                  "text": "Увімкнення нового checkout flow за feature flag для 5% користувачів.",
+                  "correct": false
+                },
+                {
+                  "text": "Визначення контракту URL і payload публічного API, з яким інтегруватимуться зовнішні партнери.",
+                  "correct": true
+                },
+                {
+                  "text": "Вибір одного з двох рівноцінних підходів до CSS-утиліт, який команда використає для нового екрана адмінки.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Публічний контракт, який споживають зовнішні партнери, дорого або неможливо скасувати: щойно партнери інтегрувалися, будь-яка зміна потребує версіонування, вікон міграції та координації, яку ви не контролюєте, тож це рішення Type 1. Бібліотека логування стоїть за абстракцією `ILogger<T>`, тож замінити її пізніше дешево: це двосторонні двері, хоча вибір і здається «архітектурним». Розгортання на 5% за feature flag — архетип двосторонніх дверей: його можна вимкнути. Вибір CSS для одного внутрішнього екрана локальний і дешевий для зміни. Головна думка для співбесіди: абстракції, flags і поетапні розгортання — це інструменти, що перетворюють односторонні двері на двосторонні."
             }
           }
         },
@@ -469,6 +723,28 @@
                 }
               ],
               "explanation": "Deadlocks usually persist because people argue solutions while silently weighting different criteria. Making the criteria explicit, gathering missing data through a time-boxed spike, deciding, and recording the reasoning (including the rejected option) resolves this decision and reduces the next one; disagree-and-commit keeps the team moving without demanding fake consensus. A vote rewards popularity, not evidence, and leaves the minority unconvinced. Parallel builds waste effort and decide on speed of coding rather than fitness. Escalating an ordinary team-level technical decision abdicates the lead's role; escalation is for decisions outside the team's authority."
+            },
+            "uk": {
+              "prompt": "Два senior-інженери у вашій команді вже тиждень у глухому куті: використати message broker чи database polling для внутрішньої інтеграції. В обох є обґрунтовані аргументи. Що вам робити як lead?",
+              "options": [
+                {
+                  "text": "Провести командне голосування і піти за більшістю, щоб рішення було демократичним і кожен мав голос.",
+                  "correct": false
+                },
+                {
+                  "text": "Спершу домовитися про явні критерії рішення (наприклад, вимоги до затримки, операційна вартість, навички команди), за браку даних провести обмежений у часі spike, ухвалити рішення за цими критеріями, зафіксувати його в ADR разом із відкинутим варіантом і попросити обох disagree and commit.",
+                  "correct": true
+                },
+                {
+                  "text": "Дозволити обом інженерам паралельно збудувати свою версію і змерджити ту, що буде готова першою.",
+                  "correct": false
+                },
+                {
+                  "text": "Ескалювати до CTO, бо lead не повинен ставати на чийсь бік між двома senior-колегами.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Глухий кут зазвичай триває, бо люди сперечаються про рішення, мовчки зважуючи різні критерії. Явні критерії, збір відсутніх даних через обмежений у часі spike, рішення і фіксація міркувань (включно з відкинутим варіантом) розв'язують цю суперечку і зменшують наступну; disagree-and-commit дозволяє команді рухатися далі, не вимагаючи фальшивого консенсусу. Голосування винагороджує популярність, а не докази, і лишає меншість непереконаною. Паралельні реалізації марнують зусилля і вирішують за швидкістю написання коду, а не за придатністю. Ескалація звичайного технічного рішення рівня команди — це зречення ролі lead; ескалація потрібна для рішень поза повноваженнями команди."
             }
           }
         },
@@ -504,6 +780,28 @@
                 }
               ],
               "explanation": "The principle (Poppendieck, Lean Software Development) balances information value against the cost of delay: wait while waiting buys useful knowledge and keeps options open, decide once further delay starts to block work or close options by default. 'As late as possible' is the common misreading; past the responsible moment you are deciding by inaction, for example by letting code accumulate around an implicit choice. 'Everything upfront' is the opposite error: deciding with the least information available. Waiting for a stakeholder to ask outsources timing to people who cannot see the technical cost of delay."
+            },
+            "uk": {
+              "prompt": "Яке твердження найкраще описує принцип «last responsible moment» з lean software development?",
+              "options": [
+                {
+                  "text": "Відкладати рішення, доки вартість неухвалення не почне перевищувати вигоду від очікування додаткової інформації; після цієї точки саме зволікання стає (зазвичай поганим) рішенням.",
+                  "correct": true
+                },
+                {
+                  "text": "Ухвалювати кожне архітектурне рішення якомога пізніше, в ідеалі під час реалізації, щоб зберегти максимальну гнучкість.",
+                  "correct": false
+                },
+                {
+                  "text": "Ухвалювати всі значущі рішення наперед, на фазі проєктування, щоб жодна робота з реалізації не була змарнована.",
+                  "correct": false
+                },
+                {
+                  "text": "Відкладати рішення, доки стейкхолдер явно не попросить його ухвалити, щоб інженерія ніколи не вирішувала передчасно.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Принцип (Poppendieck, Lean Software Development) зважує цінність інформації проти вартості зволікання: чекайте, поки очікування дає корисне знання і тримає варіанти відкритими, вирішуйте, щойно подальше зволікання починає блокувати роботу або закривати варіанти за замовчуванням. «Якомога пізніше» — поширене хибне прочитання; після відповідального моменту ви вирішуєте бездіяльністю, наприклад дозволяючи коду накопичуватися навколо неявного вибору. «Усе наперед» — протилежна помилка: рішення з мінімумом доступної інформації. Очікування, доки стейкхолдер попросить, віддає вибір моменту людям, які не бачать технічної вартості зволікання."
             }
           }
         },
@@ -527,6 +825,16 @@
                 "Describes ADR contents (context, decision, consequences; ideally status and considered options) and that ADRs are immutable/superseded rather than edited.",
                 "Describes a constructive disagreement process: explicit criteria, data or spike, time-box, a clear decision owner, disagree-and-commit."
               ]
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Як ви ухвалюєте та документуєте архітектурні рішення у своїй команді?» Розкажіть, коли рішення потребує формального підходу, як оборотність змінює ваш процес, як ви працюєте з розбіжностями і що містить ADR.",
+              "explanation": "Еталонна відповідь: більшість рішень — двосторонні двері, і їх швидко ухвалюють люди, найближчі до роботи; формальний підхід (пропозиція, spike за потреби, ADR) лишається для архітектурно значущих рішень: тих, які важко скасувати, наскрізних, що обмежують інші команди або вводять нову технологію. Оборотність визначає швидкість: рішення Type 1 отримують обдумування і прототипи, а lead намагається перетворити їх на Type 2 за допомогою абстракцій, feature flags, міграцій expand–contract або паралельних запусків; момент рішення визначається принципом last responsible moment. ADR (Nygard: Title, Status, Context, Decision, Consequences; часто з considered options) пишуть як PR у репозиторії, він append-only і його заміщують, а не редагують. Розбіжності розв'язують так: спершу домовляються про критерії, збирають дані, обмежують час, вирішують у заздалегідь названому режимі ухвалення рішення, фіксують відкинуті варіанти і просять disagree-and-commit.",
+              "rubric": [
+                "Розрізняє, які рішення потребують формального підходу (архітектурно значущі: важко скасувати, наскрізні, міжкомандні, нова технологія), а які команда має ухвалювати швидко.",
+                "Пояснює оборотні та необоротні рішення (односторонні/двосторонні двері) і щонайменше одну техніку, що робить рішення оборотнішим (абстракція, feature flag, spike, міграція expand–contract, паралельний запуск).",
+                "Описує зміст ADR (контекст, рішення, наслідки; в ідеалі статус і considered options) і те, що ADR незмінні: їх заміщують, а не редагують.",
+                "Описує конструктивний процес роботи з розбіжностями: явні критерії, дані або spike, обмеження в часі, чіткий власник рішення, disagree-and-commit."
+              ]
             }
           }
         }
@@ -540,6 +848,10 @@
         "en": {
           "title": "Estimation and Planning: Sizing, Risk, Spikes, Saying No",
           "note": "## What it is\n\nEstimation is producing a **forecast with stated uncertainty** that someone can make a business decision with: commit to a date, cut scope, fund a team, or kill an idea. Planning turns forecasts into a sequence that reduces risk early. A lead is judged less on the accuracy of a single number than on whether stakeholders are ever surprised.\n\n## How it works underneath\n\n**Uncertainty is the main quantity.** Steve McConnell's *cone of uncertainty* (from Barry Boehm's data) shows that at the initial-concept stage the actual effort can range from roughly 0.25× to 4× the estimate, narrowing as requirements, design and code exist. So early answers should be ranges with confidence (\"6–10 weeks, 80% confident; it narrows after the payment-provider spike\"), and estimates are re-issued as the cone narrows. A single early number becomes a commitment in the listener's head.\n\n**Why bottom-up estimates run late.** Task durations are right-skewed: a task can finish a bit early but can run very late. Engineers naturally estimate the most likely (modal) duration; for a skewed distribution the mean is above the mode, so adding up \"most likely\" values systematically underestimates the total. Add integration, review, environment problems, interruptions and the forgotten tasks, and the planning fallacy (Kahneman) follows. Countermeasures: three-point estimates (optimistic / likely / pessimistic), reference-class forecasting (\"the last three similar integrations took 5, 7 and 11 weeks\"), and Monte Carlo forecasting over the team's historical throughput.\n\n**Relative sizing.** Story points estimate size relative to reference stories, folding in complexity and uncertainty, not hours. Planning poker reveals hidden disagreement: a 2 vs 13 spread means two people understand different work. Velocity is a team-local *planning* tool; it is not comparable across teams and collapses as soon as it becomes a productivity target (Goodhart's law). Many mature teams move to counting slices of similar size and forecasting from throughput.\n\n**Spikes.** When uncertainty dominates (\"we have never integrated with this bank's API\"), run a **time-boxed spike** whose output is knowledge — a prototype, a decision, a narrowed estimate — not production code. Time-box it (one to three days), state the question it answers, and throw away or rewrite the code.\n\n**Risk-first planning.** Sequence work to retire the biggest unknowns first: walking skeleton end to end, the riskiest integration early, vertical slices that are demoable. Maintain a short risk list with owners and triggers. Buffers belong at the project level and are visible, not hidden in every task.\n\n**Saying no.** The fixed date / fixed scope / fixed quality triangle cannot all be fixed. When asked to add work without moving the date, the lead's answer is \"yes, if\": \"We can ship X by March if we drop Y, or ship X and Y by April; quality is not negotiable because cutting tests means paying it back in incidents.\" A clear, early, data-backed \"not by then\" builds more trust than a quiet yes followed by a slip. Never negotiate an estimate down under pressure without changing scope; that only changes the number, not the work.\n\n## What an interviewer probes\n\n- \"How do you estimate something you've never done?\" — spike, range, reference class, re-estimate.\n- \"Story points vs hours?\" — relative size and uncertainty; velocity is not a performance metric.\n- \"Your PM wants it two weeks earlier. What do you do?\" — trade-offs on scope, not overtime as a plan.\n- \"Your project is slipping. When do you tell people?\" — as soon as the forecast changes, with options.\n\n## Common misconceptions\n\n- \"A good estimate is a precise number.\" A good estimate is honest about its range.\n- \"Padding every task is safe.\" Hidden padding gets consumed (Parkinson's law) and destroys trust; use explicit project buffers.\n- \"Points are just hours in disguise.\" Converting points to hours at a fixed rate throws away the uncertainty they encode.\n- \"Estimates are commitments.\" An estimate is a forecast; a commitment is a separate decision made on top of it.\n"
+        },
+        "uk": {
+          "title": "Оцінювання та планування: розмір, ризик, spikes, уміння сказати «ні»",
+          "note": "## Що це\n\nОцінювання — це створення **прогнозу із зазначеною невизначеністю**, на основі якого хтось може ухвалити бізнес-рішення: зобов'язатися щодо дати, урізати обсяг, профінансувати команду чи закрити ідею. Планування перетворює прогнози на послідовність, яка знижує ризик якомога раніше. Lead оцінюють не стільки за точністю окремого числа, скільки за тим, чи бувають стейкхолдери колись заскочені зненацька.\n\n## Як це працює під капотом\n\n**Невизначеність — головна величина.** *Cone of uncertainty* Steve McConnell (на основі даних Barry Boehm) показує, що на етапі початкової концепції фактичні зусилля можуть коливатися приблизно від 0,25× до 4× від оцінки, звужуючись у міру появи вимог, дизайну та коду. Тому ранні відповіді мають бути діапазонами з рівнем впевненості («6–10 тижнів, впевненість 80%; діапазон звузиться після spike з платіжним провайдером»), а оцінки перевидаються в міру звуження конуса. Одне раннє число в голові слухача перетворюється на зобов'язання.\n\n**Чому оцінки знизу вгору запізнюються.** Тривалості задач мають правосторонню асиметрію: задача може завершитися трохи раніше, але може затягнутися дуже сильно. Інженери природно оцінюють найімовірнішу (модальну) тривалість; для асиметричного розподілу середнє лежить вище за моду, тож сума «найімовірніших» значень систематично недооцінює загальну тривалість. Додайте інтеграцію, review, проблеми з оточеннями, переривання та забуті задачі — і отримаєте planning fallacy (Kahneman). Контрзаходи: трьохточкові оцінки (оптимістична / ймовірна / песимістична), reference-class forecasting («останні три схожі інтеграції зайняли 5, 7 і 11 тижнів») і прогнозування Monte Carlo на основі історичного throughput команди.\n\n**Відносний розмір.** Story points оцінюють розмір відносно еталонних історій, враховуючи складність і невизначеність, а не години. Planning poker виявляє приховану незгоду: розкид 2 проти 13 означає, що двоє людей розуміють різну роботу. Velocity — локальний для команди інструмент *планування*; його не можна порівнювати між командами, і він руйнується, щойно стає ціллю продуктивності (закон Goodhart). Багато зрілих команд переходять до підрахунку зрізів подібного розміру і прогнозування за throughput.\n\n**Spikes.** Коли домінує невизначеність («ми ніколи не інтегрувалися з API цього банку»), проведіть **обмежений у часі spike**, результатом якого є знання — прототип, рішення, звужена оцінка, — а не production-код. Обмежте його в часі (від одного до трьох днів), сформулюйте питання, на яке він відповідає, і викиньте або перепишіть код.\n\n**Планування від ризиків.** Вибудовуйте роботу так, щоб першими прибирати найбільші невідомі: walking skeleton наскрізно, найризикованіша інтеграція рано, вертикальні зрізи, які можна продемонструвати. Ведіть короткий список ризиків із власниками та тригерами. Буфери належать до рівня проєкту і мають бути видимими, а не прихованими в кожній задачі.\n\n**Уміння сказати «ні».** У трикутнику фіксована дата / фіксований обсяг / фіксована якість не можна зафіксувати все одночасно. Коли просять додати роботу без зсуву дати, відповідь lead — «так, якщо»: «Ми можемо випустити X до березня, якщо приберемо Y, або випустити X і Y до квітня; якість не обговорюється, бо урізання тестів означає розплату інцидентами». Чітке, раннє, підкріплене даними «не до того часу» будує більше довіри, ніж тихе «так», за яким іде зрив. Ніколи не знижуйте оцінку під тиском без зміни обсягу; це змінює лише число, а не роботу.\n\n## Що перевіряє інтерв'юер\n\n- «Як ви оцінюєте те, чого ніколи не робили?» — spike, діапазон, reference class, повторна оцінка.\n- «Story points чи години?» — відносний розмір і невизначеність; velocity — не метрика продуктивності.\n- «Ваш PM хоче на два тижні раніше. Що робите?» — компроміси щодо обсягу, а не понаднормова робота як план.\n- «Ваш проєкт відстає. Коли ви про це повідомите?» — щойно змінився прогноз, разом із варіантами.\n\n## Поширені хибні уявлення\n\n- «Хороша оцінка — це точне число.» Хороша оцінка чесна щодо свого діапазону.\n- «Закладати запас у кожну задачу безпечно.» Прихований запас витрачається (закон Parkinson) і руйнує довіру; використовуйте явні буфери на рівні проєкту.\n- «Points — це просто замасковані години.» Переведення points у години за фіксованим курсом викидає невизначеність, яку вони кодують.\n- «Оцінки — це зобов'язання.» Оцінка — прогноз; зобов'язання — окреме рішення, ухвалене на його основі.\n"
         }
       },
       "questions": [
@@ -575,6 +887,28 @@
                 }
               ],
               "explanation": "Points are relative: a story is sized by comparison with reference stories, and the number folds in complexity and uncertainty, which hours hide. Velocity then forecasts how much this team completes per iteration. Fixed point-to-hour conversions and cross-team comparisons are common misuses: each team's scale is arbitrary, so comparison is meaningless and teams inflate points once compared (Goodhart's law). Tracking points per developer turns a team planning tool into a performance metric and corrupts both the estimates and collaboration. 'Hours with a different label' misses the point of relative sizing: people are much better at comparing sizes than at predicting absolute durations, and the planning-poker spread exposes disagreement about the work."
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Навіщо використовувати story points замість годин?» Яке твердження правильне?",
+              "options": [
+                {
+                  "text": "Story points — нормалізована одиниця (зазвичай 1 point ≈ 4 години), що робить velocity порівнюваною між командами для планування портфеля.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points вимірюють, скільки зусиль витратить конкретний розробник, тож points кожного розробника можна відстежувати як метрику продуктивності.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points — це ті самі години під іншою назвою; їхня єдина перевага в тому, що стейкхолдери рідше сприймають їх як дедлайни.",
+                  "correct": false
+                },
+                {
+                  "text": "Story points виражають відносний розмір, включно зі складністю та невизначеністю, відносно власних еталонних історій команди; velocity — локальний для команди інструмент прогнозування, який втрачає цінність, щойно стає ціллю продуктивності.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Points відносні: історію оцінюють порівнянням з еталонними історіями, а число враховує складність і невизначеність, які години приховують. Velocity потім прогнозує, скільки ця команда завершує за ітерацію. Фіксований курс points у години і порівняння між командами — поширені зловживання: шкала кожної команди довільна, тож порівняння позбавлене сенсу, а команди роздувають points, щойно їх починають порівнювати (закон Goodhart). Відстеження points на розробника перетворює інструмент планування команди на метрику продуктивності і псує як оцінки, так і співпрацю. «Години під іншою назвою» не бачить сенсу відносного розміру: людям значно краще вдається порівнювати розміри, ніж передбачати абсолютні тривалості, а розкид у planning poker виявляє незгоду щодо самої роботи."
             }
           }
         },
@@ -610,6 +944,28 @@
                 }
               ],
               "explanation": "At the concept stage McConnell's cone of uncertainty puts the plausible range at roughly 0.25× to 4× of the estimate, so an honest answer is a range with confidence, the drivers of uncertainty, and a plan and date for narrowing it. A single date is heard as a commitment; 'adjusting it quietly later' is how trust is lost. Refusing to estimate is unhelpful: the business still needs to decide whether the idea is worth funding, and a wide range supports that decision. Detailed bottom-up estimation of an undefined scope adds false precision without removing the underlying unknowns (requirements, integrations, design), which is what drives the width of the cone."
+            },
+            "uk": {
+              "prompt": "На самому початку проєкту — є лише одна сторінка концепції, дизайну ще немає — директор просить назвати «дату». Яка найкраща відповідь з огляду на cone of uncertainty?",
+              "options": [
+                {
+                  "text": "Одразу назвати одну найкращу оцінку дати, бо впевнене число будує довіру, а скоригувати його можна тихо пізніше.",
+                  "correct": false
+                },
+                {
+                  "text": "Відмовитися оцінювати, доки вимоги не буде повністю специфіковано, бо будь-яке число зараз буде хибним.",
+                  "correct": false
+                },
+                {
+                  "text": "Дати діапазон з явним рівнем впевненості, назвати найбільші невідомі і зобов'язатися дати вужчу повторну оцінку після конкретної роботи зі зниження ризику, такої як spike або перший вертикальний зріз.",
+                  "correct": true
+                },
+                {
+                  "text": "Одразу детально оцінити кожну функцію знизу вгору; достатня деталізація прибирає більшу частину невизначеності.",
+                  "correct": false
+                }
+              ],
+              "explanation": "На етапі концепції cone of uncertainty McConnell дає правдоподібний діапазон приблизно від 0,25× до 4× від оцінки, тож чесна відповідь — це діапазон із рівнем впевненості, чинники невизначеності, а також план і дата її звуження. Одну дату сприймають як зобов'язання; «тихо скоригувати пізніше» — саме так втрачають довіру. Відмова оцінювати не допомагає: бізнесу все одно треба вирішити, чи варто фінансувати ідею, а широкий діапазон підтримує це рішення. Детальна оцінка знизу вгору невизначеного обсягу додає фальшивої точності, не прибираючи глибинних невідомих (вимоги, інтеграції, дизайн), які й визначають ширину конуса."
             }
           }
         },
@@ -645,6 +1001,28 @@
                 }
               ],
               "explanation": "A task can finish a little early but can run very late, so duration distributions are right-skewed and the mean lies above the mode. Errors therefore do not cancel: summing modes underestimates the sum of means, and integration, review, interruptions and forgotten tasks push further in the same direction (the planning fallacy). That is why three-point estimates, reference-class forecasting or Monte Carlo on historical throughput beat summed single-point guesses. The 'errors cancel out' option assumes a symmetric distribution, which is precisely the misconception. Systematic overestimation by experienced engineers is not what the data on software projects shows. Parkinson's law is real but explains why padded estimates get consumed, not why a sincere sum of modes is too low."
+            },
+            "uk": {
+              "prompt": "Команда оцінює 20 задач за «найімовірнішою» тривалістю кожної і отримує в сумі 40 днів. Усі оцінки щирі, інженери досвідчені. Чому проєкт найімовірніше займе більше за 40 днів?",
+              "options": [
+                {
+                  "text": "Тривалості задач мають правосторонню асиметрію (перевищити оцінку можна значно сильніше, ніж недотягнути до неї), тож очікувана тривалість кожної задачі перевищує її найімовірніше значення, а сума найімовірніших значень систематично недооцінює загальну тривалість — ще навіть до врахування забутої роботи.",
+                  "correct": true
+                },
+                {
+                  "text": "Переоцінки й недооцінки взаємно компенсуються на 20 задачах, тож 40 днів — точна оцінка; будь-яке перевищення виникне лише через обсяг, доданий пізніше.",
+                  "correct": false
+                },
+                {
+                  "text": "Досвідчені інженери стабільно переоцінюють, щоб захистити себе, тож проєкт найімовірніше завершиться раніше.",
+                  "correct": false
+                },
+                {
+                  "text": "Сума правильна; перевищення стаються лише через закон Parkinson, бо люди заповнюють увесь доступний час.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Задача може завершитися трохи раніше, але може затягнутися дуже сильно, тож розподіли тривалостей мають правосторонню асиметрію, і середнє лежить вище за моду. Тому похибки не компенсуються: сума мод недооцінює суму середніх, а інтеграція, review, переривання і забуті задачі штовхають у той самий бік (planning fallacy). Саме тому трьохточкові оцінки, reference-class forecasting або Monte Carlo на історичному throughput кращі за суму одноточкових здогадок. Варіант «похибки компенсуються» припускає симетричний розподіл, і це якраз і є хибне уявлення. Систематична переоцінка досвідченими інженерами — не те, що показують дані про програмні проєкти. Закон Parkinson реальний, але пояснює, чому витрачаються оцінки із запасом, а не чому щира сума мод занижена."
             }
           }
         },
@@ -680,6 +1058,28 @@
                 }
               ],
               "explanation": "A spike is a time-boxed experiment that answers named questions and produces knowledge: a prototype, a decision, a smaller estimate range. Its code is usually discarded or rewritten because it was written to learn, not to last. Promoting spike code straight to production smuggles untested, unreviewed shortcuts into the codebase. Taking the pessimistic number hides the risk instead of retiring it, and the 3–20 spread signals the team does not even agree on what the work is. An open-ended spike loses the time-box that makes it plannable; diminishing returns set in quickly, and residual uncertainty is managed with ranges and early slices."
+            },
+            "uk": {
+              "prompt": "Команда має інтегруватися з платіжним API банку, яким ніхто раніше не користувався, і оцінки коливаються від 3 до 20 points. Яке використання spike правильне?",
+              "options": [
+                {
+                  "text": "Почати реалізовувати повну інтеграцію як spike; якщо все піде добре, змерджити код як production-реалізацію, щоб уникнути дублювання зусиль.",
+                  "correct": false
+                },
+                {
+                  "text": "Обмежити в часі дослідження (наприклад, два дні), спрямоване на конкретні питання — authentication flow, поведінка sandbox, підтримка idempotency, — і вважати його результатом знання та звужену оцінку, а не production-код.",
+                  "correct": true
+                },
+                {
+                  "text": "Призначити найвищу оцінку (20 points), щоб покрити ризик; spikes не потрібні, якщо оцінка консервативна.",
+                  "correct": false
+                },
+                {
+                  "text": "Проводити spike без обмеження, доки команда не стане впевненою, бо скорочення дослідження лише переносить невизначеність у delivery.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Spike — це обмежений у часі експеримент, що відповідає на названі питання і дає знання: прототип, рішення, вужчий діапазон оцінки. Його код зазвичай викидають або переписують, бо його писали, щоб навчитися, а не щоб він жив довго. Перенесення коду spike прямо в production протягує в кодову базу неперевірені, не пройдені через review скорочення. Песимістичне число приховує ризик замість того, щоб його прибрати, а розкид 3–20 сигналізує, що команда навіть не погоджується щодо того, у чому полягає робота. Spike без обмеження втрачає часові рамки, які роблять його придатним до планування; спадна віддача настає швидко, а залишкову невизначеність контролюють діапазонами та ранніми зрізами."
             }
           }
         },
@@ -715,6 +1115,28 @@
                 }
               ],
               "explanation": "With date, scope and quality interdependent, a lead's job is to make the trade-off visible and let the business own the choice: 'yes, if' rather than a bare yes or no. Overtime as a plan is unsustainable, increases defects and hides the true cost. Silently cutting testing transfers the cost to production incidents and to the team, and destroys trust when it surfaces. A flat refusal is rigid: scope changes are normal, and the PM may genuinely value the report more than something already planned; the lead should help find what can give."
+            },
+            "uk": {
+              "prompt": "За два тижні до погодженого релізу product manager просить команду додати функцію звітності «не зсуваючи дату». Прогноз команди показує, що вона не вміщається. Що має зробити lead?",
+              "options": [
+                {
+                  "text": "Погодитися і запланувати понаднормову роботу на останні два тижні, бо захист дати — найвищий пріоритет lead.",
+                  "correct": false
+                },
+                {
+                  "text": "Погодитися і тихо скоротити тестування нової функції, щоб вона вмістилася.",
+                  "correct": false
+                },
+                {
+                  "text": "Категорично відмовити, бо зміна обсягу після зобов'язання порушує погоджений план.",
+                  "correct": false
+                },
+                {
+                  "text": "Явно представити компроміс: дата лишається, якщо прибрати щось подібного розміру, або функція виходить у наступному релізі, або дата зсувається; якість не є однією зі змінних. Дати PM обрати на основі даних.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Оскільки дата, обсяг і якість взаємозалежні, робота lead — зробити компроміс видимим і дати бізнесу володіти вибором: «так, якщо» замість голого «так» чи «ні». Понаднормова робота як план нестійка, збільшує кількість дефектів і приховує справжню вартість. Мовчазне скорочення тестування перекладає вартість на production-інциденти й команду і руйнує довіру, коли це виходить назовні. Категорична відмова надто жорстка: зміни обсягу — нормальне явище, і PM може справді цінувати звіт більше, ніж щось уже заплановане; lead має допомогти знайти, чим можна поступитися."
             }
           }
         },
@@ -739,6 +1161,17 @@
                 "Describes ongoing re-forecasting and early communication of changes, framed as trade-offs (scope vs date vs quality, with quality protected).",
                 "Distinguishes an estimate (forecast) from a commitment, or explains why hidden padding is avoided in favour of visible buffers."
               ]
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Product питає, скільки часу займе функція, а ваша команда ніколи не робила нічого подібного. Як ви відповісте і як сплануєте роботу?»",
+              "explanation": "Еталонна відповідь: не давати одного числа. Спершу уточнити результат і обмеження (що має бути випущено, до якого часу це важливо, яка планка якості). Визначити найбільші невідомі і провести проти них короткий, обмежений у часі spike; тим часом дати діапазон з явним рівнем впевненості, в ідеалі прив'язаний до reference-class даних з порівнянної минулої роботи, і сказати, коли і як діапазон звузиться. Розбити роботу на тонкі вертикальні зрізи, першою поставити найризикованішу інтеграцію (walking skeleton), тримати видимий буфер на рівні проєкту замість запасу в кожній задачі і відстежувати прогноз відносно фактичного throughput. Перепрогнозувати, щойно щось змінюється, і повідомляти рано разом із варіантами (урізати обсяг, зсунути дату), вважаючи якість такою, що не обговорюється. Розрізняти оцінку (прогноз) і зобов'язання (бізнес-рішення, побудоване на ній).",
+              "rubric": [
+                "Відмовляється наперед давати одне точкове число і натомість дає діапазон із зазначеним рівнем впевненості або припущеннями.",
+                "Використовує щонайменше одну конкретну техніку зменшення або кількісної оцінки невизначеності: обмежений у часі spike, reference-class/історичні дані, трьохточкові оцінки або прогнозування на основі throughput (наприклад, Monte Carlo).",
+                "Планує від ризиків: вертикальні зрізи або walking skeleton, з найризикованішою невідомою, яку беруть у роботу рано.",
+                "Описує постійне перепрогнозування і раннє повідомлення про зміни, подані як компроміси (обсяг проти дати проти якості, причому якість захищена).",
+                "Розрізняє оцінку (прогноз) і зобов'язання або пояснює, чому замість прихованого запасу використовуються видимі буфери."
+              ]
             }
           }
         }
@@ -752,6 +1185,10 @@
         "en": {
           "title": "Mentoring and Delegation: Growing Mids, Pairing, Feedback",
           "note": "## What it is\n\nA tech lead's output is the team's output. **Mentoring** grows people's capability (skills, judgement, autonomy); **delegation** hands them real ownership so the lead stops being the bottleneck and the bus factor rises above one. The two are linked: you delegate a little beyond someone's current level and mentor them through it.\n\n## How it works underneath\n\n**Match the style to the person *and the task*.** Situational Leadership (Hersey & Blanchard) describes four styles: *directing* (clear instructions, close follow-up), *coaching* (still directive, but explaining the why and asking for ideas), *supporting* (they decide, you help them think), *delegating* (they own it; you are informed). The level is per task, not per person: a mid-level Angular expert gets full delegation on a frontend feature but coaching on their first backend service design. Micromanagement is using directing where delegating fits; abandonment is the reverse.\n\n**Delegate outcomes, with the right authority level.** Good delegation states the *outcome* and the constraints (deadline, quality bar, non-negotiables), not the steps, and makes the authority level explicit. Jurgen Appelo's seven levels (Management 3.0) give vocabulary: tell, sell, consult, agree, advise, inquire, delegate. \"You decide; tell me afterwards\" (inquire) is very different from \"propose, and we agree together\" (agree). Agree checkpoints proportional to risk, and resist taking the work back at the first wobble; the slower first iteration is the investment.\n\n**Pairing as a mentoring tool.** In *strong-style pairing* (Llewellyn Falco): \"for an idea to go from your head into the computer, it must go through someone else's hands.\" When a senior pairs with a less experienced developer, the junior drives the keyboard and the senior navigates. The junior builds muscle memory and the senior must articulate their reasoning, which is the transferable part. Pair or mob deliberately on unfamiliar areas, incident debugging and design spikes; do not pair on everything.\n\n**Feedback.** Use a structured, behaviour-based format such as **SBI** (Situation–Behaviour–Impact, Center for Creative Leadership): \"In Tuesday's design review (S), you dismissed Ana's caching proposal before she finished (B); she didn't speak again and we missed her point about invalidation (I).\" Then ask, listen, and agree a next step. Feedback should be timely, private when corrective, specific, and about observable behaviour rather than traits (\"you're careless\"). The \"compliment sandwich\" tends to bury the message; frequent, genuine positive feedback in its own right works better.\n\n**Growing mids to seniors.** The jump is mostly in scope and judgement, not syntax: owning a feature end to end, writing the design/ADR, handling ambiguity, reviewing others, talking to product, being on call. A lead creates those opportunities deliberately (stretch assignments with a safety net), runs regular 1:1s focused on the person's goals, and gives visibility for their work.\n\n## What an interviewer probes\n\n- \"How have you grown a junior/mid developer?\" — a concrete story with an outcome.\n- \"How do you delegate without micromanaging or losing control?\" — outcome + authority level + checkpoints.\n- \"How do you give difficult feedback?\" — a model, timing, privacy, follow-up.\n- \"When do you take work back?\" — almost never silently; if risk demands it, explain and make it a learning moment.\n\n## Common misconceptions\n\n- \"It's faster if I do it myself.\" True this week, false this quarter; it caps the team at the lead's capacity.\n- \"Delegate the boring tasks.\" Delegating only chores teaches nothing and signals distrust; delegate meaningful ownership.\n- \"The senior should drive when pairing to show how it's done.\" Watching teaches less than doing with guidance.\n- \"Feedback is for annual reviews.\" Delayed feedback cannot be acted on.\n"
+        },
+        "uk": {
+          "title": "Менторинг і делегування: розвиток mid-розробників, парне програмування, зворотний зв'язок",
+          "note": "## Що це\n\nРезультат роботи tech lead — це результат роботи команди. **Менторинг** розвиває можливості людей (навички, судження, автономність); **делегування** передає їм реальне володіння, щоб lead перестав бути вузьким місцем, а bus factor став більшим за одиницю. Ці дві речі пов'язані: ви делегуєте трохи вище за поточний рівень людини і супроводжуєте її менторингом.\n\n## Як це працює під капотом\n\n**Підлаштовуйте стиль під людину *і під задачу*.** Situational Leadership (Hersey & Blanchard) описує чотири стилі: *directing* (чіткі інструкції, щільний контроль), *coaching* (усе ще директивний, але з поясненням «чому» і запитом ідей), *supporting* (вирішують вони, ви допомагаєте їм думати), *delegating* (вони володіють; вас інформують). Рівень визначається для задачі, а не для людини: mid-розробник, експерт з Angular, отримує повне делегування на frontend-функції, але coaching на дизайні свого першого backend-сервісу. Мікроменеджмент — це directing там, де пасує delegating; кинути напризволяще — навпаки.\n\n**Делегуйте результати з правильним рівнем повноважень.** Хороше делегування формулює *результат* і обмеження (дедлайн, планка якості, те, що не обговорюється), а не кроки, і робить рівень повноважень явним. Сім рівнів Jurgen Appelo (Management 3.0) дають словник: tell, sell, consult, agree, advise, inquire, delegate. «Ти вирішуєш; розкажи мені потім» (inquire) дуже відрізняється від «запропонуй, і ми погодимо разом» (agree). Домовляйтеся про контрольні точки пропорційно ризику і не забирайте роботу назад при першому ж збої; повільніша перша ітерація — це інвестиція.\n\n**Парне програмування як інструмент менторингу.** У *strong-style pairing* (Llewellyn Falco): «щоб ідея потрапила з твоєї голови в комп'ютер, вона має пройти через чужі руки». Коли сеньйор працює в парі з менш досвідченим розробником, клавіатурою керує джуніор, а сеньйор навігує. Джуніор набуває м'язової пам'яті, а сеньйор мусить проговорювати свої міркування — і саме це є тим, що передається. Працюйте в парі чи mob свідомо: на незнайомих областях, під час дебагу інцидентів і дизайнерських spikes; не робіть парою все підряд.\n\n**Зворотний зв'язок.** Використовуйте структурований, заснований на поведінці формат, як-от **SBI** (Situation–Behaviour–Impact, Center for Creative Leadership): «На вівторковому design review (S) ти відкинув пропозицію Ані щодо кешування, перш ніж вона договорила (B); вона більше не висловлювалася, і ми пропустили її думку про інвалідацію (I).» Далі запитайте, вислухайте й домовтеся про наступний крок. Зворотний зв'язок має бути своєчасним, наодинці, якщо він коригувальний, конкретним і стосуватися спостережуваної поведінки, а не рис («ти неуважний»). «Компліментний сендвіч» зазвичай ховає суть; частий, щирий позитивний зворотний зв'язок окремо працює краще.\n\n**Розвиток mid до senior.** Стрибок здебільшого в масштабі та судженні, а не в синтаксисі: володіти функцією наскрізно, писати дизайн/ADR, працювати з невизначеністю, рев'юїти інших, говорити з product, бути on call. Lead свідомо створює такі можливості (stretch assignments зі страховкою), проводить регулярні 1:1, зосереджені на цілях людини, і робить її роботу помітною.\n\n## Що перевіряє інтерв'юер\n\n- «Як ви розвинули junior/mid-розробника?» — конкретна історія з результатом.\n- «Як ви делегуєте без мікроменеджменту і без втрати контролю?» — результат + рівень повноважень + контрольні точки.\n- «Як ви даєте складний зворотний зв'язок?» — модель, вибір моменту, приватність, подальші кроки.\n- «Коли ви забираєте роботу назад?» — майже ніколи мовчки; якщо цього вимагає ризик, поясніть і зробіть із цього момент навчання.\n\n## Поширені хибні уявлення\n\n- «Швидше зробити самому.» Правда на цьому тижні, неправда в цьому кварталі; це обмежує команду можливостями lead.\n- «Делегуйте нудні задачі.» Делегування лише рутини нічого не навчає і сигналізує недовіру; делегуйте значуще володіння.\n- «У парі має керувати сеньйор, щоб показати, як треба.» Спостереження навчає менше, ніж робота під керівництвом.\n- «Зворотний зв'язок — для щорічних оцінок.» На відкладений зворотний зв'язок неможливо відреагувати.\n"
         }
       },
       "questions": [
@@ -787,6 +1224,28 @@
                 }
               ],
               "explanation": "Situational leadership is per task, not per person: high competence on the frontend warrants delegation there, but low experience in backend design calls for coaching (still directive, explaining why, inviting their ideas) with early checkpoints, moving toward supporting and delegating as competence grows. Full delegation of an unfamiliar task is abandonment, not empowerment; the likely outcome is a struggling developer and a rework. Doing the design yourself removes the growth opportunity and keeps the lead as the bottleneck. Delegating only chores teaches little and signals distrust; people grow into the senior role by doing senior work with support, not by waiting for the title."
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Як ви делегуєте розробникам з різним рівнем досвіду?» Mid-розробник чудово працює з Angular frontend, але ніколи не проєктував backend-сервіс. Ви хочете, щоб він володів дизайном нового .NET-сервісу сповіщень. Який підхід підходить найкраще?",
+              "options": [
+                {
+                  "text": "Повністю делегувати, як і його frontend-роботу: він сильний mid, і будь-які настанови будуть мікроменеджментом.",
+                  "correct": false
+                },
+                {
+                  "text": "Написати дизайн самому, а йому дати реалізацію, бо дизайн — відповідальність сеньйора.",
+                  "correct": false
+                },
+                {
+                  "text": "Застосувати для цієї задачі стиль coaching: він володіє дизайном, ви задаєте результат і обмеження, разом досліджуєте варіанти, рано рев'юїте дизайн і відходите вбік у міру того, як він показує компетентність, — зберігаючи при цьому повне делегування для його frontend-роботи.",
+                  "correct": true
+                },
+                {
+                  "text": "Цього разу делегувати лише низькоризикові частини (DTO, тести), а дизайн — коли його підвищать до сеньйора.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Situational leadership застосовується до задачі, а не до людини: висока компетентність на frontend виправдовує делегування там, але брак досвіду в backend-дизайні вимагає coaching (усе ще директивний, з поясненням «чому» і запрошенням до власних ідей) з ранніми контрольними точками, з рухом до supporting і delegating у міру зростання компетентності. Повне делегування незнайомої задачі — це кинути напризволяще, а не надати повноваження; ймовірний результат — розробник, що борсається, і переробка. Дизайн власноруч прибирає можливість зростання і лишає lead вузьким місцем. Делегування лише рутини мало чого навчає і сигналізує недовіру; люди доростають до ролі сеньйора, виконуючи роботу сеньйора з підтримкою, а не чекаючи посади."
             }
           }
         },
@@ -822,6 +1281,28 @@
                 }
               ],
               "explanation": "SBI names a specific situation, an observable behaviour and its concrete impact, then opens a conversation about next steps; it is timely and about actions, not character. The 'compliment sandwich' (first option) is widely taught but tends to bury the message, so the person remembers the praise and not the problem, and 'a bit sloppy sometimes' is too vague to act on. 'Be more careful and take more ownership' is a trait judgement with no example, so the person cannot tell what to change. Anonymous hearsay tied to a future performance review is unspecific, unverifiable and delayed, and frames feedback as a threat rather than help."
+            },
+            "uk": {
+              "prompt": "Який коригувальний зворотний зв'язок найкраще відповідає моделі, заснованій на поведінці, такій як Situation–Behaviour–Impact?",
+              "options": [
+                {
+                  "text": "«Загалом ти молодець! Хоча твої PR іноді трохи неохайні. Але продовжуй у тому ж дусі!»",
+                  "correct": false
+                },
+                {
+                  "text": "«Під час учорашнього релізу ти змерджив PR з міграцією без другого review, про який ми домовлялися; видалення колонки на дві години зламало job звітності. Можемо поговорити про те, що сталося і як цього уникнути?»",
+                  "correct": true
+                },
+                {
+                  "text": "«Тобі треба бути уважнішим і брати більше відповідальності за якість.»",
+                  "correct": false
+                },
+                {
+                  "text": "«Кілька людей казали, що твої review здаються недбалими; будь ласка, подумай про це до наступної performance review.»",
+                  "correct": false
+                }
+              ],
+              "explanation": "SBI називає конкретну ситуацію, спостережувану поведінку та її конкретний вплив, а потім відкриває розмову про наступні кроки; він своєчасний і стосується дій, а не характеру. «Компліментний сендвіч» (перший варіант) широко викладають, але він зазвичай ховає суть, тож людина запам'ятовує похвалу, а не проблему, а «іноді трохи неохайні» надто розмито, щоб на це можна було відреагувати. «Будь уважнішим і бери більше відповідальності» — оцінка рис без прикладу, тож людина не може зрозуміти, що змінити. Анонімні чутки, прив'язані до майбутньої performance review, неконкретні, неперевірювані та запізнілі, і подають зворотний зв'язок як загрозу, а не допомогу."
             }
           }
         },
@@ -857,6 +1338,28 @@
                 }
               ],
               "explanation": "Strong-style pairing (Llewellyn Falco) is defined by its rule that 'for an idea to go from your head into the computer, it must go through someone else's hands'. With an experience gap, the less experienced person drives and the expert navigates at the level of abstraction the driver can handle. This forces the senior to explain reasoning, which is the transferable knowledge, while the junior gains hands-on memory. Having the senior drive feels efficient but turns the junior into a spectator who retains little. Working separately is not pairing and loses the real-time transfer. Frequent rotation is common in ping-pong or mob programming, but it is not the defining rule of strong-style; the defining rule is who holds the keyboard relative to who has the idea."
+            },
+            "uk": {
+              "prompt": "Ви працюєте в парі з junior-розробником, щоб навчити його дебажити складну проблему конкурентності в EF Core. Як у strong-style pairing слід розподілити ролі?",
+              "options": [
+                {
+                  "text": "Джуніор керує (друкує), а ви навігуєте: ідеї мають проходити через його руки, тож ви мусите проговорювати свої міркування, а він набуває навички на практиці.",
+                  "correct": true
+                },
+                {
+                  "text": "Керуєте ви, а джуніор спостерігає й ставить запитання, бо демонстрація експертного workflow — найшвидший спосіб навчитися.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожен працює над проблемою за своєю машиною, а наприкінці ви порівнюєте висновки.",
+                  "correct": false
+                },
+                {
+                  "text": "Мінятися кожні п'ять хвилин незалежно від досвіду, бо сувора ротація — головне правило strong-style pairing.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Strong-style pairing (Llewellyn Falco) визначається правилом «щоб ідея потрапила з твоєї голови в комп'ютер, вона має пройти через чужі руки». За різниці в досвіді менш досвідчена людина керує, а експерт навігує на тому рівні абстракції, з яким водій може впоратися. Це змушує сеньйора пояснювати міркування — а це і є знання, що передається, — тоді як джуніор набуває практичної пам'яті. Коли керує сеньйор, це здається ефективним, але перетворює джуніора на глядача, який мало що запам'ятовує. Робота окремо — це не парне програмування, і вона втрачає передачу знань у реальному часі. Часта ротація поширена в ping-pong чи mob programming, але це не визначальне правило strong-style; визначальне правило — хто тримає клавіатуру відносно того, у кого ідея."
             }
           }
         },
@@ -892,6 +1395,28 @@
                 }
               ],
               "explanation": "The problem is a bus factor of one created by the lead. The fix is real capability transfer: shadowing then reverse-shadowing, pairing with the learner driving, a rotation so several people stay practised, and explicit authority levels (e.g. 'propose the migration, we review together' moving toward 'you decide, tell me after'). Accepting a slower first iteration is the investment. Documentation alone does not build judgement under pressure; runbooks help, but nobody has practised. Moving everything to one other senior just relocates the single point of failure. Hiring adds cost and still leaves knowledge concentrated, while doing nothing about the lead's habit of hoarding critical work."
+            },
+            "uk": {
+              "prompt": "Новий tech lead залишає за собою весь розбір production-інцидентів і кожну міграцію бази даних, «бо так швидше й безпечніше». Через пів року він перевантажений, а команда не може випускати релізи, коли він у відпустці. Який найкращий план виправлення?",
+              "options": [
+                {
+                  "text": "Продовжувати володіти обома областями, але ретельно їх задокументувати, щоб інші могли діяти за документацією в аварійній ситуації.",
+                  "correct": false
+                },
+                {
+                  "text": "Передати обидві області найдосвідченішому інженерові, щоб вузьке місце перемістилося до когось, хто має більше часу.",
+                  "correct": false
+                },
+                {
+                  "text": "Найняти ще одного senior-інженера, який перебере інциденти й міграції.",
+                  "correct": false
+                },
+                {
+                  "text": "Поступово передавати володіння: працювати в парі з іншими під час інцидентів і міграцій (керують вони), ротувати відповідальність, домовитися про явні рівні повноважень і контрольні точки і прийняти повільніші перші ітерації як ціну усунення single point of failure.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Проблема — bus factor, рівний одиниці, який створив сам lead. Виправлення — реальна передача можливостей: shadowing, потім reverse-shadowing, парна робота, де керує той, хто навчається, ротація, щоб кілька людей лишалися в практиці, і явні рівні повноважень (наприклад, перехід від «запропонуй міграцію, ми разом зробимо review» до «ти вирішуєш, розкажи мені потім»). Прийняти повільнішу першу ітерацію — це інвестиція. Сама лише документація не формує судження під тиском; runbooks допомагають, але ніхто не має практики. Передача всього одному іншому сеньйору лише переносить single point of failure. Найм додає вартості і все одно лишає знання сконцентрованими, нічого не змінюючи у звичці lead тримати критичну роботу при собі."
             }
           }
         },
@@ -916,6 +1441,17 @@
                 "Describes a feedback practice that is timely, specific and behaviour-based (e.g. SBI), covering both corrective and positive feedback.",
                 "States a measurable or observable outcome of the mentoring (new responsibilities, promotion, reduced dependency on the lead)."
               ]
+            },
+            "uk": {
+              "prompt": "Класика співбесід: «Розкажіть, як ви розвивали mid-розробника до рівня senior.» Поясніть, як ви вирішуєте, що делегувати, як підтримуєте без мікроменеджменту і як даєте зворотний зв'язок у процесі.",
+              "explanation": "Еталонна відповідь (в ідеалі реальна історія): почати з цілей людини (1:1) і розриву до senior, який здебільшого стосується масштабу та судження — володіння функцією наскрізно, дизайн і ADR, робота з невизначеністю, review чужого коду, співпраця з product. Обрати stretch assignment трохи вище за поточний рівень, делегувати результат і обмеження, а не кроки, явно назвати рівень повноважень і підлаштовувати стиль під задачу (coaching на незнайомих областях, повне делегування там, де людина сильна). Підтримувати через ранні контрольні точки design review, парну роботу, де керує вона, і доступність без забирання роботи назад. Давати своєчасний, конкретний, заснований на поведінці зворотний зв'язок (наприклад, SBI), як коригувальний, так і позитивний, і робити її роботу помітною (демо, визнання її внеску). Завершити спостережуваним результатом: вона вела наступний дизайн, стала основним рев'юером або отримала підвищення.",
+              "rubric": [
+                "Спирає відповідь на конкретний приклад або чіткий план розвитку, пов'язаний із цілями людини та конкретним розривом між mid і senior (масштаб, володіння, судження, а не лише технічний синтаксис).",
+                "Описує делегування результатів з обмеженнями та явним рівнем повноважень/автономності, адаптованим до компетентності людини в конкретній задачі (наприклад, situational leadership).",
+                "Пояснює підтримку без мікроменеджменту: контрольні точки пропорційно ризику, парна робота (в ідеалі керує менті), не забирати роботу назад при першій складності.",
+                "Описує практику зворотного зв'язку, що є своєчасною, конкретною і заснованою на поведінці (наприклад, SBI), охоплюючи як коригувальний, так і позитивний зворотний зв'язок.",
+                "Називає вимірюваний або спостережуваний результат менторингу (нові обов'язки, підвищення, менша залежність від lead)."
+              ]
             }
           }
         }
@@ -929,6 +1465,10 @@
         "en": {
           "title": "Story Bank: STAR Stories for Lead Interviews",
           "note": "## What it is\n\nA **story bank** is a small set of prepared, true stories from your own career, each structured with **STAR** (Situation, Task, Action, Result) and mapped to the behavioural questions lead-level interviews always contain: \"tell me about a time you…\" influenced without authority, introduced a technical change, handled a hard bug, negotiated, failed. Six well-rehearsed stories can answer thirty different prompts. This concept is notes only: it is practised aloud, not quizzed. The headings below are scaffolds; fill in your own facts, numbers and names in your working notes (keep confidential employer details out of shared material).\n\n## How it works underneath\n\n**STAR, weighted correctly.** Interviewers spend most of their scoring on *Action* and *Result*. Rough budget for a 2–3 minute answer: Situation + Task 20%, Action 60%, Result 20%.\n\n- **Situation**: one or two sentences of context — team size, system, stakes.\n- **Task**: what *you* were responsible for, and why it was hard.\n- **Action**: what *you* did, in first person singular. Interviewers listen for \"I\" vs \"we\"; \"we\" hides your contribution. Include the decision points, the alternatives you rejected and why, and how you brought people along.\n- **Result**: a measurable outcome (latency, incident count, lead time, money, retention), plus what you learned or would do differently. A story with no result is an anecdote.\n\nAdd a one-line **headline** you can say first (\"I introduced a transactional outbox that took lost order events from several a month to zero\"), so the interviewer knows where the story is going.\n\n**One story, many questions.** Tag each story with the competencies it proves: technical depth, influence, conflict, ownership, failure/learning, mentoring, delivering under pressure, negotiation. When a question comes, pick the story by competency, then tilt the Action section toward what was asked.\n\n## The six stories to prepare\n\n1. **Salary negotiation outcome** — proves negotiation and self-advocacy. Context: what you asked for and why; preparation (market data, documented impact); how you handled the first \"no\" or counter-offer; the outcome. Interview use: \"How do you handle disagreement with management?\", \"Tell me about a negotiation.\" Keep figures vague in interviews unless asked; focus on the method.\n2. **Becoming lead** — proves ownership and leadership transition. What changed in your daily work, the first hard people decision, what you stopped doing yourself, a mistake in the transition and how you corrected it.\n3. **Outbox introduction** — proves technical judgement and influence. The incident or data-loss risk that triggered it, options considered (publish-after-commit with retries, outbox, CDC), how you convinced the team and product, the rollout (incremental, idempotent consumers), and the measured result. Pairs naturally with an ADR.\n4. **AI workflow rollout** — proves change management and pragmatism. What you set up (project instructions, memory files, hooks, subagents, spec-driven flow), how you handled sceptics, the guardrails (review gates, secrets scanning), where it saved time and where it did not, and how you measured impact rather than asserting it.\n5. **Secrets migration** — proves security ownership and safe execution of risky change. Where secrets lived before, the target (vault/secret manager, environment injection), how you sequenced it without downtime, rotation of exposed credentials, and preventing regression (pre-commit/CI scanning).\n6. **Hard debugging** — proves technical depth under pressure. Symptoms, the wrong hypotheses you eliminated and how (data, not guesses), the tool or insight that broke it open (dump analysis, tracing, reproduction), the fix, and the systemic follow-up (test, alert, postmortem).\n\n## What an interviewer probes\n\n- Follow-ups that test whether the story is real: \"What exactly did you say to the PM?\", \"What would you do differently?\", \"What did the data show?\"\n- Your individual contribution inside a team effort.\n- Self-awareness: a failure story with genuine learning beats a flawless one.\n\n## Common misconceptions\n\n- \"Memorise a script.\" Memorise the bullet skeleton and the numbers; tell it naturally.\n- \"Context makes it impressive.\" Long situations eat the time that should go to Action.\n- \"Never mention mistakes.\" Lead interviews explicitly look for learning from failure.\n- \"Results must be huge.\" A specific, modest, measured result is more credible than a vague big one.\n\n## Story card template\n\n```markdown\n### Outbox introduction\nHeadline: <one sentence, with the number>\nCompetencies: technical judgement, influence, delivery\nS: <team, system, stakes — 2 sentences>\nT: <my responsibility, why it was hard>\nA: <3–5 decisions I made, alternatives rejected, how I got buy-in>\nR: <metric before -> after; what I'd do differently>\nLikely prompts: \"a technical decision you drove\", \"convincing sceptics\", \"reducing incidents\"\n```\n"
+        },
+        "uk": {
+          "title": "Story bank: STAR-історії для співбесід на роль lead",
+          "note": "## Що це\n\n**Story bank** — це невеликий набір підготовлених, правдивих історій з вашої кар'єри, кожна з яких структурована за **STAR** (Situation, Task, Action, Result) і зіставлена з поведінковими питаннями, що завжди трапляються на співбесідах рівня lead: «розкажіть про випадок, коли ви…» впливали без формальних повноважень, запроваджували технічну зміну, розбиралися зі складним багом, вели переговори, зазнали невдачі. Шість добре відрепетируваних історій можуть відповісти на тридцять різних запитань. Цей concept — лише нотатки: його відпрацьовують уголос, а не перевіряють тестами. Заголовки нижче — каркаси; власні факти, цифри та імена заповнюйте у своїх робочих нотатках (конфіденційні деталі роботодавця не мають потрапляти у спільні матеріали).\n\n## Як це працює під капотом\n\n**STAR з правильними вагами.** Інтерв'юери віддають більшу частину оцінки *Action* і *Result*. Приблизний бюджет для відповіді на 2–3 хвилини: Situation + Task 20%, Action 60%, Result 20%.\n\n- **Situation**: одне-два речення контексту — розмір команди, система, ставки.\n- **Task**: за що відповідали саме *ви* і чому це було складно.\n- **Action**: що зробили *ви*, у першій особі однини. Інтерв'юери прислухаються до «я» проти «ми»; «ми» ховає ваш внесок. Включіть точки рішень, альтернативи, які ви відкинули, і чому, а також як ви залучили людей.\n- **Result**: вимірюваний результат (затримка, кількість інцидентів, lead time, гроші, утримання людей), плюс чого ви навчилися або що зробили б інакше. Історія без результату — це анекдот.\n\nДодайте однорядковий **headline**, який можна сказати першим («Я запровадив transactional outbox, і кількість втрачених подій замовлень знизилася з кількох на місяць до нуля»), щоб інтерв'юер розумів, куди веде історія.\n\n**Одна історія — багато запитань.** Позначте кожну історію компетенціями, які вона доводить: технічна глибина, вплив, конфлікт, володіння, невдача/навчання, менторинг, delivery під тиском, переговори. Коли надходить запитання, обирайте історію за компетенцією, а потім зміщуйте розділ Action у бік того, про що питали.\n\n## Шість історій, які варто підготувати\n\n1. **Результат переговорів про зарплату** — доводить уміння вести переговори та відстоювати себе. Контекст: що ви просили і чому; підготовка (ринкові дані, задокументований вплив); як ви впоралися з першим «ні» чи зустрічною пропозицією; результат. Використання на співбесіді: «Як ви поводитеся при незгоді з керівництвом?», «Розкажіть про переговори.» На співбесідах не називайте точних цифр, якщо не питають; фокусуйтеся на методі.\n2. **Як ви стали lead** — доводить володіння та перехід до лідерства. Що змінилося у вашій щоденній роботі, перше складне рішення щодо людей, що ви перестали робити самі, помилка під час переходу і як ви її виправили.\n3. **Запровадження outbox** — доводить технічне судження та вплив. Інцидент або ризик втрати даних, що став тригером, розглянуті варіанти (publish-after-commit з retries, outbox, CDC), як ви переконали команду і product, розгортання (поступове, ідемпотентні consumers) і виміряний результат. Природно поєднується з ADR.\n4. **Розгортання AI-workflow** — доводить управління змінами та прагматизм. Що ви налаштували (project instructions, memory files, hooks, subagents, spec-driven flow), як працювали зі скептиками, запобіжники (review gates, сканування секретів), де це заощадило час, а де ні, і як ви вимірювали вплив, а не просто стверджували його.\n5. **Міграція секретів** — доводить відповідальність за безпеку та безпечне виконання ризикованої зміни. Де секрети зберігалися раніше, цільовий стан (vault/secret manager, ін'єкція через оточення), як ви вибудували послідовність без простою, ротація скомпрометованих облікових даних і запобігання регресії (сканування в pre-commit/CI).\n6. **Складний дебаг** — доводить технічну глибину під тиском. Симптоми, хибні гіпотези, які ви відкинули, і як (дані, а не здогадки), інструмент чи інсайт, що дав прорив (аналіз дампа, tracing, відтворення), виправлення і системні подальші кроки (тест, alert, postmortem).\n\n## Що перевіряє інтерв'юер\n\n- Уточнювальні запитання, що перевіряють, чи історія реальна: «Що саме ви сказали PM?», «Що б ви зробили інакше?», «Що показали дані?»\n- Ваш особистий внесок у командну роботу.\n- Самоусвідомлення: історія невдачі зі справжнім навчанням переважає бездоганну.\n\n## Поширені хибні уявлення\n\n- «Завчити сценарій.» Завчіть каркас із пунктів і цифри; розповідайте природно.\n- «Контекст робить історію вражаючою.» Довга Situation з'їдає час, який мав піти на Action.\n- «Ніколи не згадуйте помилок.» Співбесіди на lead прямо шукають навчання на невдачах.\n- «Результати мають бути величезними.» Конкретний, скромний, виміряний результат переконливіший за розмитий великий.\n\n## Шаблон картки історії\n\n```markdown\n### Outbox introduction\nHeadline: <one sentence, with the number>\nCompetencies: technical judgement, influence, delivery\nS: <team, system, stakes — 2 sentences>\nT: <my responsibility, why it was hard>\nA: <3–5 decisions I made, alternatives rejected, how I got buy-in>\nR: <metric before -> after; what I'd do differently>\nLikely prompts: \"a technical decision you drove\", \"convincing sceptics\", \"reducing incidents\"\n```\n"
         }
       },
       "questions": [
@@ -952,6 +1492,17 @@
                 "Explains how scepticism or resistance was addressed (data, a pilot/spike, incremental rollout, involving sceptics), not just that the change happened.",
                 "States a concrete, specific result — ideally quantified (incidents, latency, lead time, adoption) — rather than a vague success claim.",
                 "Includes reflection: a lesson learned or something the candidate would do differently."
+              ]
+            },
+            "uk": {
+              "prompt": "Поведінкова практика (не тест): «Розкажіть про випадок, коли ви провели в команді значну технічну зміну, до якої інші спершу ставилися скептично.» Дайте відповідь однією з власних історій (наприклад, запровадження патерну outbox або розгортання AI-assisted workflow) на 2–3 хвилини мовлення.",
+              "explanation": "Сильна відповідь відкривається однорядковим headline, коротко дає Situation і Task (команда, система, ставки, за що особисто відповідав кандидат), більшу частину часу присвячує Action, розказаному від першої особи (розглянуті варіанти й чому альтернативи відкинуто, як скептицизм долали даними, пілот або поступове розгортання, як залучали інших), і завершується конкретним, в ідеалі виміряним Result плюс рефлексією про те, чого кандидат навчився або що зробив би інакше. Оцінювання перевіряє структуру та конкретність, а не те, яку історію обрано.",
+              "rubric": [
+                "Дотримується впізнаваної структури STAR, де Situation і Task короткі порівняно з Action.",
+                "Описує власні дії кандидата від першої особи («я»), включно щонайменше з однією точкою рішення з альтернативою, яку розглянули і відкинули.",
+                "Пояснює, як було подолано скептицизм чи опір (дані, пілот/spike, поступове розгортання, залучення скептиків), а не лише те, що зміна відбулася.",
+                "Називає конкретний, предметний результат — в ідеалі кількісний (інциденти, затримка, lead time, adoption), — а не розмиту заяву про успіх.",
+                "Містить рефлексію: отриманий урок або те, що кандидат зробив би інакше."
               ]
             }
           }

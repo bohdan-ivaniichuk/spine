@@ -23,6 +23,9 @@
 - [x] 007 Activity and streak — streak card, `GET /api/review/activity`; 381 .NET + 202 web tests, gate `pr` PASS,
       Lockflight review approve (2026-11-03).
 
+- [x] `uk` pass for every content file (11 files, 490 translation maps; unreviewed items included by user decision)
+      (2026-11-03).
+
 ## In progress
 
 - [x] 001 tests: 57 unit + 27 integration + 19 API green; both reviewers clean; clean-clone run 30 s to healthy (2026-09-06).

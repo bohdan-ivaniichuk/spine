@@ -10,6 +10,10 @@
         "en": {
           "title": "Dependency Injection: Lifetimes, Captive Dependencies, Keyed Services, Scopes and Disposal",
           "note": "## What it is\n\n`Microsoft.Extensions.DependencyInjection` (MEDI) is the container behind every generic-host app. It is deliberately small: constructor injection only, three lifetimes, open generics, `IEnumerable<T>` for multiple registrations, and — since .NET 8 — keyed services. Senior interviews rarely ask \"what is DI\"; they ask what happens when lifetimes interact badly and who disposes what.\n\n## How it works underneath\n\n- **Lifetimes.** `Transient` creates a new instance per resolution. `Scoped` creates one instance per `IServiceScope` (ASP.NET Core opens one scope per request and exposes it as `HttpContext.RequestServices`). `Singleton` creates one instance for the root provider, lazily on first resolution (or eagerly if you registered an instance).\n- **Call-site resolution.** On first request for a service the provider builds a *call site* (a tree of constructor calls), then compiles it (expression trees or IL emit; reflection-based under Native AOT). Later resolutions reuse it, so resolution is cheap but not free.\n- **Multiple registrations.** `GetService<IFoo>()` returns the **last** registration; `IEnumerable<IFoo>` returns all of them in registration order. `TryAdd*` skips if the service type is already registered; `TryAddEnumerable` skips only if the same service/implementation pair exists.\n- **Registration identity.** Each registration owns its own instance. `AddSingleton<IReader, FileStore>()` plus `AddSingleton<IWriter, FileStore>()` yields **two** `FileStore` singletons. To share one, register the concrete type and forward: `AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>())`.\n- **Keyed services (.NET 8+).** `AddKeyedSingleton<ICache, RedisCache>(\"redis\")`, resolved via `[FromKeyedServices(\"redis\")]` or `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"redis\")`. Keyed registrations are invisible to un-keyed resolution; `KeyedService.AnyKey` registers a fallback for any key.\n- **Disposal.** The container disposes every `IDisposable`/`IAsyncDisposable` **it created**, when the owning scope (or the root, at shutdown) is disposed, in **reverse order of creation**. It does not dispose instances you passed in (`AddSingleton(myInstance)`). Disposing a scope synchronously when a scoped service implements only `IAsyncDisposable` throws `InvalidOperationException`; use `CreateAsyncScope()` + `await using`.\n\n## Captive dependency\n\nA longer-lived service holding a shorter-lived one: a singleton that takes a scoped `DbContext` in its constructor captures the first instance forever, shares it across concurrent requests, and leaks its change tracker. The host enables `ValidateScopes` and `ValidateOnBuild` **only in the Development environment**; there you get \"Cannot consume scoped service ... from singleton ...\" at `Build()`. In Production the same code starts fine and fails later under concurrency. A transient injected into a singleton is also captive, just less visibly.\n\nThe fix is never \"make it singleton too\". In singletons and `BackgroundService`s, inject `IServiceScopeFactory` and create a scope per unit of work:\n\n```csharp\npublic sealed class OutboxPublisher(IServiceScopeFactory scopes, ILogger<OutboxPublisher> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken ct)\n    {\n        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n        while (await timer.WaitForNextTickAsync(ct))\n        {\n            await using var scope = scopes.CreateAsyncScope();   // one scope per batch\n            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();\n            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();\n            await PublishPendingAsync(db, bus, ct);\n        }                                                       // scope disposed: DbContext released\n    }\n}\n```\n\n## What an interviewer probes\n\n- The three lifetimes and *where* a scope comes from outside HTTP (you create it).\n- Captive dependencies, why Development catches them and Production doesn't.\n- Transient `IDisposable` resolved from the **root** provider: the root tracks it until shutdown — a memory leak in a loop. Resolve from a scope or don't make it container-owned.\n- Why the service-locator style (`IServiceProvider` injected everywhere) is a smell, and where it is legitimate (factories, hosted services, middleware with scoped deps via `InvokeAsync` parameters).\n- Disposal order and `IAsyncDisposable` handling.\n\n## Common misconceptions\n\n- \"Transient objects are garbage-collected, so disposal does not matter\" — container-created disposables are tracked by their scope.\n- \"Scoped means per-thread\" — it means per `IServiceScope`; `async` code hops threads freely within one scope.\n- \"One implementation type = one singleton\" — one registration = one singleton.\n"
+        },
+        "uk": {
+          "title": "Dependency Injection: lifetimes, captive dependencies, keyed services, scopes і disposal",
+          "note": "## Що це\n\n`Microsoft.Extensions.DependencyInjection` (MEDI) — це контейнер, що стоїть за кожним застосунком на generic host. Він навмисно невеликий: лише constructor injection, три lifetimes, open generics, `IEnumerable<T>` для кількох реєстрацій і — починаючи з .NET 8 — keyed services. На сеньйорських співбесідах рідко питають «що таке DI»; питають, що стається, коли lifetimes погано взаємодіють, і хто що dispose-ить.\n\n## Як це працює під капотом\n\n- **Lifetimes.** `Transient` створює новий екземпляр на кожне resolution. `Scoped` створює один екземпляр на `IServiceScope` (ASP.NET Core відкриває один scope на запит і надає його як `HttpContext.RequestServices`). `Singleton` створює один екземпляр для root provider — ліниво, при першому resolution (або одразу, якщо ви зареєстрували готовий екземпляр).\n- **Call-site resolution.** При першому запиті сервісу provider будує *call site* (дерево викликів конструкторів), а потім компілює його (expression trees або IL emit; під Native AOT — на основі reflection). Наступні resolutions перевикористовують його, тож resolution дешевий, але не безкоштовний.\n- **Кілька реєстрацій.** `GetService<IFoo>()` повертає **останню** реєстрацію; `IEnumerable<IFoo>` повертає всі в порядку реєстрації. `TryAdd*` пропускає реєстрацію, якщо service type вже зареєстровано; `TryAddEnumerable` пропускає лише тоді, коли вже існує така сама пара service/implementation.\n- **Ідентичність реєстрації.** Кожна реєстрація володіє власним екземпляром. `AddSingleton<IReader, FileStore>()` плюс `AddSingleton<IWriter, FileStore>()` дають **два** singleton-и `FileStore`. Щоб мати один спільний, зареєструйте конкретний тип і переспрямуйте на нього: `AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>())`.\n- **Keyed services (.NET 8+).** `AddKeyedSingleton<ICache, RedisCache>(\"redis\")`, resolution через `[FromKeyedServices(\"redis\")]` або `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"redis\")`. Keyed-реєстрації невидимі для resolution без ключа; `KeyedService.AnyKey` реєструє fallback для будь-якого ключа.\n- **Disposal.** Контейнер dispose-ить кожен `IDisposable`/`IAsyncDisposable`, **який він сам створив**, коли dispose-иться scope-власник (або root — під час зупинки), у **зворотному порядку створення**. Він не dispose-ить екземпляри, які ви передали самі (`AddSingleton(myInstance)`). Синхронний dispose scope, коли scoped-сервіс реалізує лише `IAsyncDisposable`, кидає `InvalidOperationException`; використовуйте `CreateAsyncScope()` + `await using`.\n\n## Captive dependency\n\nДовгоживучий сервіс, що тримає коротшеживучий: singleton, який приймає scoped `DbContext` у конструкторі, захоплює перший екземпляр назавжди, ділить його між конкурентними запитами й допускає витік його change tracker. Host вмикає `ValidateScopes` і `ValidateOnBuild` **лише в середовищі Development**; там ви отримуєте «Cannot consume scoped service ... from singleton ...» на `Build()`. У Production той самий код стартує нормально й падає пізніше під конкурентним навантаженням. Transient, інжектований у singleton, теж є captive, просто менш помітно.\n\nВиправлення — ніколи не «зробити його теж singleton». У singleton-ах і `BackgroundService` інжектуйте `IServiceScopeFactory` і створюйте scope на кожну одиницю роботи:\n\n```csharp\npublic sealed class OutboxPublisher(IServiceScopeFactory scopes, ILogger<OutboxPublisher> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken ct)\n    {\n        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n        while (await timer.WaitForNextTickAsync(ct))\n        {\n            await using var scope = scopes.CreateAsyncScope();   // one scope per batch\n            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();\n            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();\n            await PublishPendingAsync(db, bus, ct);\n        }                                                       // scope disposed: DbContext released\n    }\n}\n```\n\n## Що перевіряє інтерв'юер\n\n- Три lifetimes і *звідки* береться scope поза HTTP (ви створюєте його самі).\n- Captive dependencies: чому Development їх ловить, а Production — ні.\n- Transient `IDisposable`, отриманий з **root** provider: root відстежує його до зупинки — витік пам'яті в циклі. Отримуйте його зі scope або не робіть його власністю контейнера.\n- Чому стиль service locator (`IServiceProvider`, інжектований усюди) — це smell, і де він легітимний (фабрики, hosted services, middleware зі scoped-залежностями через параметри `InvokeAsync`).\n- Порядок disposal і обробка `IAsyncDisposable`.\n\n## Поширені хибні уявлення\n\n- «Transient-об'єкти збирає GC, тож disposal не має значення» — disposables, створені контейнером, відстежуються їхнім scope.\n- «Scoped означає per-thread» — це означає per `IServiceScope`; `async`-код вільно перестрибує між потоками в межах одного scope.\n- «Один implementation type = один singleton» — одна реєстрація = один singleton.\n"
         }
       },
       "questions": [
@@ -46,6 +50,28 @@
                 }
               ],
               "explanation": "This is the classic captive dependency. The generic host turns on `ValidateScopes` and `ValidateOnBuild` only when the environment is Development, so in Production the singleton is built once with whatever `AppDbContext` was resolved at that moment (from the root provider) and holds it forever. `DbContext` is not thread-safe, so concurrent requests produce \"A second operation was started on this context\" errors, and tracked entities accumulate. Option 1 describes what happens in Development only — scope validation is not on by default elsewhere. Options 2 and 3 invent behaviour: MEDI never re-scopes or changes the lifetime of a dependency; a constructor parameter is resolved exactly once, when the singleton is created. The fix is to inject `IServiceScopeFactory` (or `IDbContextFactory<AppDbContext>`) and create a short-lived scope/context per operation."
+            },
+            "uk": {
+              "prompt": "Застосунок на ASP.NET Core 10 реєструє `AddDbContext<AppDbContext>()` (за замовчуванням scoped) і `AddSingleton<PriceCache>()`, де конструктор `PriceCache` приймає `AppDbContext`. Застосунок розгорнуто з `ASPNETCORE_ENVIRONMENT=Production` і стандартними налаштуваннями host. Що станеться?",
+              "options": [
+                {
+                  "text": "Застосунок падає на `builder.Build()` з помилкою «Cannot consume scoped service 'AppDbContext' from singleton 'PriceCache'», бо scope validation увімкнено завжди.",
+                  "correct": false
+                },
+                {
+                  "text": "Контейнер підвищує `AppDbContext` до transient для цього споживача, тож кожен виклик методу `PriceCache` отримує свіжий context.",
+                  "correct": false
+                },
+                {
+                  "text": "Контейнер виявляє невідповідність і непомітно створює новий `AppDbContext` для кожного запиту, що звертається до `PriceCache`, тож поведінка коректна.",
+                  "correct": false
+                },
+                {
+                  "text": "Застосунок стартує; перше resolution `PriceCache` захоплює один `AppDbContext` на весь час життя процесу, тож усі запити ділять його, що призводить до винятків конкурентного доступу та change tracker, який постійно росте.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Це класична captive dependency. Generic host вмикає `ValidateScopes` і `ValidateOnBuild` лише тоді, коли середовище — Development, тож у Production singleton будується один раз із тим `AppDbContext`, який було отримано в той момент (з root provider), і тримає його назавжди. `DbContext` не є thread-safe, тож конкурентні запити дають помилки «A second operation was started on this context», а відстежувані сутності накопичуються. Варіант 1 описує те, що стається лише в Development — в інших середовищах scope validation за замовчуванням вимкнено. Варіанти 2 і 3 вигадують поведінку: MEDI ніколи не пере-scope-ить залежність і не змінює її lifetime; параметр конструктора отримується рівно один раз, коли створюється singleton. Виправлення — інжектувати `IServiceScopeFactory` (або `IDbContextFactory<AppDbContext>`) і створювати короткоживучий scope/context на кожну операцію."
             }
           }
         },
@@ -82,6 +108,28 @@
                 }
               ],
               "explanation": "MEDI tracks every `IDisposable`/`IAsyncDisposable` it *creates* in the scope that resolved it, so it can dispose them when that scope ends. Resolving from the root means the owning scope is the application itself; the list only shrinks at shutdown, so this is a genuine leak. Option 2 is the common misconception — tracking applies to transients precisely because the container created them (non-disposable transients are indeed not tracked). Option 3 is wrong because the scope is determined by the provider you resolve from, not by whatever request happens to be running; a singleton holds the root provider. Option 4 is wrong: no exception is raised (scope validation only blocks *scoped* services from the root). Fixes: create a scope per job (`using var scope = _scopeFactory.CreateScope()`), or use a factory that returns objects the caller owns and disposes."
+            },
+            "uk": {
+              "prompt": "Singleton `JobRunner` отримує root `IServiceProvider` у конструкторі й для кожного з мільйонів jobs викликає `_provider.GetRequiredService<ReportBuilder>()`, де `ReportBuilder` зареєстровано як **transient** і він реалізує `IDisposable`. Код ніколи не dispose-ить builders. Що з ними стається?",
+              "options": [
+                {
+                  "text": "Root provider тримає посилання на кожен disposable transient, який він створює, щоб dispose-нути їх, коли root буде dispose-нуто під час зупинки, тож builders накопичуються, а пам'ять росте весь час життя процесу.",
+                  "correct": true
+                },
+                {
+                  "text": "Нічого проблемного: контейнер не відстежує transients, тож кожен builder стає придатним до збирання GC, щойно job завершиться.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожен builder dispose-иться наприкінці поточного HTTP-запиту, бо transients, отримані під час запиту, належать scope цього запиту.",
+                  "correct": false
+                },
+                {
+                  "text": "Контейнер кидає `InvalidOperationException`, бо transient-сервіси `IDisposable` не можна отримувати з root provider.",
+                  "correct": false
+                }
+              ],
+              "explanation": "MEDI відстежує кожен `IDisposable`/`IAsyncDisposable`, який він *створює*, у scope, що виконав resolution, щоб dispose-нути їх, коли цей scope завершиться. Resolution з root означає, що scope-власник — сам застосунок; список скорочується лише під час зупинки, тож це справжній витік. Варіант 2 — поширене хибне уявлення: відстеження застосовується до transients саме тому, що їх створив контейнер (non-disposable transients справді не відстежуються). Варіант 3 хибний, бо scope визначається provider-ом, з якого ви робите resolution, а не тим запитом, який випадково виконується; singleton тримає root provider. Варіант 4 хибний: жодного винятку немає (scope validation блокує з root лише *scoped*-сервіси). Виправлення: створювати scope на кожен job (`using var scope = _scopeFactory.CreateScope()`) або використати фабрику, яка повертає об'єкти, що ними володіє й dispose-ить викликач."
             }
           }
         },
@@ -117,6 +165,28 @@
                 }
               ],
               "explanation": "In MEDI the unit of identity is the `ServiceDescriptor` (registration), not the implementation type. Each singleton descriptor lazily creates and caches its own instance, so there are two `FileStore`s. The idiomatic fix is `services.AddSingleton<FileStore>(); services.AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>()); services.AddSingleton<IWriter>(sp => sp.GetRequiredService<FileStore>());`. Option 1 is the misconception being tested. Option 3 confuses two different service types with two registrations of the same service type (only the latter makes the last one win for `GetService`). Option 4 is wrong: two implementations of different service types are perfectly valid, so validation has nothing to flag."
+            },
+            "uk": {
+              "prompt": "Розгляньте цей код реєстрації в .NET 10:\n\n```csharp\nservices.AddSingleton<IReader, FileStore>();\nservices.AddSingleton<IWriter, FileStore>();\n```\n\n`FileStore` реалізує обидва інтерфейси й тримає буфер у пам'яті. Один компонент пише через `IWriter`, інший читає через `IReader`. Яке твердження правильне?",
+              "options": [
+                {
+                  "text": "Існує один екземпляр `FileStore`, бо singleton ідентифікується за implementation type.",
+                  "correct": false
+                },
+                {
+                  "text": "Існує два екземпляри `FileStore`, по одному на реєстрацію, тож reader ніколи не бачить буфер writer-а; зареєструйте `FileStore` один раз і переспрямуйте на нього обидва інтерфейси через factory-реєстрації.",
+                  "correct": true
+                },
+                {
+                  "text": "Друга реєстрація замінює першу, тож resolution `IReader` кидає виняток, бо він більше не зареєстрований.",
+                  "correct": false
+                },
+                {
+                  "text": "Контейнер виявляє дублікат implementation type і кидає виняток на `Build()`, коли увімкнено `ValidateOnBuild`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "У MEDI одиницею ідентичності є `ServiceDescriptor` (реєстрація), а не implementation type. Кожен singleton-дескриптор ліниво створює й кешує власний екземпляр, тож `FileStore` буде два. Ідіоматичне виправлення — `services.AddSingleton<FileStore>(); services.AddSingleton<IReader>(sp => sp.GetRequiredService<FileStore>()); services.AddSingleton<IWriter>(sp => sp.GetRequiredService<FileStore>());`. Варіант 1 — саме те хибне уявлення, яке перевіряється. Варіант 3 плутає два різні service types з двома реєстраціями одного service type (лише в останньому випадку для `GetService` перемагає остання). Варіант 4 хибний: дві реалізації різних service types цілком валідні, тож валідації нема на що вказувати."
             }
           }
         },
@@ -152,6 +222,28 @@
                 }
               ],
               "explanation": "Keyed services are stored with their key as part of the identity; a plain `ICache` request looks only for registrations with a `null` key, finds none, and constructor activation fails with \"Unable to resolve service for type 'ICache'\". You select one with `[FromKeyedServices(\"local\")] ICache cache` or `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"local\")`; `KeyedService.AnyKey` registrations act as a catch-all only for keyed lookups. Option 1 applies the 'last registration wins' rule, which is real but only among registrations with the same (null) key. Option 2 invents a default. Option 4 is wrong: MEDI only passes defaults for optional parameters that declare a default value (`ICache? cache = null`); a required parameter that cannot be resolved makes activation throw."
+            },
+            "uk": {
+              "prompt": "У .NET 10 ви реєструєте два кеші та споживача:\n\n```csharp\nservices.AddKeyedSingleton<ICache, RedisCache>(\"distributed\");\nservices.AddKeyedSingleton<ICache, MemoryCache>(\"local\");\nservices.AddScoped<CatalogService>();\n\npublic sealed class CatalogService(ICache cache) { /* ... */ }\n```\n\n`ICache` без ключа не зареєстровано. Що станеться під час resolution `CatalogService`?",
+              "options": [
+                {
+                  "text": "Він отримає `MemoryCache`, бо для resolution без ключа перемагає остання реєстрація service type.",
+                  "correct": false
+                },
+                {
+                  "text": "Він отримає `RedisCache`, бо перша keyed-реєстрація діє як реєстрація за замовчуванням.",
+                  "correct": false
+                },
+                {
+                  "text": "Resolution падає з `InvalidOperationException` (неможливо отримати `ICache`): keyed-реєстрації невидимі для resolution без ключа, тож параметру потрібен `[FromKeyedServices(\"local\")]` або подібне.",
+                  "correct": true
+                },
+                {
+                  "text": "Він отримає `null`, бо MEDI передає `null` для параметрів конструктора, які не може отримати.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Keyed services зберігаються з ключем як частиною ідентичності; звичайний запит `ICache` шукає лише реєстрації з ключем `null`, не знаходить жодної, і активація через конструктор падає з «Unable to resolve service for type 'ICache'». Обрати конкретну реалізацію можна через `[FromKeyedServices(\"local\")] ICache cache` або `IKeyedServiceProvider.GetRequiredKeyedService<ICache>(\"local\")`; реєстрації `KeyedService.AnyKey` діють як catch-all лише для keyed-пошуку. Варіант 1 застосовує правило «перемагає остання реєстрація», яке реальне, але діє лише серед реєстрацій з однаковим (null) ключем. Варіант 2 вигадує реєстрацію за замовчуванням. Варіант 4 хибний: MEDI передає значення за замовчуванням лише для необов'язкових параметрів, що оголошують default value (`ICache? cache = null`); обов'язковий параметр, який неможливо отримати, змушує активацію кинути виняток."
             }
           }
         },
@@ -177,6 +269,17 @@
                 "Shows the fix: inject `IServiceScopeFactory` into the hosted service and create a scope per unit of work (message or batch), resolving scoped services from `scope.ServiceProvider`, preferably with `CreateAsyncScope` and `await using`.",
                 "States that disposing the scope disposes container-created disposables in reverse order of creation (async disposal where implemented), and that instances registered as pre-built objects are not disposed by the container."
               ]
+            },
+            "uk": {
+              "prompt": "Поясніть три service lifetimes в ASP.NET Core і що таке captive dependency. Далі: `BackgroundService` має обробляти повідомлення, використовуючи scoped `DbContext` і scoped-репозиторій. Покажіть, як ви б його структурували, поясніть, чому наївний підхід не працює (і чому він може падати лише в деяких середовищах), і опишіть, хто dispose-ить scoped-сервіси та в якому порядку.",
+              "explanation": "Еталонна відповідь: transient = новий екземпляр на кожне resolution, scoped = один на `IServiceScope` (один на HTTP-запит в ASP.NET Core), singleton = один на root provider. Captive dependency — це довгоживучий сервіс, що тримає коротшеживучий, наприклад singleton або hosted service, який приймає `DbContext` у конструкторі: context захоплюється назавжди, ділиться між потоками, а його change tracker росте. Hosted services є singleton-ами, тож наївна constructor injection не працює; з увімкненими `ValidateScopes`/`ValidateOnBuild` (за замовчуванням лише в Development) вона кидає виняток на `Build()`, інакше непомітно захоплює екземпляр, отриманий з root. Правильна структура: інжектувати `IServiceScopeFactory`, створювати scope на кожне повідомлення чи batch (`await using var scope = factory.CreateAsyncScope()`), отримувати `DbContext` і репозиторій із `scope.ServiceProvider`, передавати cancellation token. Коли scope dispose-иться, контейнер dispose-ить усе, що створив у цьому scope, у зворотному порядку створення, викликаючи `DisposeAsync` там, де він є; екземпляри, створені не контейнером, не dispose-яться, а scope, що містить сервіс лише з `IAsyncDisposable`, треба dispose-ити асинхронно.",
+              "rubric": [
+                "Правильно визначає lifetimes transient, scoped (на `IServiceScope`, на запит в ASP.NET Core) і singleton.",
+                "Визначає captive dependency (довгоживучий сервіс тримає коротшеживучий) і називає конкретний наслідок для `DbContext` (спільний для конкурентних операцій / не thread-safe / change tracker, що росте).",
+                "Пояснює, що scope validation (`ValidateScopes`/`ValidateOnBuild`) за замовчуванням увімкнено лише в Development, тож баг кидає виняток там, але непомітно захоплює екземпляр у Production.",
+                "Показує виправлення: інжектувати `IServiceScopeFactory` у hosted service і створювати scope на кожну одиницю роботи (повідомлення або batch), отримуючи scoped-сервіси з `scope.ServiceProvider`, бажано через `CreateAsyncScope` і `await using`.",
+                "Зазначає, що dispose scope dispose-ить створені контейнером disposables у зворотному порядку створення (асинхронно там, де це реалізовано), а екземпляри, зареєстровані як готові об'єкти, контейнер не dispose-ить."
+              ]
             }
           }
         }
@@ -190,6 +293,10 @@
         "en": {
           "title": "Configuration & Options: Providers, IOptions/IOptionsSnapshot/IOptionsMonitor, Validation",
           "note": "## What it is\n\nTwo layers. **Configuration** (`IConfiguration`) is a flat, case-insensitive key/value view (`Payments:Stripe:ApiKey`) merged from ordered providers. **Options** (`IOptions<T>` and friends) bind a section to a strongly-typed class, add validation, named instances and change notifications. Application code should depend on options, not on `IConfiguration`.\n\n## How it works underneath\n\n**Provider order.** `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder` add, in order: `appsettings.json` → `appsettings.{Environment}.json` → user secrets (Development only) → environment variables → command-line arguments. Each provider overwrites keys from earlier ones, so **last wins**. Environment variables use `__` as the hierarchy separator (`ConnectionStrings__Default`). Key Vault, AWS Parameter Store, or Azure App Configuration are just more providers added after these, which is why they override files.\n\nArrays are not special: `Hosts:0`, `Hosts:1` are separate keys. An environment file with a one-element array therefore replaces element 0 and **keeps** the base file's elements 1 and 2 — a classic surprise.\n\n**Reload.** The JSON file providers are registered with `reloadOnChange: true`; environment variables and command-line arguments never change after start.\n\n**The three options interfaces.**\n\n| | Lifetime | Sees reloads | Named options | Typical use |\n|---|---|---|---|---|\n| `IOptions<T>` | singleton | no — computed once on first `.Value` | no (default name only) | static settings |\n| `IOptionsSnapshot<T>` | scoped | yes, recomputed once per scope (request) | `Get(name)` | per-request consistency in scoped/transient services |\n| `IOptionsMonitor<T>` | singleton | yes, `CurrentValue` + `OnChange` | `Get(name)` | singletons, hosted services |\n\n`IOptionsSnapshot<T>` cannot be injected into a singleton (scope validation throws in Development; elsewhere it becomes a captive snapshot). `OnChange` returns an `IDisposable`; dispose it or the callback (and whatever it captures) lives forever.\n\n**Validation.** `AddOptions<T>().Bind(section).ValidateDataAnnotations()` or `.Validate(predicate, message)` or an `IValidateOptions<T>` implementation. By default validation runs **lazily**, on the first access to `.Value`/`CurrentValue`, and throws `OptionsValidationException` — often on the first request in production. `.ValidateOnStart()` (or `AddOptionsWithValidateOnStart<T>()`, .NET 8) moves it to host start, so a broken deployment fails fast. .NET 8 also added a source-generated validator (`[OptionsValidator]`) and a configuration-binding source generator, both needed for trimming/Native AOT because the reflection-based binder is not trim-safe.\n\n```csharp\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(SmtpOptions.Section)        // \"Smtp\"\n    .ValidateDataAnnotations()\n    .Validate(o => o.Port is > 0 and < 65536, \"Smtp:Port out of range\")\n    .ValidateOnStart();\n\npublic sealed class SmtpOptions\n{\n    public const string Section = \"Smtp\";\n    [Required] public string Host { get; set; } = \"\";\n    public int Port { get; set; } = 587;\n    [Required] public string Password { get; set; } = \"\";   // from env var / secret store, never appsettings\n}\n```\n\n## What an interviewer probes\n\n- Which value wins when the same key is in several places.\n- `IOptions` vs `IOptionsSnapshot` vs `IOptionsMonitor` and which may be injected where.\n- When validation runs and how to fail fast.\n- Where secrets live: user secrets locally, environment variables or a vault provider in deployed environments; never committed JSON.\n- Named options (`Configure<HttpOptions>(\"github\", ...)`) for several instances of the same shape.\n\n## Common misconceptions\n\n- \"`IOptions<T>` reloads when the file changes\" — it is computed once.\n- \"The environment-specific file replaces the whole section / array\" — keys merge individually.\n- \"`ValidateDataAnnotations` validates at startup\" — not without `ValidateOnStart`.\n- \"User secrets are encrypted\" — they are a plain JSON file outside the repo, for development only.\n"
+        },
+        "uk": {
+          "title": "Configuration і Options: providers, IOptions/IOptionsSnapshot/IOptionsMonitor, валідація",
+          "note": "## Що це\n\nДва рівні. **Configuration** (`IConfiguration`) — це плаский, нечутливий до регістру key/value-вигляд (`Payments:Stripe:ApiKey`), зведений з упорядкованих providers. **Options** (`IOptions<T>` і споріднені) прив'язують секцію до строго типізованого класу, додають валідацію, named instances і сповіщення про зміни. Код застосунку має залежати від options, а не від `IConfiguration`.\n\n## Як це працює під капотом\n\n**Порядок providers.** `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder` додають у такому порядку: `appsettings.json` → `appsettings.{Environment}.json` → user secrets (лише Development) → змінні середовища → аргументи командного рядка. Кожен provider перезаписує ключі попередніх, тож **перемагає останній**. Змінні середовища використовують `__` як роздільник ієрархії (`ConnectionStrings__Default`). Key Vault, AWS Parameter Store чи Azure App Configuration — це просто додаткові providers, додані після цих, саме тому вони перекривають файли.\n\nМасиви не мають особливого статусу: `Hosts:0`, `Hosts:1` — це окремі ключі. Тому environment-файл з масивом з одного елемента замінює елемент 0 і **зберігає** елементи 1 і 2 з базового файлу — класичний сюрприз.\n\n**Reload.** JSON file providers реєструються з `reloadOnChange: true`; змінні середовища й аргументи командного рядка після старту ніколи не змінюються.\n\n**Три інтерфейси options.**\n\n| | Lifetime | Бачить reload | Named options | Типове використання |\n|---|---|---|---|---|\n| `IOptions<T>` | singleton | ні — обчислюється один раз при першому `.Value` | ні (лише ім'я за замовчуванням) | статичні налаштування |\n| `IOptionsSnapshot<T>` | scoped | так, перераховується один раз на scope (запит) | `Get(name)` | узгодженість у межах запиту в scoped/transient-сервісах |\n| `IOptionsMonitor<T>` | singleton | так, `CurrentValue` + `OnChange` | `Get(name)` | singleton-и, hosted services |\n\n`IOptionsSnapshot<T>` не можна інжектувати в singleton (scope validation кидає виняток у Development; в інших середовищах він стає captive snapshot). `OnChange` повертає `IDisposable`; dispose-ніть його, інакше callback (і все, що він захоплює) житиме вічно.\n\n**Валідація.** `AddOptions<T>().Bind(section).ValidateDataAnnotations()`, або `.Validate(predicate, message)`, або реалізація `IValidateOptions<T>`. За замовчуванням валідація виконується **ліниво**, при першому зверненні до `.Value`/`CurrentValue`, і кидає `OptionsValidationException` — часто на першому запиті в production. `.ValidateOnStart()` (або `AddOptionsWithValidateOnStart<T>()`, .NET 8) переносить її на старт host, тож зламаний деплой падає одразу. .NET 8 також додав source-generated validator (`[OptionsValidator]`) і source generator для configuration binding — обидва потрібні для trimming/Native AOT, бо binder на основі reflection не є trim-safe.\n\n```csharp\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(SmtpOptions.Section)        // \"Smtp\"\n    .ValidateDataAnnotations()\n    .Validate(o => o.Port is > 0 and < 65536, \"Smtp:Port out of range\")\n    .ValidateOnStart();\n\npublic sealed class SmtpOptions\n{\n    public const string Section = \"Smtp\";\n    [Required] public string Host { get; set; } = \"\";\n    public int Port { get; set; } = 587;\n    [Required] public string Password { get; set; } = \"\";   // from env var / secret store, never appsettings\n}\n```\n\n## Що перевіряє інтерв'юер\n\n- Яке значення перемагає, коли той самий ключ є в кількох місцях.\n- `IOptions` vs `IOptionsSnapshot` vs `IOptionsMonitor` і що куди можна інжектувати.\n- Коли виконується валідація і як зробити fail fast.\n- Де живуть секрети: user secrets локально, змінні середовища або vault provider у розгорнутих середовищах; ніколи не в закомічених JSON.\n- Named options (`Configure<HttpOptions>(\"github\", ...)`) для кількох екземплярів однакової форми.\n\n## Поширені хибні уявлення\n\n- «`IOptions<T>` перезавантажується, коли файл змінюється» — він обчислюється один раз.\n- «Environment-specific файл замінює всю секцію / масив» — ключі зливаються поодинці.\n- «`ValidateDataAnnotations` валідує на старті» — не без `ValidateOnStart`.\n- «User secrets зашифровані» — це звичайний JSON-файл поза репозиторієм, лише для розробки.\n"
         }
       },
       "questions": [
@@ -226,6 +333,28 @@
                 }
               ],
               "explanation": "`IOptionsMonitor<T>` is a singleton whose cache is invalidated by the configuration reload token, so `CurrentValue` returns the rebound value after the file changes; `OnChange` lets you react, and its `IDisposable` must be disposed to avoid leaking the callback. Option 1 is the classic misconception: the provider reloads `IConfiguration`, but `IOptions<T>.Value` is computed once and cached forever. Option 2 is wrong because `IOptionsSnapshot<T>` is scoped — injecting it into a singleton throws under scope validation (Development) or captures a single snapshot that never refreshes. Option 4 is wrong: the default JSON providers reload on change, and the monitor exposes that."
+            },
+            "uk": {
+              "prompt": "Singleton `RateLimiterService` має підхоплювати зміни `RateLimits:PerMinute` в `appsettings.json` під час роботи застосунку, без перезапуску. Яка ін'єкція правильна?",
+              "options": [
+                {
+                  "text": "`IOptions<RateLimitOptions>` — JSON provider має `reloadOnChange: true`, тож `.Value` відображає новий вміст файлу.",
+                  "correct": false
+                },
+                {
+                  "text": "`IOptionsSnapshot<RateLimitOptions>` — він перераховується, коли змінюється конфігурація, тож singleton бачить нове значення.",
+                  "correct": false
+                },
+                {
+                  "text": "`IOptionsMonitor<RateLimitOptions>` — читати `CurrentValue` при кожному використанні (або підписатися через `OnChange` і dispose-нути повернену реєстрацію).",
+                  "correct": true
+                },
+                {
+                  "text": "Жоден: конфігурація читається лише на старті, тож перезапуск потрібен завжди.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`IOptionsMonitor<T>` — це singleton, чий кеш інвалідується configuration reload token, тож після зміни файлу `CurrentValue` повертає заново прив'язане значення; `OnChange` дозволяє реагувати на зміни, а його `IDisposable` треба dispose-нути, щоб уникнути витоку callback. Варіант 1 — класичне хибне уявлення: provider перезавантажує `IConfiguration`, але `IOptions<T>.Value` обчислюється один раз і кешується назавжди. Варіант 2 хибний, бо `IOptionsSnapshot<T>` — scoped: ін'єкція в singleton кидає виняток під scope validation (Development) або захоплює один snapshot, який ніколи не оновлюється. Варіант 4 хибний: стандартні JSON providers перезавантажуються при зміні, і monitor це надає."
             }
           }
         },
@@ -261,6 +390,28 @@
                 }
               ],
               "explanation": "Configuration providers are layered in registration order and a later provider overwrites earlier values for the same key. The default order is `appsettings.json`, `appsettings.{Environment}.json`, user secrets (Development only), environment variables, command-line arguments, so the environment variable wins here (a command-line argument would win over it). The `__` separator maps to `:`. Option 1 is the intuitive but wrong 'most specific file' rule — files are earlier in the chain than environment variables. Option 2 reverses the precedence rule. Option 4 is wrong: overriding is the whole point of layered providers; there is no ambiguity check."
+            },
+            "uk": {
+              "prompt": "Застосунок на ASP.NET Core 10, створений через `WebApplication.CreateBuilder(args)`, працює з `ASPNETCORE_ENVIRONMENT=Production` і без аргументів командного рядка. `ConnectionStrings:Default` визначено в `appsettings.json`, в `appsettings.Production.json` і у змінній середовища `ConnectionStrings__Default`. Яке значення повертає `builder.Configuration.GetConnectionString(\"Default\")`?",
+              "options": [
+                {
+                  "text": "Значення з `appsettings.Production.json`, бо environment-specific файл — найбільш специфічне джерело.",
+                  "correct": false
+                },
+                {
+                  "text": "Значення з `appsettings.json`, бо перемагає перший provider, що визначає ключ.",
+                  "correct": false
+                },
+                {
+                  "text": "Значення зі змінної середовища, бо вона додається після обох JSON-файлів, а перемагає останній provider, що визначає ключ.",
+                  "correct": true
+                },
+                {
+                  "text": "Кидається виняток, бо ключ неоднозначний між providers.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Configuration providers накладаються в порядку реєстрації, і пізніший provider перезаписує попередні значення для того самого ключа. Порядок за замовчуванням: `appsettings.json`, `appsettings.{Environment}.json`, user secrets (лише Development), змінні середовища, аргументи командного рядка, тож тут перемагає змінна середовища (аргумент командного рядка переміг би її). Роздільник `__` відображається на `:`. Варіант 1 — інтуїтивне, але хибне правило «найспецифічнішого файлу»: файли стоять у ланцюжку раніше за змінні середовища. Варіант 2 перевертає правило пріоритету. Варіант 4 хибний: перевизначення — це весь сенс багаторівневих providers; жодної перевірки на неоднозначність немає."
             }
           }
         },
@@ -296,6 +447,28 @@
                 }
               ],
               "explanation": "Options validation is lazy by default: the options factory runs the registered `IValidateOptions<T>` the first time the value is created, and failures throw `OptionsValidationException`. With nothing touching `SmtpOptions` at startup, the deployment looks healthy until the first password reset. `.ValidateOnStart()` (or `AddOptionsWithValidateOnStart<T>()` in .NET 8+) registers a startup validation that the host runs before it starts serving, so it fails immediately. Option 2 is exactly the misconception `ValidateOnStart` exists to fix. Option 3 is wrong: `ValidateDataAnnotations` uses `System.ComponentModel.DataAnnotations.Validator` and works outside MVC. Option 4 confuses `ServiceProviderOptions.ValidateOnBuild`, which checks that services can be constructed (and is on only in Development), with options validation."
+            },
+            "uk": {
+              "prompt": "Options зареєстровано так, а в production-середовищі забули задати `Smtp:Host` (властивість з `[Required]`):\n\n```csharp\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(\"Smtp\")\n    .ValidateDataAnnotations();\n```\n\n`SmtpOptions` використовує лише `EmailSender`, що працює в endpoint скидання пароля. Коли проявиться проблема?",
+              "options": [
+                {
+                  "text": "При першому зверненні до `IOptions<SmtpOptions>.Value` — зазвичай на першому запиті скидання пароля, — яке кидає `OptionsValidationException`; додавання `.ValidateOnStart()` змусило б host впасти натомість на старті.",
+                  "correct": true
+                },
+                {
+                  "text": "На старті host: `ValidateDataAnnotations` реєструє валідацію, яка виконується, коли host будує options.",
+                  "correct": false
+                },
+                {
+                  "text": "Ніколи: data annotations обчислюються лише MVC model binding, тож `Host` залишається порожнім рядком, і надсилання падає пізніше.",
+                  "correct": false
+                },
+                {
+                  "text": "На `builder.Build()`, бо `ValidateOnBuild` перевіряє всі options у кожному середовищі.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Валідація options за замовчуванням лінива: options factory запускає зареєстровані `IValidateOptions<T>`, коли значення створюється вперше, і помилки кидають `OptionsValidationException`. Оскільки на старті ніщо не звертається до `SmtpOptions`, деплой виглядає здоровим до першого скидання пароля. `.ValidateOnStart()` (або `AddOptionsWithValidateOnStart<T>()` у .NET 8+) реєструє стартову валідацію, яку host виконує до початку обслуговування запитів, тож він падає одразу. Варіант 2 — саме те хибне уявлення, для виправлення якого існує `ValidateOnStart`. Варіант 3 хибний: `ValidateDataAnnotations` використовує `System.ComponentModel.DataAnnotations.Validator` і працює поза MVC. Варіант 4 плутає `ServiceProviderOptions.ValidateOnBuild`, який перевіряє, що сервіси можна сконструювати (і ввімкнений лише в Development), з валідацією options."
             }
           }
         },
@@ -331,6 +504,28 @@
                 }
               ],
               "explanation": "Configuration has no array type: JSON arrays become keys `Cors:Origins:0`, `Cors:Origins:1`, ... and providers override individual keys. The production file overrides only `:0`, leaving `:1` and `:2` from the base file — a well-known source of production CORS or allow-list bugs. Fixes: do not put the list in the base file (keep it per-environment), use a delimited string, or override all indices explicitly. Option 1 is the intuitive expectation and is wrong. Option 3 imagines append semantics that do not exist. Option 2 is wrong: differing lengths are not an error, the merged key set just has three indices."
+            },
+            "uk": {
+              "prompt": "`appsettings.json` містить `\"Cors\": { \"Origins\": [\"https://a.example\", \"https://b.example\", \"https://c.example\"] }`. `appsettings.Production.json` містить `\"Cors\": { \"Origins\": [\"https://prod.example\"] }`. Що в Production повертає `builder.Configuration.GetSection(\"Cors:Origins\").Get<string[]>()`?",
+              "options": [
+                {
+                  "text": "`[\"https://prod.example\"]` — environment-файл замінює весь масив.",
+                  "correct": false
+                },
+                {
+                  "text": "`FormatException`, бо два providers визначають той самий масив з різною довжиною.",
+                  "correct": false
+                },
+                {
+                  "text": "`[\"https://a.example\", \"https://b.example\", \"https://c.example\", \"https://prod.example\"]` — масиви з пізніших providers дописуються в кінець.",
+                  "correct": false
+                },
+                {
+                  "text": "`[\"https://prod.example\", \"https://b.example\", \"https://c.example\"]` — масиви сплющуються в ключі `Origins:0..n` і зливаються ключ за ключем, тож перевизначається лише індекс 0.",
+                  "correct": true
+                }
+              ],
+              "explanation": "У конфігурації немає типу масиву: JSON-масиви перетворюються на ключі `Cors:Origins:0`, `Cors:Origins:1`, ..., а providers перевизначають окремі ключі. Production-файл перевизначає лише `:0`, залишаючи `:1` і `:2` з базового файлу — відоме джерело production-багів із CORS чи allow-list. Виправлення: не класти список у базовий файл (тримати його окремо для кожного середовища), використати рядок з роздільниками або явно перевизначити всі індекси. Варіант 1 — інтуїтивне очікування, і воно хибне. Варіант 3 уявляє семантику дописування, якої не існує. Варіант 2 хибний: різна довжина — не помилка, зведений набір ключів просто має три індекси."
             }
           }
         },
@@ -356,6 +551,17 @@
                 "Describes provider precedence as 'last registered wins' with the default order (appsettings → environment-specific appsettings → user secrets in Development → environment variables → command line), including the `__` separator for environment variables.",
                 "Uses options validation with `ValidateOnStart()` (or `AddOptionsWithValidateOnStart`) so a missing or invalid value fails at startup rather than on first use."
               ]
+            },
+            "uk": {
+              "prompt": "Поясніть різницю між `IOptions<T>`, `IOptionsSnapshot<T>` і `IOptionsMonitor<T>`, включно з їхніми lifetimes і поведінкою при reload. Потім опишіть, як ви б налаштували конфігурацію для сервісу, якому потрібні base URL стороннього API, timeout і API key, у локальній розробці, CI та production-контейнерах: де живе кожне значення, який provider перемагає і як зробити так, щоб помилка конфігурації давала fail fast.",
+              "explanation": "Еталонна відповідь: `IOptions<T>` — singleton, обчислюється один раз (без reload, лише ім'я за замовчуванням); `IOptionsSnapshot<T>` — scoped, перераховується на кожен запит/scope, підтримує named options і не повинен інжектуватися в singleton-и; `IOptionsMonitor<T>` — singleton, що надає `CurrentValue`, `Get(name)` і `OnChange` (реєстрацію треба dispose-нути), і це правильний вибір для singleton-ів і hosted services, які мають бачити reload. Налаштування: несекретні значення за замовчуванням (base URL, timeout) в `appsettings.json` з перевизначеннями для середовищ в `appsettings.{Environment}.json`; API key — з user secrets локально, із секретів CI, наданих як змінні середовища, і зі змінних середовища або vault/Key Vault provider у production-контейнерах — ніколи не в закомічених JSON. Providers накладаються, і перемагає останній (JSON → env JSON → user secrets у Development → змінні середовища з `__` → командний рядок → усе, що додано пізніше, наприклад vault). Прив'язка через `AddOptions<T>().BindConfiguration(...)`, валідація через data annotations/`Validate`/`IValidateOptions<T>` або source-generated validator з .NET 8, і виклик `ValidateOnStart()`, щоб host відмовився стартувати, а не падав на першому виклику.",
+              "rubric": [
+                "Правильно називає lifetimes і поведінку при reload: `IOptions<T>` — singleton, обчислюється один раз; `IOptionsSnapshot<T>` — scoped, перераховується на кожен scope; `IOptionsMonitor<T>` — singleton з `CurrentValue`/`OnChange`.",
+                "Зазначає, що `IOptionsSnapshot<T>` не можна інжектувати в singleton-и (і що там слід обирати `IOptionsMonitor<T>`).",
+                "Тримає API key поза закоміченими файлами: user secrets для локальної розробки, змінні середовища або secret store/vault provider для CI і production.",
+                "Описує пріоритет providers як «перемагає останній зареєстрований» з порядком за замовчуванням (appsettings → environment-specific appsettings → user secrets у Development → змінні середовища → командний рядок), включно з роздільником `__` для змінних середовища.",
+                "Використовує валідацію options з `ValidateOnStart()` (або `AddOptionsWithValidateOnStart`), щоб відсутнє чи невалідне значення давало падіння на старті, а не при першому використанні."
+              ]
             }
           }
         }
@@ -369,6 +575,10 @@
         "en": {
           "title": "Logging & Observability: Structured ILogger, Scopes, OpenTelemetry, ActivitySource, Metrics",
           "note": "## What it is\n\nObservability in .NET rests on three BCL primitives that OpenTelemetry (OTel) exports without wrapping them: **logs** via `Microsoft.Extensions.Logging.ILogger`, **traces** via `System.Diagnostics.ActivitySource`/`Activity`, and **metrics** via `System.Diagnostics.Metrics.Meter` (`Counter<T>`, `Histogram<T>`, `UpDownCounter<T>`, observable gauges). The OTel SDK subscribes to these APIs and ships the data over OTLP to a collector or backend. Your code depends only on the BCL types.\n\n## How it works underneath\n\n**Structured logging.** `logger.LogInformation(\"Order {OrderId} placed by {CustomerId}\", id, cust)` passes a *message template* plus arguments. Providers receive the template and the named values separately, so a backend can index `OrderId` and group all occurrences of one template. An interpolated string (`$\"Order {id} placed\"`) is formatted eagerly — even when the level is disabled — produces a distinct message per value, and loses the property names (analyzer CA2254 flags it). The extension methods also allocate a `params object[]` and box value types on every call. The `[LoggerMessage]` source generator removes that: it emits a strongly-typed method that checks `IsEnabled` first, uses a cached parsed template and avoids boxing.\n\n**Scopes.** `using (logger.BeginScope(new Dictionary<string, object> { [\"TenantId\"] = t }))` attaches properties to every log written inside the `using`, including across `await` (scopes flow through `AsyncLocal`). Whether they are *emitted* is the provider's choice: console formatters and the OTel logging provider have `IncludeScopes`, off by default.\n\n**Traces.** An `Activity` is a span. `ActivitySource.StartActivity(name)` returns **null** when no listener is sampling that source — the zero-cost path when tracing is off — so every use must be null-safe (`activity?.SetTag(...)`). `Activity.Current` flows through `ExecutionContext`, so child spans nest automatically across `await`. ASP.NET Core and `HttpClient` create activities and propagate W3C `traceparent` headers; the logging infrastructure stamps `TraceId`/`SpanId` on log records, which is what lets you jump from a log line to its trace.\n\n**Metrics.** Instruments are created from a `Meter` (via `IMeterFactory` in DI since .NET 8). Each unique combination of tag values is a separate time series, so tags must have **bounded cardinality** (route template, status code, region) — never user id, order id or raw URL. The OTel SDK caps series per metric and folds the excess into an overflow series, silently degrading your data. Since .NET 8 ASP.NET Core and `HttpClient` emit built-in metrics (`http.server.request.duration`, etc.) following OTel semantic conventions.\n\n```csharp\npublic sealed partial class PaymentService(ILogger<PaymentService> log, IMeterFactory meters)\n{\n    public static readonly ActivitySource Source = new(\"Shop.Payments\");\n    private readonly Histogram<double> _duration =\n        meters.Create(\"Shop.Payments\").CreateHistogram<double>(\"shop.payment.duration\", unit: \"s\");\n\n    public async Task ChargeAsync(Order order, CancellationToken ct)\n    {\n        using var activity = Source.StartActivity(\"Charge\");   // null if nobody listens\n        activity?.SetTag(\"payment.provider\", order.Provider);\n        var start = Stopwatch.GetTimestamp();\n        await _gateway.ChargeAsync(order, ct);\n        _duration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds,\n            new KeyValuePair<string, object?>(\"payment.provider\", order.Provider)); // bounded tag\n        LogCharged(log, order.Id, order.Total);\n    }\n\n    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = \"Charged order {OrderId} for {Amount}\")]\n    private static partial void LogCharged(ILogger logger, Guid orderId, decimal amount);\n}\n\n// Program.cs\nbuilder.Services.AddOpenTelemetry()\n    .WithTracing(t => t.AddSource(\"Shop.Payments\").AddAspNetCoreInstrumentation().AddHttpClientInstrumentation())\n    .WithMetrics(m => m.AddMeter(\"Shop.Payments\").AddAspNetCoreInstrumentation())\n    .UseOtlpExporter();\n```\n\n## What an interviewer probes\n\n- Template vs interpolation, and the cost of logging on hot paths.\n- Logs vs traces vs metrics: what question each answers (what happened / where time went across services / how much and how often).\n- How a trace id crosses process boundaries (W3C Trace Context) and how logs get correlated with it.\n- Sampling (head-based in the SDK vs tail-based in the collector) and its effect on what you can debug.\n- Metric cardinality and why the source name passed to `AddSource`/`AddMeter` must match exactly.\n\n## Common misconceptions\n\n- \"Interpolated strings are fine now that C# has interpolated string handlers\" — the `ILogger` extension methods do not take one.\n- \"`StartActivity` always returns an activity\" — not without a listener.\n- \"More tags on metrics = more insight\" — high-cardinality tags belong on spans and logs.\n- \"Scopes are lost after `await`\" — they flow; the provider may just not print them.\n"
+        },
+        "uk": {
+          "title": "Logging і observability: structured ILogger, scopes, OpenTelemetry, ActivitySource, metrics",
+          "note": "## Що це\n\nObservability в .NET тримається на трьох примітивах BCL, які OpenTelemetry (OTel) експортує, не обгортаючи їх: **logs** через `Microsoft.Extensions.Logging.ILogger`, **traces** через `System.Diagnostics.ActivitySource`/`Activity` і **metrics** через `System.Diagnostics.Metrics.Meter` (`Counter<T>`, `Histogram<T>`, `UpDownCounter<T>`, observable gauges). OTel SDK підписується на ці API і відправляє дані через OTLP у collector або backend. Ваш код залежить лише від типів BCL.\n\n## Як це працює під капотом\n\n**Structured logging.** `logger.LogInformation(\"Order {OrderId} placed by {CustomerId}\", id, cust)` передає *message template* разом з аргументами. Providers отримують template і названі значення окремо, тож backend може індексувати `OrderId` і групувати всі входження одного template. Інтерпольований рядок (`$\"Order {id} placed\"`) форматується одразу — навіть коли рівень вимкнено, — дає окреме повідомлення для кожного значення і втрачає імена властивостей (аналізатор CA2254 це підсвічує). Extension methods також алокують `params object[]` і боксять value types при кожному виклику. Source generator `[LoggerMessage]` це прибирає: він генерує строго типізований метод, який спершу перевіряє `IsEnabled`, використовує кешований розпарсений template і уникає boxing.\n\n**Scopes.** `using (logger.BeginScope(new Dictionary<string, object> { [\"TenantId\"] = t }))` додає властивості до кожного логу, записаного всередині `using`, зокрема через `await` (scopes передаються через `AsyncLocal`). Чи будуть вони *виведені* — вирішує provider: console formatters і OTel logging provider мають `IncludeScopes`, за замовчуванням вимкнений.\n\n**Traces.** `Activity` — це span. `ActivitySource.StartActivity(name)` повертає **null**, коли жоден listener не семплює це джерело — це шлях з нульовою вартістю, коли tracing вимкнено, — тож кожне використання має бути null-safe (`activity?.SetTag(...)`). `Activity.Current` передається через `ExecutionContext`, тож дочірні spans автоматично вкладаються через `await`. ASP.NET Core і `HttpClient` створюють activities і поширюють W3C-заголовки `traceparent`; інфраструктура логування проставляє `TraceId`/`SpanId` у записи логів — саме це дозволяє перейти від рядка логу до його trace.\n\n**Metrics.** Instruments створюються з `Meter` (через `IMeterFactory` у DI, починаючи з .NET 8). Кожна унікальна комбінація значень тегів — це окремий time series, тож теги повинні мати **обмежену кардинальність** (route template, status code, регіон) — ніколи user id, order id чи сирий URL. OTel SDK обмежує кількість series на метрику і складає надлишок в overflow series, непомітно погіршуючи ваші дані. Починаючи з .NET 8, ASP.NET Core і `HttpClient` емітять вбудовані метрики (`http.server.request.duration` тощо) згідно з OTel semantic conventions.\n\n```csharp\npublic sealed partial class PaymentService(ILogger<PaymentService> log, IMeterFactory meters)\n{\n    public static readonly ActivitySource Source = new(\"Shop.Payments\");\n    private readonly Histogram<double> _duration =\n        meters.Create(\"Shop.Payments\").CreateHistogram<double>(\"shop.payment.duration\", unit: \"s\");\n\n    public async Task ChargeAsync(Order order, CancellationToken ct)\n    {\n        using var activity = Source.StartActivity(\"Charge\");   // null if nobody listens\n        activity?.SetTag(\"payment.provider\", order.Provider);\n        var start = Stopwatch.GetTimestamp();\n        await _gateway.ChargeAsync(order, ct);\n        _duration.Record(Stopwatch.GetElapsedTime(start).TotalSeconds,\n            new KeyValuePair<string, object?>(\"payment.provider\", order.Provider)); // bounded tag\n        LogCharged(log, order.Id, order.Total);\n    }\n\n    [LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = \"Charged order {OrderId} for {Amount}\")]\n    private static partial void LogCharged(ILogger logger, Guid orderId, decimal amount);\n}\n\n// Program.cs\nbuilder.Services.AddOpenTelemetry()\n    .WithTracing(t => t.AddSource(\"Shop.Payments\").AddAspNetCoreInstrumentation().AddHttpClientInstrumentation())\n    .WithMetrics(m => m.AddMeter(\"Shop.Payments\").AddAspNetCoreInstrumentation())\n    .UseOtlpExporter();\n```\n\n## Що перевіряє інтерв'юер\n\n- Template vs інтерполяція і вартість логування на hot paths.\n- Logs vs traces vs metrics: на яке питання відповідає кожен (що сталося / куди пішов час між сервісами / скільки і як часто).\n- Як trace id перетинає межі процесів (W3C Trace Context) і як логи з ним корелюються.\n- Sampling (head-based у SDK vs tail-based у collector) і його вплив на те, що ви можете дебажити.\n- Кардинальність метрик і чому ім'я джерела, передане в `AddSource`/`AddMeter`, має збігатися точно.\n\n## Поширені хибні уявлення\n\n- «Інтерпольовані рядки тепер нормальні, бо в C# є interpolated string handlers» — extension methods `ILogger` їх не приймають.\n- «`StartActivity` завжди повертає activity» — не без listener.\n- «Більше тегів на метриках = більше інсайтів» — теги з високою кардинальністю місце на spans і в логах.\n- «Scopes губляться після `await`» — вони передаються; provider просто може їх не виводити.\n"
         }
       },
       "questions": [
@@ -405,6 +615,28 @@
                 }
               ],
               "explanation": "Message templates are the basis of structured logging: providers get the template (`\"Order {OrderId} placed by {CustomerId}\"`) and the values as separate key/value pairs, so a backend can query `OrderId = ...` and count occurrences per template. Variant A builds the final string before `ILogger` sees it — paying the formatting cost even when the level is filtered out — and every log line becomes a unique message with only `{OriginalFormat}` as its template (CA2254 warns about this). Option 1 is a common misconception: `LoggerExtensions` methods take `string message, params object?[] args`; Microsoft.Extensions.Logging ships no interpolated-string-handler overloads. Option 3 has a true half (B allocates a `params` array and boxes value types; `[LoggerMessage]` fixes that) but A allocates the formatted string and its interpolation buffers, so it is not allocation-free. Option 4 is wrong: backends do not reverse-engineer properties from rendered text; they rely on the structured state."
+            },
+            "uk": {
+              "prompt": "Порівняйте ці два виклики в сервісі на ASP.NET Core 10, що відправляє логи в structured backend:\n\n```csharp\n_log.LogInformation($\"Order {order.Id} placed by {order.CustomerId}\");     // A\n_log.LogInformation(\"Order {OrderId} placed by {CustomerId}\", order.Id, order.CustomerId); // B\n```\n\nЯке твердження правильне?",
+              "options": [
+                {
+                  "text": "Вони еквівалентні: починаючи з C# 10, extension methods `ILogger` приймають interpolated string handler, що відкладає форматування і зберігає `OrderId` та `CustomerId` як названі властивості.",
+                  "correct": false
+                },
+                {
+                  "text": "B кращий: backend отримує константний template і названі властивості, які може індексувати й групувати, тоді як A форматує рядок одразу (навіть якщо Information вимкнено) і дає окреме повідомлення для кожного замовлення без названих властивостей.",
+                  "correct": true
+                },
+                {
+                  "text": "A кращий, бо B боксить аргументи, тоді як інтерполяція рядка з `Guid` повністю уникає алокацій.",
+                  "correct": false
+                },
+                {
+                  "text": "B відрізняється від A лише виводом у консоль; structured backends у будь-якому разі витягують імена властивостей з відрендереного рядка.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Message templates — основа structured logging: providers отримують template (`\"Order {OrderId} placed by {CustomerId}\"`) і значення як окремі key/value-пари, тож backend може робити запит `OrderId = ...` і рахувати входження кожного template. Варіант A будує фінальний рядок ще до того, як його побачить `ILogger`, — платячи за форматування навіть тоді, коли рівень відфільтровано, — і кожен рядок логу стає унікальним повідомленням, чиїм template є лише `{OriginalFormat}` (CA2254 про це попереджає). Варіант 1 — поширене хибне уявлення: методи `LoggerExtensions` приймають `string message, params object?[] args`; Microsoft.Extensions.Logging не має overloads з interpolated string handler. Варіант 3 наполовину правдивий (B алокує масив `params` і боксить value types; `[LoggerMessage]` це виправляє), але A алокує відформатований рядок і буфери інтерполяції, тож він не вільний від алокацій. Варіант 4 хибний: backends не відновлюють властивості з відрендереного тексту; вони покладаються на структурований state."
             }
           }
         },
@@ -440,6 +672,28 @@
                 }
               ],
               "explanation": "`ActivitySource.StartActivity` consults registered `ActivityListener`s; if none listens to that source name, or the sampler returns `ActivitySamplingResult.None`, it returns `null` without allocating anything — that is the zero-overhead path when tracing is off. Unit tests have no listener, and `AddSource(\"Shop.Checkouts\")` does not match `\"Shop.Checkout\"`, so both get `null`. Always use null-conditional access. Option 2 invents an API: there is `IMeterFactory` for meters, but `ActivitySource` is designed to be a static, long-lived instance. Option 3 is wrong: a root activity with no parent is created whenever a listener samples it; parentless activities are normal (background jobs, console apps). Option 4 is wrong: there is no fallback — the SDK listens only to sources whose names match what you passed to `AddSource` (wildcards such as `\"Shop.*\"` are supported); and a sampler dropping traces would also yield `null`, which is the same root cause, not a different one."
+            },
+            "uk": {
+              "prompt": "Сервіс містить:\n\n```csharp\nprivate static readonly ActivitySource Source = new(\"Shop.Checkout\");\n\npublic void Process(Cart cart)\n{\n    using var activity = Source.StartActivity(\"Process\");\n    activity.SetTag(\"cart.items\", cart.Items.Count);\n    // ...\n}\n```\n\nУ production, де OpenTelemetry налаштовано з `.AddSource(\"Shop.Checkout\")`, він працює, але кидає `NullReferenceException` в unit-тестах і в staging-середовищі, чиє налаштування OpenTelemetry помилково реєструє `.AddSource(\"Shop.Checkouts\")`. Чому?",
+              "options": [
+                {
+                  "text": "`StartActivity` повертає `null`, коли жоден `ActivityListener` не слухає (і не семплює) це джерело, що й відбувається в тестах і коли зареєстроване ім'я джерела не збігається; код має використовувати `activity?.SetTag(...)`.",
+                  "correct": true
+                },
+                {
+                  "text": "`ActivitySource` треба створювати через DI (`IActivitySourceFactory`); статичний екземпляр ніколи не ініціалізується поза ASP.NET Core.",
+                  "correct": false
+                },
+                {
+                  "text": "`StartActivity` повертає `null` лише тоді, коли `Activity.Current` дорівнює null, тобто коли немає вхідного HTTP-запиту, який був би батьківським.",
+                  "correct": false
+                },
+                {
+                  "text": "Коли жодне зареєстроване ім'я джерела не збігається, OpenTelemetry SDK переходить до прослуховування всіх джерел, тож падіння в staging має походити від sampler; падіння в unit-тестах — окрема проблема з моками.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ActivitySource.StartActivity` опитує зареєстровані `ActivityListener`; якщо жоден не слухає це ім'я джерела або sampler повертає `ActivitySamplingResult.None`, він повертає `null`, нічого не алокуючи, — це шлях з нульовими накладними витратами, коли tracing вимкнено. В unit-тестах немає listener, а `AddSource(\"Shop.Checkouts\")` не збігається з `\"Shop.Checkout\"`, тож обидва отримують `null`. Завжди використовуйте null-conditional доступ. Варіант 2 вигадує API: для meters є `IMeterFactory`, але `ActivitySource` задуманий як статичний довгоживучий екземпляр. Варіант 3 хибний: root activity без батька створюється щоразу, коли listener її семплює; activities без батька — це норма (background jobs, консольні застосунки). Варіант 4 хибний: fallback немає — SDK слухає лише джерела, чиї імена збігаються з переданими в `AddSource` (підтримуються wildcards на кшталт `\"Shop.*\"`); а sampler, що відкидає traces, теж дав би `null`, і це та сама першопричина, а не інша."
             }
           }
         },
@@ -476,6 +730,28 @@
                 }
               ],
               "explanation": "The generator emits a method whose body first calls `IsEnabled`, then logs through a generated struct that carries the typed values (no `object[]`, no boxing of `Guid`/`int`/`decimal`) and a template parsed at compile time, with a stable `EventId`. With the level disabled, the call reduces to the check. Option 1 is wrong: the generator does not change the provider pipeline; whether writes are buffered is a provider concern (the console logger already uses a background queue). Option 3 is wrong: the ordinary `LogInformation(template, args)` overloads are structured too; the generator is about performance and consistency. Option 2 is a subtle trap: C# evaluates arguments before the call, so `ExpensiveDump()` still runs — guard it with `if (logger.IsEnabled(LogLevel.Debug))` or pass the cheap input and format lazily."
+            },
+            "uk": {
+              "prompt": "Hot path логує на рівні `Debug`, який у production вимкнено. Профайлинг усе одно показує алокації з цих викликів. Колега пропонує замінити їх на source-generated методи `[LoggerMessage]`. Яке твердження про згенерований код правильне?",
+              "options": [
+                {
+                  "text": "Він робить логування асинхронним, ставлячи записи в чергу background channel, тож викликаючий потік ніколи не блокується на I/O.",
+                  "correct": false
+                },
+                {
+                  "text": "Він прибирає вартість обчислення самих аргументів, тож `LogDebug(ExpensiveDump())` стає безкоштовним, коли Debug вимкнено.",
+                  "correct": false
+                },
+                {
+                  "text": "Він обов'язковий для structured logging: без нього provider отримує лише відрендерене повідомлення.",
+                  "correct": false
+                },
+                {
+                  "text": "Він перевіряє `logger.IsEnabled(level)` до будь-якої роботи й передає аргументи як строго типізовані поля замість boxed `params object[]`, тож вимкнений виклик коштує по суті лише перевірки рівня, а template парситься один раз, а не при кожному виклику.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Генератор створює метод, тіло якого спершу викликає `IsEnabled`, а потім логує через згенерований struct, що несе типізовані значення (без `object[]`, без boxing `Guid`/`int`/`decimal`), і template, розпарсений під час компіляції, зі стабільним `EventId`. Коли рівень вимкнено, виклик зводиться до перевірки. Варіант 1 хибний: генератор не змінює pipeline providers; чи буферизуються записи — це справа provider (console logger і так використовує background queue). Варіант 3 хибний: звичайні overloads `LogInformation(template, args)` теж структуровані; генератор — про продуктивність і узгодженість. Варіант 2 — тонка пастка: C# обчислює аргументи до виклику, тож `ExpensiveDump()` усе одно виконується — захистіть його через `if (logger.IsEnabled(LogLevel.Debug))` або передавайте дешеві вхідні дані й форматуйте ліниво."
             }
           }
         },
@@ -511,6 +787,28 @@
                 }
               ],
               "explanation": "Each distinct combination of tag values is its own time series, aggregated and kept in memory by the SDK and every downstream system. Unbounded tags explode that set; the OTel .NET SDK caps the number of series per metric and routes excess measurements into an overflow series, which is exactly the symptom described. Metrics should answer aggregate questions with bounded dimensions; per-customer drill-down is a job for traces (span attributes) and logs, possibly with exemplars linking the two. Option 1 is wrong: every instrument type creates one series per tag combination. Option 3 treats the symptom and moves the memory problem into the SDK, collector and backend (and their bills). Option 4 does not change cardinality at all — 2 million hashes are still 2 million series."
+            },
+            "uk": {
+              "prompt": "Щоб знайти повільних клієнтів, розробник додає теги до histogram:\n\n```csharp\n_latency.Record(elapsed, new(\"customer.id\", customerId), new(\"http.route\", routeTemplate));\n```\n\nКлієнтів близько 2 мільйонів. Після деплою дашборд показує пропуски й series `otel.metric.overflow`, а пам'ять collector росте. Яке виправлення правильне?",
+              "options": [
+                {
+                  "text": "Перейти з `Histogram<double>` на `Counter<long>`, бо саме histograms є тим instrument, що створює series на кожен тег.",
+                  "correct": false
+                },
+                {
+                  "text": "Прибрати `customer.id` з метрики (залишити обмежені теги на кшталт route, method і status code) і покласти customer id у trace span або запис логу, де й місце деталям окремого запиту.",
+                  "correct": true
+                },
+                {
+                  "text": "Збільшити ліміт кардинальності метрик у SDK до кількох мільйонів, щоб умістився кожен клієнт.",
+                  "correct": false
+                },
+                {
+                  "text": "Хешувати `customer.id` у рядок фіксованої довжини перед записом, щоб зменшити використання пам'яті на series.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Кожна окрема комбінація значень тегів — це власний time series, який агрегується й тримається в пам'яті SDK і кожної наступної системи. Необмежені теги роздувають цю множину; OTel .NET SDK обмежує кількість series на метрику і спрямовує надлишкові вимірювання в overflow series — саме описаний симптом. Метрики мають відповідати на агреговані питання з обмеженими вимірами; деталізація до окремого клієнта — завдання traces (атрибути span) і логів, можливо з exemplars, що пов'язують їх. Варіант 1 хибний: кожен тип instrument створює один series на комбінацію тегів. Варіант 3 лікує симптом і переносить проблему пам'яті в SDK, collector і backend (та їхні рахунки). Варіант 4 узагалі не змінює кардинальність — 2 мільйони хешів — це все ще 2 мільйони series."
             }
           }
         },
@@ -546,6 +844,28 @@
                 }
               ],
               "explanation": "The logger factory keeps scopes in an `AsyncLocal`-based scope provider, so they flow with the `ExecutionContext` across `await` and are available to every logger in that async flow. Whether a provider renders them is configurable, and for `SimpleConsoleFormatterOptions`/`JsonConsoleFormatterOptions` and `OpenTelemetryLoggerOptions` the default is `false`. Option 1 is the misconception — the scope provider uses `AsyncLocal`, not `[ThreadStatic]`. Option 2 is wrong: `BeginScope` is part of `ILogger` and supported by the built-in providers. Option 4 is wrong: an `IEnumerable<KeyValuePair<string, object>>` (such as a dictionary) is the recommended state shape because providers can turn it into individual properties; a template string also works but is not required."
+            },
+            "uk": {
+              "prompt": "Middleware виконує `using (_log.BeginScope(new Dictionary<string, object> { [\"TenantId\"] = tenantId })) { await next(ctx); }`. Рядки логу, записані контролером далі в pipeline (після кількох `await`), не показують `TenantId` ні в консолі, ні в OpenTelemetry log exporter. Яка найімовірніша причина?",
+              "options": [
+                {
+                  "text": "Scopes зберігаються в thread-local storage, тож вони губляться, щойно `await` продовжується в іншому потоці.",
+                  "correct": false
+                },
+                {
+                  "text": "`BeginScope` працює лише зі сторонніми providers на кшталт Serilog; Microsoft.Extensions.Logging ігнорує state-об'єкт.",
+                  "correct": false
+                },
+                {
+                  "text": "Scope захоплюється, але і console formatter, і OpenTelemetry logging provider мають `IncludeScopes` рівним `false` за замовчуванням, тож вони не виводять scope state, доки ви його не ввімкнете.",
+                  "correct": true
+                },
+                {
+                  "text": "State-об'єкт у вигляді словника не підтримується; scope state має бути рядком message template на кшталт `\"Tenant {TenantId}\"`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Logger factory тримає scopes у scope provider на основі `AsyncLocal`, тож вони передаються разом з `ExecutionContext` через `await` і доступні кожному logger у цьому async-потоці. Чи provider їх рендерить — налаштовується, і для `SimpleConsoleFormatterOptions`/`JsonConsoleFormatterOptions` та `OpenTelemetryLoggerOptions` значення за замовчуванням — `false`. Варіант 1 — хибне уявлення: scope provider використовує `AsyncLocal`, а не `[ThreadStatic]`. Варіант 2 хибний: `BeginScope` — частина `ILogger` і підтримується вбудованими providers. Варіант 4 хибний: `IEnumerable<KeyValuePair<string, object>>` (наприклад, словник) — рекомендована форма state, бо providers можуть перетворити її на окремі властивості; рядок template теж працює, але не є обов'язковим."
             }
           }
         },
@@ -571,6 +891,17 @@
                 "Discusses sampling (head-based ratio/parent-based in the SDK versus tail-based in a collector to keep errors and slow requests) and its effect on what can be debugged.",
                 "Addresses cost: bounded metric tag cardinality (no user/order ids), structured templates or `[LoggerMessage]` on hot paths, and level filtering."
               ]
+            },
+            "uk": {
+              "prompt": "Поясніть різницю між logs, traces і metrics і які .NET API створюють кожен із них. Потім опишіть, як ви б інструментували API на ASP.NET Core 10, що викликає два downstream-сервіси й базу даних PostgreSQL, щоб on-call інженер міг перейти від алерту до повільного запиту, до проблемного downstream-виклику, до відповідних рядків логу. Охопіть propagation, кореляцію, sampling і вартість.",
+              "explanation": "Еталонна відповідь: metrics — дешеві агреговані числа (rate, частка помилок, latency histograms) для алертингу, які створює `System.Diagnostics.Metrics` (`Meter`, `Counter<T>`, `Histogram<T>`, через `IMeterFactory`); traces — дерева spans з часом виконання між сервісами для питання «куди пішов час», які створюють `ActivitySource`/`Activity`; logs — дискретні структуровані події, які створює `ILogger` з message templates. Інструментувати через OpenTelemetry SDK: `AddOpenTelemetry().WithTracing(...AddAspNetCoreInstrumentation, AddHttpClientInstrumentation, інструментація Npgsql/EF Core, AddSource для власних джерел)` і `.WithMetrics(...)`, плюс OTel logging, з експортом OTLP у collector. W3C-заголовки `traceparent` автоматично поширюють trace через HTTP-виклики; `Activity.Current` передається через `await`; логи несуть `TraceId`/`SpanId`, тож backend пов'язує логи зі spans; exemplars можуть пов'язати bucket latency histogram з trace. Алертити на вбудованих метриках `http.server.request.duration` / частки помилок. Використовувати head sampling (ratio-based, parent-based) для контролю обсягу або tail sampling у collector, щоб зберігати повільні/помилкові traces; тримати низьку кардинальність тегів метрик; використовувати `[LoggerMessage]` і фільтри рівнів на hot paths; перевіряти `StartActivity` на null.",
+              "rubric": [
+                "Розрізняє metrics (агреговані, дешеві, для алертингу), traces (spans між сервісами, для атрибуції latency) і logs (дискретні структуровані події) та називає .NET API: `Meter`/instruments, `ActivitySource`/`Activity`, `ILogger`.",
+                "Описує підключення OpenTelemetry з інструментацією ASP.NET Core, `HttpClient` і бази даних, плюс власні `AddSource`/`AddMeter`, з експортом через OTLP (або еквівалентний exporter для backend).",
+                "Пояснює propagation через W3C Trace Context (`traceparent`) між HTTP-викликами і кореляцію логів з traces через `TraceId`/`SpanId` у записах логів.",
+                "Обговорює sampling (head-based ratio/parent-based у SDK проти tail-based у collector, щоб зберігати помилки й повільні запити) і його вплив на те, що можна дебажити.",
+                "Розглядає вартість: обмежена кардинальність тегів метрик (жодних user/order ids), structured templates або `[LoggerMessage]` на hot paths і фільтрація за рівнем."
+              ]
             }
           }
         }
@@ -584,6 +915,10 @@
         "en": {
           "title": "Generic Host Lifecycle: IHostedService, BackgroundService, Graceful Shutdown",
           "note": "## What it is\n\nThe **generic host** (`Host.CreateApplicationBuilder`, or `WebApplication.CreateBuilder` which builds on it) owns the application's DI container, configuration, logging and **lifetime**. Long-running work plugs in as `IHostedService`; `BackgroundService` is the abstract base class most code should use. The host is also what turns `SIGTERM`/Ctrl+C into an orderly shutdown.\n\n## How it works underneath\n\n**Startup.** `host.RunAsync()` builds nothing new — it calls `StartAsync` on every registered `IHostedService`, **sequentially in registration order**, awaiting each. In ASP.NET Core your hosted services start **before** Kestrel starts listening, so a slow `StartAsync` delays the whole app (and its readiness). .NET 8 added `HostOptions.ServicesStartConcurrently`/`ServicesStopConcurrently` (default `false`), `HostOptions.StartupTimeout` (default infinite), and `IHostedLifecycleService` with `StartingAsync`/`StartedAsync`/`StoppingAsync`/`StoppedAsync` hooks. After all services start, `IHostApplicationLifetime.ApplicationStarted` fires.\n\n**BackgroundService.** Its `StartAsync` kicks off `ExecuteAsync(stoppingToken)`, stores the task and returns without awaiting it. Historically the synchronous part of `ExecuteAsync` (everything before the first real `await`) ran inline on the startup path, so a blocking loop with no `await` hung startup; .NET 10 changed `BackgroundService` to run all of `ExecuteAsync` as a separate task. `StopAsync` cancels `stoppingToken` and waits for `ExecuteAsync` to finish **or** for the host's shutdown token to fire, whichever comes first.\n\n**Failures.** Since .NET 6, an unhandled exception escaping `ExecuteAsync` is logged and, under the default `BackgroundServiceExceptionBehavior.StopHost`, **stops the host**. Before .NET 6 it was swallowed silently and the worker simply died. `Ignore` restores the old behaviour — rarely what you want; catch and handle per-iteration exceptions inside the loop instead.\n\n**Graceful shutdown.** `SIGTERM` (Kubernetes, `docker stop`), `SIGINT` or `IHostApplicationLifetime.StopApplication()` trigger: `ApplicationStopping` fires → hosted services' `StopAsync` run in **reverse registration order** (Kestrel stops accepting connections and drains in-flight requests) → `ApplicationStopped` → the container is disposed. The whole stop phase is bounded by `HostOptions.ShutdownTimeout` — **30 seconds by default since .NET 6** (5 s before). Work still running when it elapses is abandoned when the process exits.\n\nIn containers, two things must line up: the app must actually receive the signal (exec-form `ENTRYPOINT [\"dotnet\", \"App.dll\"]`, not a shell wrapper that swallows `SIGTERM`), and `ShutdownTimeout` must be shorter than Kubernetes `terminationGracePeriodSeconds` (default 30 s), after which the kubelet sends `SIGKILL`. Readiness should flip to unhealthy as soon as stopping begins so the load balancer stops routing new traffic.\n\n```csharp\nbuilder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(25));\nbuilder.Services.AddHostedService<QueueWorker>();\n\npublic sealed class QueueWorker(IQueueClient queue, IServiceScopeFactory scopes, ILogger<QueueWorker> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        await foreach (var msg in queue.ReadAllAsync(stoppingToken))\n        {\n            try\n            {\n                await using var scope = scopes.CreateAsyncScope();\n                await scope.ServiceProvider.GetRequiredService<IHandler>().HandleAsync(msg, stoppingToken);\n                await queue.AckAsync(msg, CancellationToken.None);   // finish the ack even while stopping\n            }\n            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }\n            catch (Exception ex) { log.LogError(ex, \"Message {MessageId} failed\", msg.Id); }  // keep the worker alive\n        }\n    }\n}\n```\n\n## What an interviewer probes\n\n- `IHostedService` vs `BackgroundService`, and why `StartAsync` must not run long work.\n- What happens to an exception in `ExecuteAsync` (and the .NET 6 behaviour change).\n- The shutdown sequence and timeouts, end to end from `SIGTERM` to process exit.\n- Using scoped services from a hosted service (scope per unit of work).\n- At-least-once processing: what happens to an in-flight message when the process is killed.\n\n## Common misconceptions\n\n- \"Hosted services start after the server\" — in ASP.NET Core they start before it.\n- \"The host waits for my `ExecuteAsync` to finish\" — only up to `ShutdownTimeout`.\n- \"An exception in a `BackgroundService` crashes the process\" — it stops the host gracefully (by default) after logging; it does not tear the process down mid-flight.\n"
+        },
+        "uk": {
+          "title": "Lifecycle generic host: IHostedService, BackgroundService, graceful shutdown",
+          "note": "## Що це\n\n**Generic host** (`Host.CreateApplicationBuilder` або `WebApplication.CreateBuilder`, що побудований на ньому) володіє DI-контейнером застосунку, конфігурацією, логуванням і **lifetime**. Довготривала робота підключається як `IHostedService`; `BackgroundService` — абстрактний базовий клас, який має використовувати більшість коду. Host також перетворює `SIGTERM`/Ctrl+C на впорядковану зупинку.\n\n## Як це працює під капотом\n\n**Старт.** `host.RunAsync()` нічого нового не будує — він викликає `StartAsync` на кожному зареєстрованому `IHostedService`, **послідовно в порядку реєстрації**, очікуючи кожен. В ASP.NET Core ваші hosted services стартують **до того**, як Kestrel почне слухати, тож повільний `StartAsync` затримує весь застосунок (і його readiness). .NET 8 додав `HostOptions.ServicesStartConcurrently`/`ServicesStopConcurrently` (за замовчуванням `false`), `HostOptions.StartupTimeout` (за замовчуванням нескінченний) та `IHostedLifecycleService` з hooks `StartingAsync`/`StartedAsync`/`StoppingAsync`/`StoppedAsync`. Після старту всіх сервісів спрацьовує `IHostApplicationLifetime.ApplicationStarted`.\n\n**BackgroundService.** Його `StartAsync` запускає `ExecuteAsync(stoppingToken)`, зберігає task і повертається, не очікуючи його. Історично синхронна частина `ExecuteAsync` (усе до першого справжнього `await`) виконувалася inline на шляху старту, тож блокуючий цикл без `await` вішав старт; .NET 10 змінив `BackgroundService` так, що весь `ExecuteAsync` виконується як окремий task. `StopAsync` скасовує `stoppingToken` і чекає, доки `ExecuteAsync` завершиться **або** спрацює shutdown token host-а — що настане раніше.\n\n**Збої.** Починаючи з .NET 6, необроблений виняток, що вилітає з `ExecuteAsync`, логується і за замовчуванням (`BackgroundServiceExceptionBehavior.StopHost`) **зупиняє host**. До .NET 6 його мовчки ковтали, і worker просто вмирав. `Ignore` повертає стару поведінку — рідко те, що вам потрібно; натомість перехоплюйте й обробляйте винятки кожної ітерації всередині циклу.\n\n**Graceful shutdown.** `SIGTERM` (Kubernetes, `docker stop`), `SIGINT` або `IHostApplicationLifetime.StopApplication()` запускають: спрацьовує `ApplicationStopping` → `StopAsync` hosted services виконуються у **зворотному порядку реєстрації** (Kestrel перестає приймати з'єднання і дочікується запитів, що виконуються) → `ApplicationStopped` → контейнер dispose-иться. Уся фаза зупинки обмежена `HostOptions.ShutdownTimeout` — **30 секунд за замовчуванням, починаючи з .NET 6** (до того — 5 с). Робота, що ще виконується, коли час спливає, кидається при виході процесу.\n\nУ контейнерах мають збігтися дві речі: застосунок повинен справді отримати сигнал (exec-форма `ENTRYPOINT [\"dotnet\", \"App.dll\"]`, а не shell-обгортка, що ковтає `SIGTERM`), а `ShutdownTimeout` має бути коротшим за Kubernetes `terminationGracePeriodSeconds` (за замовчуванням 30 с), після якого kubelet надсилає `SIGKILL`. Readiness має перемикатися в unhealthy, щойно почалася зупинка, щоб load balancer перестав спрямовувати новий трафік.\n\n```csharp\nbuilder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(25));\nbuilder.Services.AddHostedService<QueueWorker>();\n\npublic sealed class QueueWorker(IQueueClient queue, IServiceScopeFactory scopes, ILogger<QueueWorker> log)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        await foreach (var msg in queue.ReadAllAsync(stoppingToken))\n        {\n            try\n            {\n                await using var scope = scopes.CreateAsyncScope();\n                await scope.ServiceProvider.GetRequiredService<IHandler>().HandleAsync(msg, stoppingToken);\n                await queue.AckAsync(msg, CancellationToken.None);   // finish the ack even while stopping\n            }\n            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }\n            catch (Exception ex) { log.LogError(ex, \"Message {MessageId} failed\", msg.Id); }  // keep the worker alive\n        }\n    }\n}\n```\n\n## Що перевіряє інтерв'юер\n\n- `IHostedService` vs `BackgroundService` і чому `StartAsync` не повинен виконувати довгу роботу.\n- Що стається з винятком в `ExecuteAsync` (і зміна поведінки в .NET 6).\n- Послідовність зупинки і timeouts, від `SIGTERM` до виходу процесу.\n- Використання scoped-сервісів з hosted service (scope на кожну одиницю роботи).\n- At-least-once обробка: що стається з повідомленням в обробці, коли процес убивають.\n\n## Поширені хибні уявлення\n\n- «Hosted services стартують після сервера» — в ASP.NET Core вони стартують до нього.\n- «Host чекає, доки мій `ExecuteAsync` завершиться» — лише до `ShutdownTimeout`.\n- «Виняток у `BackgroundService` валить процес» — він (за замовчуванням) після логування коректно зупиняє host; процес не обривається посеред роботи.\n"
         }
       },
       "questions": [
@@ -619,6 +954,28 @@
                 }
               ],
               "explanation": "`BackgroundService` is a convenience base class implementing `IHostedService`: `StartAsync` launches `ExecuteAsync(stoppingToken)` and returns so host startup can continue; `StopAsync` signals the token and awaits either the execute task or the host's shutdown token. Implementing `IHostedService` directly is appropriate for short start/stop hooks (warm-up, registering with a discovery service), where `StartAsync` must complete before the app is considered started. Option 2 is wrong: nothing creates a dedicated or low-priority thread; `ExecuteAsync` runs on whatever thread runs it (the thread pool once it awaits). Option 3 is wrong: all hosted services are resolved from the root provider and are effectively singletons. Option 4 is wrong: there is no automatic restart; since .NET 6 an unhandled exception stops the host by default."
+            },
+            "uk": {
+              "prompt": "Яке твердження правильно описує зв'язок між `IHostedService` і `BackgroundService`?",
+              "options": [
+                {
+                  "text": "`BackgroundService` — це абстрактний `IHostedService`, чий `StartAsync` запускає `ExecuteAsync`, не очікуючи його завершення, а `StopAsync` скасовує `stoppingToken` і чекає, доки `ExecuteAsync` завершиться або спливе shutdown timeout.",
+                  "correct": true
+                },
+                {
+                  "text": "`BackgroundService` виконує `ExecuteAsync` на виділеному низькопріоритетному потоці ОС, тоді як `IHostedService.StartAsync` виконується в thread pool.",
+                  "correct": false
+                },
+                {
+                  "text": "Екземпляри `IHostedService` створюються на кожен request scope, а екземпляри `BackgroundService` — singleton-и.",
+                  "correct": false
+                },
+                {
+                  "text": "`BackgroundService` автоматично перезапускає `ExecuteAsync`, якщо той кидає виняток, тоді як звичайний `IHostedService` зупиняє host.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`BackgroundService` — зручний базовий клас, що реалізує `IHostedService`: `StartAsync` запускає `ExecuteAsync(stoppingToken)` і повертається, щоб старт host-а міг продовжитися; `StopAsync` сигналізує token і очікує або execute task, або shutdown token host-а. Пряма реалізація `IHostedService` доречна для коротких hooks старту/зупинки (warm-up, реєстрація в discovery service), де `StartAsync` має завершитися, перш ніж застосунок вважатиметься запущеним. Варіант 2 хибний: ніщо не створює виділеного чи низькопріоритетного потоку; `ExecuteAsync` виконується на тому потоці, який його запускає (у thread pool після першого await). Варіант 3 хибний: усі hosted services отримуються з root provider і фактично є singleton-ами. Варіант 4 хибний: автоматичного перезапуску немає; починаючи з .NET 6, необроблений виняток за замовчуванням зупиняє host."
             }
           }
         },
@@ -655,6 +1012,28 @@
                 }
               ],
               "explanation": "Since .NET 6 the host observes the `ExecuteAsync` task: a fault is logged as an error and, with the default `HostOptions.BackgroundServiceExceptionBehavior = StopHost`, the host stops gracefully — other hosted services and Kestrel get their `StopAsync`. The intent is that an orchestrator restarts a broken process instead of leaving a zombie. Option 1 describes the pre-.NET 6 behaviour (still available with `BackgroundServiceExceptionBehavior.Ignore`) and is a classic outdated answer. Option 3 is wrong: the exception is captured in a task, not thrown on a raw thread, so it is not an unhandled-exception crash. Option 4 is wrong: there is no built-in restart; resilience has to be written inside the loop (catch per iteration, retry with back-off via Polly/`Microsoft.Extensions.Resilience`)."
+            },
+            "uk": {
+              "prompt": "На .NET 10 зі стандартними `HostOptions` polling-цикл у `BackgroundService` після години роботи викидає з `ExecuteAsync` необроблений `HttpRequestException`. Що станеться?",
+              "options": [
+                {
+                  "text": "Нічого помітного: виняток зберігається в task, поверненому `ExecuteAsync`, який ніхто не спостерігає, тож worker мовчки зупиняється, а вебзастосунок продовжує обслуговувати запити.",
+                  "correct": false
+                },
+                {
+                  "text": "Виняток логується, і оскільки `BackgroundServiceExceptionBehavior` за замовчуванням дорівнює `StopHost`, host починає graceful shutdown і застосунок зупиняється.",
+                  "correct": true
+                },
+                {
+                  "text": "Runtime піднімає `AppDomain.UnhandledException`, і процес негайно падає, не виконавши `StopAsync` на інших сервісах.",
+                  "correct": false
+                },
+                {
+                  "text": "Host перехоплює виняток і перезапускає `ExecuteAsync` після exponential back-off.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Починаючи з .NET 6, host спостерігає task `ExecuteAsync`: збій логується як помилка, і за стандартного `HostOptions.BackgroundServiceExceptionBehavior = StopHost` host коректно зупиняється — інші hosted services і Kestrel отримують свій `StopAsync`. Задум у тому, щоб orchestrator перезапустив зламаний процес, а не залишав зомбі. Варіант 1 описує поведінку до .NET 6 (досі доступну через `BackgroundServiceExceptionBehavior.Ignore`) і є класичною застарілою відповіддю. Варіант 3 хибний: виняток захоплюється в task, а не кидається на «голому» потоці, тож це не падіння через unhandled exception. Варіант 4 хибний: вбудованого перезапуску немає; стійкість треба писати всередині циклу (перехоплення на кожній ітерації, retry з back-off через Polly/`Microsoft.Extensions.Resilience`)."
             }
           }
         },
@@ -691,6 +1070,28 @@
                 }
               ],
               "explanation": "On `SIGTERM` the host fires `ApplicationStopping` and calls `StopAsync` on hosted services; `BackgroundService.StopAsync` cancels `stoppingToken` right away and awaits the execute task or the shutdown token, whichever completes first. `HostOptions.ShutdownTimeout` is 30 s by default since .NET 6; when it elapses the host stops waiting, disposes services and `Main` returns, so the still-running work dies with the process. Kubernetes independently sends `SIGKILL` after the grace period. The robust design is to honour the token, make work idempotent or checkpointed, and set `ShutdownTimeout` below the grace period. Option 1 is wrong: the wait is bounded. Option 2 mixes the old 5 s default (.NET Core 3.x/5) with `Thread.Abort`, which is not supported on .NET Core at all. Option 4 inverts the order: cancellation is the first signal, the timeout is the deadline."
+            },
+            "uk": {
+              "prompt": "Worker на .NET 10 працює в Kubernetes зі стандартним `terminationGracePeriodSeconds: 30` і стандартними `HostOptions`. Його `BackgroundService` обробляє batches, що тривають близько 90 секунд, і **не** передає `stoppingToken` у роботу над batch. Під час rolling deploy pod отримує `SIGTERM` через 10 секунд після початку batch. Що станеться?",
+              "options": [
+                {
+                  "text": "Host чекає, доки `ExecuteAsync` поверне керування, скільки б це не тривало, тож batch завершується, і процес коректно виходить приблизно на 80-й секунді.",
+                  "correct": false
+                },
+                {
+                  "text": "Host чекає 5 секунд (стандартний `ShutdownTimeout`), а потім викликає `Thread.Abort` на worker, щоб виконалися блоки `finally`.",
+                  "correct": false
+                },
+                {
+                  "text": "`stoppingToken` скасовується негайно; host чекає на worker до `ShutdownTimeout` (за замовчуванням 30 с), потім продовжує зупинку, і процес виходить, кидаючи batch, — а kubelet усе одно надіслав би `SIGKILL` на 30-й секунді, тож batch має бути ідемпотентним або кооперативно скасовуваним.",
+                  "correct": true
+                },
+                {
+                  "text": "`stoppingToken` скасовується лише після спливання `ShutdownTimeout`, даючи batch 30 секунд безперервної відстрочки перед запитом на скасування.",
+                  "correct": false
+                }
+              ],
+              "explanation": "На `SIGTERM` host запускає `ApplicationStopping` і викликає `StopAsync` на hosted services; `BackgroundService.StopAsync` одразу скасовує `stoppingToken` і очікує execute task або shutdown token — що завершиться раніше. `HostOptions.ShutdownTimeout` за замовчуванням дорівнює 30 с, починаючи з .NET 6; коли він спливає, host перестає чекати, dispose-ить сервіси і `Main` повертається, тож робота, що ще виконується, гине разом із процесом. Kubernetes незалежно надсилає `SIGKILL` після grace period. Надійний дизайн — поважати token, робити роботу ідемпотентною або з checkpoints і встановлювати `ShutdownTimeout` нижче за grace period. Варіант 1 хибний: очікування обмежене. Варіант 2 змішує старе значення за замовчуванням 5 с (.NET Core 3.x/5) з `Thread.Abort`, який на .NET Core взагалі не підтримується. Варіант 4 перевертає порядок: скасування — перший сигнал, timeout — дедлайн."
             }
           }
         },
@@ -726,6 +1127,28 @@
                 }
               ],
               "explanation": "The host awaits each hosted service's `StartAsync` in registration order, and in ASP.NET Core 6+ user hosted services are started before the server, so the slow `StartAsync` delays listening and `ApplicationStarted`. If the app must not serve traffic until the data is loaded, that may be intended, but it should be explicit and paired with a startup probe; otherwise run the load in `ExecuteAsync` and gate dependent endpoints with a readiness health check. Option 1 reverses the order. Option 2 is wrong: `StartupTimeout` (added in .NET 8) defaults to `Timeout.InfiniteTimeSpan`. Option 3 is wrong: concurrent start exists since .NET 8 (`ServicesStartConcurrently`) but defaults to `false`, and even then the server start waits for all of them."
+            },
+            "uk": {
+              "prompt": "У застосунку на ASP.NET Core 10 власний `IHostedService` завантажує довідковий датасет на 2 GB у `StartAsync` через `await _loader.LoadAsync(ct)`, що триває близько 40 секунд. `HostOptions` залишено за замовчуванням. Яку поведінку видно ззовні?",
+              "options": [
+                {
+                  "text": "Kestrel стартує одразу й обслуговує запити, поки датасет завантажується, бо hosted services завжди стартують після сервера.",
+                  "correct": false
+                },
+                {
+                  "text": "Старт переривається через 30 секунд, бо стандартний `HostOptions.StartupTimeout` — 30 секунд.",
+                  "correct": false
+                },
+                {
+                  "text": "Hosted services за замовчуванням стартують паралельно, тож на датасет чекають лише запити, які від нього залежать.",
+                  "correct": false
+                },
+                {
+                  "text": "Hosted services стартують послідовно і до того, як сервер почне слухати, тож застосунок близько 40 секунд не приймає запитів (і `ApplicationStarted` не спрацьовує); довгу ініціалізацію слід перенести в `BackgroundService` з readiness check або явно обмежити.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Host очікує `StartAsync` кожного hosted service у порядку реєстрації, а в ASP.NET Core 6+ користувацькі hosted services стартують до сервера, тож повільний `StartAsync` затримує прослуховування і `ApplicationStarted`. Якщо застосунок не повинен обслуговувати трафік, доки дані не завантажені, це може бути задумано, але має бути явним і поєднаним зі startup probe; інакше виконуйте завантаження в `ExecuteAsync` і закривайте залежні endpoints readiness health check-ом. Варіант 1 перевертає порядок. Варіант 2 хибний: `StartupTimeout` (доданий у .NET 8) за замовчуванням дорівнює `Timeout.InfiniteTimeSpan`. Варіант 3 хибний: паралельний старт існує з .NET 8 (`ServicesStartConcurrently`), але за замовчуванням дорівнює `false`, і навіть тоді старт сервера чекає на всі сервіси."
             }
           }
         },
@@ -751,6 +1174,17 @@
                 "Aligns `ShutdownTimeout` below Kubernetes `terminationGracePeriodSeconds` (after which `SIGKILL` is sent) and ensures the process receives the signal (exec-form entrypoint, not a shell wrapper).",
                 "Avoids loss and duplicates with ack-after-commit (at-least-once) plus idempotent handling (dedup/idempotency key or outbox)."
               ]
+            },
+            "uk": {
+              "prompt": "Ви пишете worker на .NET 10, що споживає повідомлення з черги й пише в базу даних, розгорнутий у Kubernetes. Поясніть, як ви б реалізували його на generic host, і пройдіть крок за кроком, що саме стається з моменту, коли pod отримує `SIGTERM`, до виходу процесу. Які налаштування мають узгоджуватися і як уникнути втрати або подвійної обробки повідомлень?",
+              "explanation": "Еталонна відповідь: реалізувати `BackgroundService`, чий `ExecuteAsync` циклічно читає чергу з `stoppingToken`, створюючи DI scope на кожне повідомлення (`IServiceScopeFactory.CreateAsyncScope`) для scoped `DbContext`, перехоплюючи й логуючи винятки кожного повідомлення, щоб одне погане повідомлення не зупинило host (виняток, що вилітає з `ExecuteAsync`, за замовчуванням зупиняє host, починаючи з .NET 6). На `SIGTERM` console lifetime host-а запускає `StopApplication`: спрацьовує `ApplicationStopping`, `StopAsync` hosted services виконуються у зворотному порядку реєстрації, `BackgroundService` скасовує `stoppingToken` і чекає на `ExecuteAsync` до `HostOptions.ShutdownTimeout` (за замовчуванням 30 с з .NET 6), потім `ApplicationStopped`, контейнер dispose-иться, і процес виходить. Налаштування: exec-форма entrypoint, щоб `dotnet` отримав сигнал; `ShutdownTimeout` коротший за `terminationGracePeriodSeconds` (за замовчуванням 30 с), після якого надходить `SIGKILL`; readiness/health відображає зупинку. Доставка: припиняти отримувати нові повідомлення при скасуванні, завершити або покинути повідомлення в обробці, підтверджувати (ack) лише після commit у базі (at-least-once) і робити handlers ідемпотентними (idempotency key / таблиця дедуплікації або outbox), бо вбивство процесу між commit і ack спричиняє повторну доставку.",
+              "rubric": [
+                "Використовує `BackgroundService`, де `stoppingToken` враховується в циклі, і DI scope на кожне повідомлення для scoped-залежностей на кшталт `DbContext`.",
+                "Обробляє винятки кожного повідомлення всередині циклу, знаючи, що виняток, який вилітає з `ExecuteAsync`, за замовчуванням зупиняє host (з .NET 6).",
+                "Описує послідовність зупинки: `SIGTERM` → `ApplicationStopping` → `StopAsync` (у зворотному порядку), що скасовує `stoppingToken` → очікування, обмежене `HostOptions.ShutdownTimeout` (за замовчуванням 30 с) → `ApplicationStopped`/disposal → вихід процесу.",
+                "Встановлює `ShutdownTimeout` нижче за Kubernetes `terminationGracePeriodSeconds` (після якого надсилається `SIGKILL`) і гарантує, що процес отримує сигнал (exec-форма entrypoint, а не shell-обгортка).",
+                "Уникає втрат і дублікатів через ack після commit (at-least-once) плюс ідемпотентну обробку (дедуплікація/idempotency key або outbox)."
+              ]
             }
           }
         }
@@ -764,6 +1198,10 @@
         "en": {
           "title": "Performance Diagnostics: BenchmarkDotNet, dotnet-counters, dotnet-trace, Allocation Profiling, Hot Paths",
           "note": "## What it is\n\nA senior engineer is expected to have a **method**, not a bag of tricks: measure at the system level, narrow down with a profiler, prove a fix with a micro-benchmark, then verify in the real system. .NET gives you a cross-platform toolbox for each step, all built on **EventPipe** (in-process event streaming, no kernel driver needed, works in Linux containers).\n\n## The tools, from coarse to fine\n\n- **`dotnet-counters`** — live, low-overhead metrics from a running process: CPU, working set, GC heap size, gen0/1/2 counts, `% time in GC`, allocation rate, thread-pool thread count and **queue length**, lock contention, exception rate; plus ASP.NET Core and Kestrel meters. `dotnet-counters monitor -p <pid> --counters System.Runtime,Microsoft.AspNetCore.Hosting`. It answers \"what kind of problem is this?\" (CPU-bound, GC-bound, starvation, exceptions) — not \"which method?\".\n- **`dotnet-trace`** — collects an EventPipe trace (`.nettrace`) with CPU sampling (periodic managed stack samples) and/or runtime events (GC, allocations, exceptions, contention). `--format speedscope` gives a flame graph; PerfView and Visual Studio open `.nettrace` directly. The `gc-verbose` profile includes `AllocationTick` events — one sampled event roughly every 100 KB allocated, with type and stack — which is the cheap way to find *who allocates* in production.\n- **`dotnet-gcdump`** — heap snapshot (types, counts, retention) for \"what is on the heap\"; **`dotnet-dump`** — full process dump for offline analysis (`clrstack`, `dumpheap`, `syncblk`), ideal for hangs and deadlocks. In Kubernetes run them from a sidecar or `kubectl debug` ephemeral container sharing the process namespace, or bake them into a diagnostics image.\n- **BenchmarkDotNet** — micro-benchmarks done correctly. It builds a Release copy of your benchmarks and runs them in **a separate process**, performs pilot and warm-up iterations so you measure steady-state code (after tiered compilation and Dynamic PGO have promoted it to tier 1), runs many iterations and reports mean, error, standard deviation and, with `[MemoryDiagnoser]`, **allocated bytes per operation** and GC counts per 1,000 operations. `[Baseline]` gives ratios; `[Params]` sweeps inputs; returning the result prevents the JIT from eliminating dead code.\n\n```csharp\n[MemoryDiagnoser]\npublic class ParseBench\n{\n    private const string Input = \"id=42;qty=7;price=1999\";\n\n    [Benchmark(Baseline = true)]\n    public int Split() => Input.Split(';').Sum(p => int.Parse(p.Split('=')[1]));\n\n    [Benchmark]\n    public int Span()\n    {\n        int sum = 0;\n        foreach (var range in Input.AsSpan().Split(';'))           // .NET 9+ MemoryExtensions.Split\n        {\n            var part = Input.AsSpan()[range];\n            sum += int.Parse(part[(part.IndexOf('=') + 1)..]);\n        }\n        return sum;                                                 // returned: no dead-code elimination\n    }\n}\n// dotnet run -c Release -- --filter *ParseBench*\n```\n\n## Common hot paths interviewers expect you to recognise\n\n- Allocation in loops: LINQ over small collections, closures capturing locals, `string` concatenation, `params` arrays, boxing (struct to interface, non-generic collections, `string.Format` with value types).\n- Exceptions as control flow (throwing is microseconds, not nanoseconds).\n- Rebuilding expensive objects per call: `new Regex(..., RegexOptions.Compiled)`, `HttpClient` per request (socket exhaustion), reflection-based lookups; cache them or use source generators (`[GeneratedRegex]`, System.Text.Json source generation).\n- Sync-over-async and thread-pool starvation — visible in counters as a growing queue length with low CPU.\n- Large or mid-lived allocations causing gen2/LOH collections (see the memory topic).\n\n## What an interviewer probes\n\n- Your sequence: symptom → counters → trace/dump → hypothesis → benchmark → fix → verify with the same counters under load.\n- Why a `Stopwatch` loop lies (JIT tiers, no warm-up, Debug builds, dead-code elimination, noise).\n- How to profile in production safely (sampling overhead, short collections, `--duration`).\n- How to read `[MemoryDiagnoser]` output.\n\n## Common misconceptions\n\n- \"Average latency is the metric\" — percentiles (p95/p99) and allocation rate tell the story.\n- \"Micro-benchmark wins translate linearly to the service\" — only if that path is actually hot in the profile.\n- \"Profilers must be attached at startup\" — EventPipe tools attach to a running process.\n"
+        },
+        "uk": {
+          "title": "Діагностика продуктивності: BenchmarkDotNet, dotnet-counters, dotnet-trace, профілювання алокацій, hot paths",
+          "note": "## Що це\n\nВід сеньйор-інженера очікують **методу**, а не набору трюків: виміряти на рівні системи, звузити пошук профайлером, довести виправлення micro-benchmark-ом, а потім перевірити в реальній системі. .NET дає кросплатформний набір інструментів для кожного кроку, і всі вони побудовані на **EventPipe** (in-process стрімінг подій, драйвер ядра не потрібен, працює в Linux-контейнерах).\n\n## Інструменти, від грубих до точних\n\n- **`dotnet-counters`** — живі метрики з низькими накладними витратами з процесу, що працює: CPU, working set, розмір GC heap, кількість gen0/1/2, `% time in GC`, allocation rate, кількість потоків thread pool і **queue length**, lock contention, частота винятків; плюс meters ASP.NET Core і Kestrel. `dotnet-counters monitor -p <pid> --counters System.Runtime,Microsoft.AspNetCore.Hosting`. Він відповідає на питання «що це за тип проблеми?» (CPU-bound, GC-bound, starvation, винятки) — а не «який метод?».\n- **`dotnet-trace`** — збирає EventPipe trace (`.nettrace`) з CPU sampling (періодичні семпли керованих стеків) і/або runtime events (GC, алокації, винятки, contention). `--format speedscope` дає flame graph; PerfView і Visual Studio відкривають `.nettrace` напряму. Профіль `gc-verbose` включає події `AllocationTick` — одна семплована подія приблизно на кожні 100 KB алокацій, з типом і стеком, — і це дешевий спосіб знайти в production, *хто алокує*.\n- **`dotnet-gcdump`** — знімок heap (типи, кількості, утримання) для питання «що лежить у heap»; **`dotnet-dump`** — повний дамп процесу для офлайн-аналізу (`clrstack`, `dumpheap`, `syncblk`), ідеальний для зависань і deadlocks. У Kubernetes запускайте їх із sidecar або ephemeral-контейнера `kubectl debug`, що ділить process namespace, або вбудуйте в diagnostics image.\n- **BenchmarkDotNet** — micro-benchmarks, зроблені правильно. Він збирає Release-копію ваших benchmarks і запускає їх в **окремому процесі**, виконує pilot- і warm-up-ітерації, щоб ви вимірювали код у сталому стані (після того як tiered compilation і Dynamic PGO підняли його до tier 1), проганяє багато ітерацій і звітує mean, error, standard deviation, а з `[MemoryDiagnoser]` — **allocated bytes на операцію** і кількість GC на 1 000 операцій. `[Baseline]` дає співвідношення; `[Params]` перебирає вхідні дані; повернення результату не дає JIT усунути dead code.\n\n```csharp\n[MemoryDiagnoser]\npublic class ParseBench\n{\n    private const string Input = \"id=42;qty=7;price=1999\";\n\n    [Benchmark(Baseline = true)]\n    public int Split() => Input.Split(';').Sum(p => int.Parse(p.Split('=')[1]));\n\n    [Benchmark]\n    public int Span()\n    {\n        int sum = 0;\n        foreach (var range in Input.AsSpan().Split(';'))           // .NET 9+ MemoryExtensions.Split\n        {\n            var part = Input.AsSpan()[range];\n            sum += int.Parse(part[(part.IndexOf('=') + 1)..]);\n        }\n        return sum;                                                 // returned: no dead-code elimination\n    }\n}\n// dotnet run -c Release -- --filter *ParseBench*\n```\n\n## Типові hot paths, які інтерв'юер очікує, що ви впізнаєте\n\n- Алокації в циклах: LINQ над малими колекціями, замикання, що захоплюють локальні змінні, конкатенація `string`, масиви `params`, boxing (struct в інтерфейс, негенеричні колекції, `string.Format` з value types).\n- Винятки як control flow (throw коштує мікросекунди, а не наносекунди).\n- Перестворення дорогих об'єктів на кожен виклик: `new Regex(..., RegexOptions.Compiled)`, `HttpClient` на кожен запит (socket exhaustion), пошуки на основі reflection; кешуйте їх або використовуйте source generators (`[GeneratedRegex]`, source generation System.Text.Json).\n- Sync-over-async і thread-pool starvation — у counters видно як queue length, що росте, при низькому CPU.\n- Великі або середньоживучі алокації, що спричиняють збирання gen2/LOH (див. тему про пам'ять).\n\n## Що перевіряє інтерв'юер\n\n- Вашу послідовність: симптом → counters → trace/dump → гіпотеза → benchmark → виправлення → перевірка тими самими counters під навантаженням.\n- Чому цикл зі `Stopwatch` бреше (JIT tiers, немає warm-up, Debug-збірки, dead-code elimination, шум).\n- Як безпечно профілювати в production (накладні витрати sampling, короткі збори, `--duration`).\n- Як читати вивід `[MemoryDiagnoser]`.\n\n## Поширені хибні уявлення\n\n- «Головна метрика — середня latency» — історію розповідають перцентилі (p95/p99) і allocation rate.\n- «Виграш у micro-benchmark лінійно переноситься на сервіс» — лише якщо цей шлях справді гарячий у профілі.\n- «Профайлери треба підключати на старті» — інструменти EventPipe підключаються до процесу, що вже працює.\n"
         }
       },
       "questions": [
@@ -799,6 +1237,28 @@
                 }
               ],
               "explanation": "The naive loop measures tier-0 (unoptimised) and Debug code, includes JIT time in the first iterations, runs under a debugger, and gives one noisy sample. BenchmarkDotNet controls all of that: Release build, out-of-process runs, a pilot stage to pick iteration counts, warm-up so the measured code is the tier-1 code production would run, many iterations with mean/error/stddev, and outlier handling. Option 1 is wrong: `Stopwatch` uses the high-resolution performance counter (`Stopwatch.Frequency` is typically 10 MHz or more). Option 2 is wrong: GC runs normally, and its cost is part of what you want to measure; `[MemoryDiagnoser]` reports it. Option 4 is wrong: BenchmarkDotNet measures wall-clock time; instruction counts are a separate optional hardware-counter diagnoser."
+            },
+            "uk": {
+              "prompt": "Розробник заміряє дві реалізації через `Stopwatch` навколо циклу з 1 000 ітерацій у Debug-збірці, запущеній з IDE, і отримує результати, що суперечать прогону BenchmarkDotNet для того самого коду. Яке пояснення найточніше описує, чому слід довіряти числам BenchmarkDotNet?",
+              "options": [
+                {
+                  "text": "`Stopwatch` має роздільність лише в мілісекунди, тож короткі операції округлюються до нуля.",
+                  "correct": false
+                },
+                {
+                  "text": "BenchmarkDotNet вимикає GC під час вимірювання, тож його числа не містять шуму від збирання.",
+                  "correct": false
+                },
+                {
+                  "text": "BenchmarkDotNet збирає Release, запускає в окремому процесі без debugger, виконує pilot- і warm-up-ітерації, щоб tiered JIT/Dynamic PGO досягли сталого стану, потім проганяє багато ітерацій і звітує статистику (а з `[MemoryDiagnoser]` — алокації).",
+                  "correct": true
+                },
+                {
+                  "text": "BenchmarkDotNet рахує виконані IL-інструкції замість wall-clock time, що прибирає апаратний шум.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Наївний цикл вимірює tier-0 (неоптимізований) і Debug-код, включає час JIT у перші ітерації, працює під debugger і дає один шумний семпл. BenchmarkDotNet контролює все це: Release-збірка, запуск поза процесом, pilot-етап для вибору кількості ітерацій, warm-up, щоб вимірювався tier-1 код, який виконуватиметься в production, багато ітерацій з mean/error/stddev і обробка викидів. Варіант 1 хибний: `Stopwatch` використовує високоточний performance counter (`Stopwatch.Frequency` зазвичай 10 MHz або більше). Варіант 2 хибний: GC працює як звичайно, і його вартість — частина того, що ви хочете виміряти; `[MemoryDiagnoser]` її звітує. Варіант 4 хибний: BenchmarkDotNet вимірює wall-clock time; кількість інструкцій — це окремий необов'язковий diagnoser на апаратних лічильниках."
             }
           }
         },
@@ -835,6 +1295,28 @@
                 }
               ],
               "explanation": "Counters have already classified the problem as CPU-bound in managed code rather than GC or starvation, so the next step is a sampling profile. `dotnet-trace collect -p <pid> --duration 00:00:30` (with a CPU-sampling profile) attaches via EventPipe to the live process, and aggregated stacks show where time goes. Option 1 is wrong: counters are aggregate metrics; there is no per-method CPU counter. Option 3 is wrong: a gcdump shows heap contents, which is relevant to memory, not CPU; and GC is already ruled out. Option 2 is tempting but statistically weak: a single dump is one sample; it is the right tool for hangs/deadlocks, while finding hot code needs many samples over time (several dumps are a poor man's profiler at best)."
+            },
+            "uk": {
+              "prompt": "Production-сервіс на ASP.NET Core під Linux після релізу показує стабільні 90% CPU; `dotnet-counters` показує нормальний allocation rate, `% time in GC` нижче 3% і порожню чергу thread pool. Потрібно знайти, який код спалює CPU, не перезапускаючи процес. Що робити далі?",
+              "options": [
+                {
+                  "text": "Запустити `dotnet-counters monitor` з аргументом `--counters`, перелічивши імена підозрілих методів, щоб отримати використання CPU для кожного методу.",
+                  "correct": false
+                },
+                {
+                  "text": "Зняти один `dotnet-dump` і виконати `clrstack` для всіх потоків; методи на вершинах стеків у цьому одному знімку і є гарячими.",
+                  "correct": false
+                },
+                {
+                  "text": "Зняти `dotnet-gcdump` і шукати типи з найбільшою кількістю екземплярів, бо саме вони споживають CPU.",
+                  "correct": false
+                },
+                {
+                  "text": "Зібрати короткий CPU-sampling trace через `dotnet-trace` з процесу, що працює, і розглянути його як flame graph (speedscope/PerfView), щоб знайти найгарячіші стеки.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Counters уже класифікували проблему як CPU-bound у керованому коді, а не GC чи starvation, тож наступний крок — sampling-профіль. `dotnet-trace collect -p <pid> --duration 00:00:30` (з профілем CPU sampling) підключається через EventPipe до живого процесу, а агреговані стеки показують, куди йде час. Варіант 1 хибний: counters — це агреговані метрики; лічильника CPU на рівні методу не існує. Варіант 3 хибний: gcdump показує вміст heap, що стосується пам'яті, а не CPU; до того ж GC уже виключено. Варіант 2 спокусливий, але статистично слабкий: один дамп — це один семпл; це правильний інструмент для зависань/deadlocks, а пошук гарячого коду потребує багатьох семплів у часі (кілька дампів — у кращому разі профайлер для бідних)."
             }
           }
         },
@@ -871,6 +1353,28 @@
                 }
               ],
               "explanation": "`RegexOptions.Compiled` generates IL via Reflection.Emit and JIT-compiles it when the `Regex` is constructed — milliseconds of work that only pays off if the instance is reused. Constructing it per call does that work on every request. Hoisting it to a static field amortises the cost; the `[GeneratedRegex]` source generator (.NET 7+) emits the matcher at build time, so there is no runtime compilation at all and it works with trimming and Native AOT. Option 1 helps a little by avoiding the emit, but still parses the pattern and builds the interpreter per call, and its premise is false. Option 3 moves the waste to another thread-pool thread and adds scheduling overhead. Option 4 changes semantics and makes matching slightly more expensive, not cheaper."
+            },
+            "uk": {
+              "prompt": "Ця валідація виконується на кожен запит і опиняється на вершині CPU-профілю, з великим часом у `System.Reflection.Emit` і JIT:\n\n```csharp\npublic static bool IsValidSku(string s) =>\n    new Regex(@\"^[A-Z]{3}-\\d{4}$\", RegexOptions.Compiled).IsMatch(s);\n```\n\nЯка зміна усуває першопричину?",
+              "options": [
+                {
+                  "text": "Прибрати `RegexOptions.Compiled`, але й далі створювати `Regex` на кожен виклик, бо інтерпретація для коротких вхідних даних завжди швидша за скомпільований код.",
+                  "correct": false
+                },
+                {
+                  "text": "Створити regex один раз — поле `static readonly`, а краще source-generated метод `[GeneratedRegex(@\"^[A-Z]{3}-\\d{4}$\")] private static partial Regex Sku();` — і перевикористовувати його.",
+                  "correct": true
+                },
+                {
+                  "text": "Обгорнути виклик у `Task.Run`, щоб компіляція regex відбувалася поза потоком запиту.",
+                  "correct": false
+                },
+                {
+                  "text": "Додати `RegexOptions.IgnoreCase`, щоб engine міг пропустити перевірку регістру, зменшивши CPU.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`RegexOptions.Compiled` генерує IL через Reflection.Emit і JIT-компілює його під час створення `Regex` — мілісекунди роботи, що окупаються лише тоді, коли екземпляр перевикористовується. Створення на кожен виклик виконує цю роботу на кожному запиті. Винесення в статичне поле амортизує вартість; source generator `[GeneratedRegex]` (.NET 7+) генерує matcher під час збірки, тож runtime-компіляції немає взагалі, і це працює з trimming і Native AOT. Варіант 1 трохи допомагає, бо уникає emit, але все одно парсить pattern і будує інтерпретатор на кожен виклик, а його передумова хибна. Варіант 3 переносить марну роботу на інший потік thread pool і додає накладні витрати на планування. Варіант 4 змінює семантику і робить зіставлення трохи дорожчим, а не дешевшим."
             }
           }
         },
@@ -906,6 +1410,28 @@
                 }
               ],
               "explanation": "BenchmarkDotNet normalises GC counts to 'collections per 1,000 operations' (0.0153 means roughly one gen0 GC every 65,000 calls) and reports `Allocated` as managed bytes allocated per invoked operation, measured precisely via `GC.GetAllocatedBytesForCurrentThread`/`GC.GetTotalAllocatedBytes`. Driving `Allocated` to `-` (zero) is usually the goal for hot paths. Option 2 confuses both units. Option 3 is wrong: there is no time percentage in that column, and working set is not reported. Option 4 is wrong on both counts: promotions are not shown, and stack allocations and native memory are not managed heap allocations, so they are not included."
+            },
+            "uk": {
+              "prompt": "Прогін BenchmarkDotNet з `[MemoryDiagnoser]` виводить такий рядок:\n\n```\n| Method | Mean     | Gen0   | Allocated |\n| Parse  | 182.4 ns | 0.0153 |      96 B |\n```\n\nЩо означають колонки `Gen0` і `Allocated`?",
+              "options": [
+                {
+                  "text": "`Gen0` — кількість збирань gen0 на 1 000 операцій; `Allocated` — керована пам'ять, алокована за одну операцію (96 байтів).",
+                  "correct": true
+                },
+                {
+                  "text": "`Gen0` — мегабайти, алоковані в generation 0 за прогін; `Allocated` — загальна кількість байтів, алокованих за всі ітерації.",
+                  "correct": false
+                },
+                {
+                  "text": "`Gen0` — відсоток часу, витраченого на збирання gen0; `Allocated` — піковий working set на операцію.",
+                  "correct": false
+                },
+                {
+                  "text": "`Gen0` — кількість об'єктів, просунутих з gen0 за операцію; `Allocated` рахує і керовані, і нативні (`stackalloc`/`NativeMemory`) байти за операцію.",
+                  "correct": false
+                }
+              ],
+              "explanation": "BenchmarkDotNet нормалізує кількість GC до «збирань на 1 000 операцій» (0.0153 означає приблизно одне gen0 GC на кожні 65 000 викликів) і звітує `Allocated` як керовані байти, алоковані за одну викликану операцію, точно виміряні через `GC.GetAllocatedBytesForCurrentThread`/`GC.GetTotalAllocatedBytes`. Довести `Allocated` до `-` (нуля) — зазвичай мета для hot paths. Варіант 2 плутає обидві одиниці. Варіант 3 хибний: у цій колонці немає відсотка часу, а working set не звітується. Варіант 4 хибний в обох частинах: promotions не показуються, а алокації на стеку й нативна пам'ять — це не алокації в керованій heap, тож вони не враховуються."
             }
           }
         },
@@ -930,6 +1456,16 @@
                 "Uses `dotnet-trace` (CPU sampling and/or GC/allocation events) and, where appropriate, `dotnet-dump`/`dotnet-gcdump` to find the responsible code, and explains how to run them in a container (sidecar/ephemeral debug container or diagnostics image).",
                 "Proves the fix with a BenchmarkDotNet micro-benchmark (baseline vs fix, `[MemoryDiagnoser]`) and, crucially, re-measures p99 and the same counters under realistic load (staging/canary)."
               ]
+            },
+            "uk": {
+              "prompt": "Після релізу p99 latency API на ASP.NET Core 10, що працює в Kubernetes, подвоїлася, а p50 не змінилася. Розкажіть крок за кроком, як ви б це діагностували, називаючи інструменти, які використали б на кожному етапі, і що кожен з них вам каже, а також як ви б довели, що ваше виправлення спрацювало.",
+              "explanation": "Еталонна відповідь: спершу підтвердити й окреслити проблему метриками — які endpoints, з якого деплою, чи корелює з навантаженням (histograms `http.server.request.duration`, traces повільних запитів через OpenTelemetry). Потім класифікувати проблему в живому процесі через `dotnet-counters` (CPU, `% time in GC` і кількість gen2, allocation rate, queue length і кількість потоків thread pool, lock contention, частота винятків): latency, що зросла лише в хвості, вказує на паузи GC, thread-pool starvation (queue length росте при низькому CPU, типово для sync-over-async), lock contention або повільну залежність. Звузити пошук через `dotnet-trace` (CPU sampling для гарячих стеків; `gc-verbose` з `AllocationTick` для того, хто алокує; події contention), переглянутий як flame graph, `dotnet-dump` для потоків, що застрягли, `dotnet-gcdump` для складу heap; запускати інструменти з ephemeral debug-контейнера або sidecar. Порівняти з попереднім релізом (diff комітів, що зачіпають hot path). Сформулювати гіпотезу, відтворити hot path у BenchmarkDotNet (`[MemoryDiagnoser]`, baseline vs виправлення), застосувати виправлення, а потім перевірити під реалістичним навантаженням у staging і production тими самими counters і histogram p99, в ідеалі через canary.",
+              "rubric": [
+                "Починає з metrics/traces, щоб окреслити регресію (які endpoints, з якого деплою, хвіст vs медіана), до профілювання.",
+                "Використовує `dotnet-counters` на живому процесі, щоб класифікувати проблему (CPU, час GC/кількість gen2, allocation rate, queue length thread pool, contention, винятки), і пов'язує latency лише в хвості з правдоподібними причинами, як-от паузи GC, thread-pool starvation, contention або повільна залежність.",
+                "Використовує `dotnet-trace` (CPU sampling і/або події GC/алокацій) і, де доречно, `dotnet-dump`/`dotnet-gcdump`, щоб знайти відповідальний код, і пояснює, як запускати їх у контейнері (sidecar/ephemeral debug-контейнер або diagnostics image).",
+                "Доводить виправлення micro-benchmark-ом у BenchmarkDotNet (baseline vs виправлення, `[MemoryDiagnoser]`) і, що найважливіше, повторно вимірює p99 і ті самі counters під реалістичним навантаженням (staging/canary)."
+              ]
             }
           }
         }
@@ -943,6 +1479,10 @@
         "en": {
           "title": ".NET Versioning & Deployment: LTS/STS, TFMs, global.json, Trimming, ReadyToRun, Native AOT",
           "note": "## What it is\n\nQuestions here test whether you can make release and deployment decisions: which .NET version to standardise on, how SDK and runtime versions are selected, and which publish mode fits a workload.\n\n## Release cadence and support\n\nA new major version ships every **November**. **Even** numbers are **LTS** (3 years of support); **odd** numbers are **STS**. STS support was 18 months until Microsoft extended it to **24 months** in September 2025 (starting with .NET 9), so .NET 8 (LTS) and .NET 9 (STS) both reach end of support in November 2026, and .NET 10 (LTS, November 2025) is supported until November 2028. STS releases are production quality with the same monthly patches — the only difference is the support window. Monthly patch Tuesdays deliver security fixes as `x.y.z` patch versions; staying on the latest patch is not optional.\n\n## SDK vs runtime vs TFM\n\n- The **TFM** in the project (`net10.0`, `net10.0-windows`, `netstandard2.0`) decides which APIs you compile against and the minimum runtime. Multi-targeting: `<TargetFrameworks>net8.0;net10.0</TargetFrameworks>`. `netstandard2.0` remains the choice for libraries that must also load into .NET Framework 4.x.\n- The **SDK** (`dotnet --version`, e.g. `10.0.100`; the hundreds digit is the feature band) builds the project. An SDK can target its own and older TFMs, never newer ones.\n- **`global.json`** pins the **SDK** used by `dotnet` commands in that directory tree, with a `rollForward` policy (default `latestPatch` when a version is given; `latestFeature`, `latestMinor`, `latestMajor`, `disable`...). It does **not** choose the runtime the app runs on.\n- The **runtime** is chosen at startup from `<app>.runtimeconfig.json`. A framework-dependent app rolls forward by default with `RollForward=Minor`: latest patch of the requested major.minor, or a higher minor if missing — **never** a new major. Running a `net8.0` app on a machine with only .NET 10 fails unless you set `<RollForward>Major</RollForward>` (or `DOTNET_ROLL_FORWARD=Major`) — and then you are running untested on a different runtime.\n\n## Publish modes\n\n| Mode | What you get | Costs |\n|---|---|---|\n| Framework-dependent | small output, shared runtime patched by the host | runtime must be installed (base image) |\n| Self-contained | runtime bundled, per RID (`linux-x64`, `linux-musl-arm64`) | larger, you own patching by rebuilding |\n| Trimmed (`PublishTrimmed`) | self-contained with unreachable IL removed | reflection/dynamic code can break; warnings IL2026/IL2070... must be addressed |\n| ReadyToRun (`PublishReadyToRun`) | IL plus precompiled native code per RID → faster startup | bigger files; JIT still present and tiered compilation re-JITs hot methods to tier 1 |\n| Native AOT (`PublishAot`) | single native executable, no JIT, fastest startup, smallest memory | no `Reflection.Emit`/runtime codegen, must be trim-safe, per-OS build, limited framework support (minimal APIs, gRPC, workers — not MVC controllers or Razor), no Dynamic PGO so peak throughput can be lower |\n\n```xml\n<PropertyGroup>\n  <TargetFramework>net10.0</TargetFramework>\n  <PublishAot>true</PublishAot>              <!-- implies trimming; enables AOT analyzers at build -->\n  <InvariantGlobalization>true</InvariantGlobalization>\n</PropertyGroup>\n<!-- dotnet publish -c Release -r linux-x64 -->\n```\n\n```json\n{ \"sdk\": { \"version\": \"10.0.100\", \"rollForward\": \"latestFeature\" } }\n```\n\n## What an interviewer probes\n\n- LTS vs STS and an upgrade policy (e.g. \"LTS for products, move within months of each LTS; STS only with a plan to hop\").\n- The difference between SDK, runtime and TFM; what `global.json` really controls.\n- When Native AOT is worth it (serverless, CLIs, scale-to-zero, high-density containers) and when it is not (reflection-heavy apps, MVC, EF Core-heavy code, long-running throughput-bound services where JIT + Dynamic PGO wins).\n- Why trimming warnings matter and how source generators (System.Text.Json, configuration binding, `[LoggerMessage]`, `[GeneratedRegex]`) make code AOT-compatible.\n\n## Common misconceptions\n\n- \"STS is less stable\" — same quality bar, shorter support.\n- \"ReadyToRun removes the JIT\" — it only pre-populates code; JIT stays.\n- \"Native AOT is always faster\" — faster startup, not necessarily faster steady state.\n"
+        },
+        "uk": {
+          "title": "Версіонування і деплой .NET: LTS/STS, TFM, global.json, trimming, ReadyToRun, Native AOT",
+          "note": "## Що це\n\nПитання цієї теми перевіряють, чи вмієте ви ухвалювати рішення щодо релізів і деплою: на якій версії .NET стандартизуватися, як обираються версії SDK і runtime і який режим publish підходить для конкретного навантаження.\n\n## Цикл релізів і підтримка\n\nНова мажорна версія виходить щороку в **листопаді**. **Парні** номери — це **LTS** (3 роки підтримки); **непарні** — **STS**. Підтримка STS тривала 18 місяців, доки у вересні 2025 року Microsoft не подовжила її до **24 місяців** (починаючи з .NET 9), тож .NET 8 (LTS) і .NET 9 (STS) обидва досягають кінця підтримки в листопаді 2026 року, а .NET 10 (LTS, листопад 2025) підтримується до листопада 2028 року. STS-релізи мають production-якість і ті самі щомісячні патчі — відрізняється лише вікно підтримки. Щомісячні patch Tuesday доставляють виправлення безпеки як patch-версії `x.y.z`; залишатися на останньому патчі — не опція, а обов'язок.\n\n## SDK vs runtime vs TFM\n\n- **TFM** у проєкті (`net10.0`, `net10.0-windows`, `netstandard2.0`) визначає, проти яких API ви компілюєте, і мінімальний runtime. Multi-targeting: `<TargetFrameworks>net8.0;net10.0</TargetFrameworks>`. `netstandard2.0` залишається вибором для бібліотек, які мають також завантажуватися в .NET Framework 4.x.\n- **SDK** (`dotnet --version`, наприклад `10.0.100`; цифра сотень — це feature band) збирає проєкт. SDK може таргетувати свій і старіші TFM, але ніколи новіші.\n- **`global.json`** фіксує **SDK**, який використовують команди `dotnet` у цьому дереві каталогів, з політикою `rollForward` (за замовчуванням `latestPatch`, коли вказано версію; `latestFeature`, `latestMinor`, `latestMajor`, `disable`...). Він **не** обирає runtime, на якому працює застосунок.\n- **Runtime** обирається під час старту з `<app>.runtimeconfig.json`. Framework-dependent застосунок за замовчуванням робить roll forward з `RollForward=Minor`: останній патч запитаної major.minor або вища minor, якщо такої немає, — **ніколи** нова major. Запуск застосунку `net8.0` на машині лише з .NET 10 падає, якщо не встановити `<RollForward>Major</RollForward>` (або `DOTNET_ROLL_FORWARD=Major`) — і тоді ви працюєте на іншому runtime без тестування.\n\n## Режими publish\n\n| Режим | Що ви отримуєте | Ціна |\n|---|---|---|\n| Framework-dependent | малий вивід, спільний runtime, який патчить host | runtime має бути встановлений (base image) |\n| Self-contained | runtime у комплекті, для кожного RID (`linux-x64`, `linux-musl-arm64`) | більший розмір, патчите ви — перезбіркою |\n| Trimmed (`PublishTrimmed`) | self-contained з видаленим недосяжним IL | reflection/динамічний код може зламатися; попередження IL2026/IL2070... треба опрацювати |\n| ReadyToRun (`PublishReadyToRun`) | IL плюс попередньо скомпільований нативний код для кожного RID → швидший старт | більші файли; JIT залишається, а tiered compilation заново JIT-компілює гарячі методи до tier 1 |\n| Native AOT (`PublishAot`) | один нативний виконуваний файл, без JIT, найшвидший старт, найменше пам'яті | немає `Reflection.Emit`/runtime codegen, код має бути trim-safe, збірка під кожну ОС, обмежена підтримка фреймворків (minimal APIs, gRPC, workers — не MVC controllers і не Razor), немає Dynamic PGO, тож пікова пропускна здатність може бути нижчою |\n\n```xml\n<PropertyGroup>\n  <TargetFramework>net10.0</TargetFramework>\n  <PublishAot>true</PublishAot>              <!-- implies trimming; enables AOT analyzers at build -->\n  <InvariantGlobalization>true</InvariantGlobalization>\n</PropertyGroup>\n<!-- dotnet publish -c Release -r linux-x64 -->\n```\n\n```json\n{ \"sdk\": { \"version\": \"10.0.100\", \"rollForward\": \"latestFeature\" } }\n```\n\n## Що перевіряє інтерв'юер\n\n- LTS vs STS і політику оновлень (наприклад, «LTS для продуктів, переходимо протягом кількох місяців після кожного LTS; STS — лише з планом наступного стрибка»).\n- Різницю між SDK, runtime і TFM; що насправді контролює `global.json`.\n- Коли Native AOT вартий того (serverless, CLI, scale-to-zero, щільні контейнерні розгортання), а коли ні (застосунки з інтенсивним reflection, MVC, код, сильно зав'язаний на EF Core, довготривалі сервіси, обмежені пропускною здатністю, де виграє JIT + Dynamic PGO).\n- Чому попередження trimming важливі і як source generators (System.Text.Json, configuration binding, `[LoggerMessage]`, `[GeneratedRegex]`) роблять код сумісним з AOT.\n\n## Поширені хибні уявлення\n\n- «STS менш стабільний» — та сама планка якості, коротша підтримка.\n- «ReadyToRun прибирає JIT» — він лише заздалегідь наповнює код; JIT залишається.\n- «Native AOT завжди швидший» — швидший старт, але не обов'язково швидший сталий стан.\n"
         }
       },
       "questions": [
@@ -979,6 +1519,28 @@
                 }
               ],
               "explanation": "Microsoft ships a major release each November; even-numbered versions (.NET 8, .NET 10) are LTS with 36 months of support, odd-numbered (.NET 9, .NET 11) are STS. Both are fully supported production releases with identical servicing — the difference is purely the length of support, which for STS was extended from 18 to 24 months in 2025, so .NET 9 now ends together with .NET 8 in November 2026. Option 2 is the most common misconception; STS releases are not previews. Option 3 is wrong: servicing releases contain security and reliability fixes, not new features, for both tracks. Option 4 reverses the parity rule."
+            },
+            "uk": {
+              "prompt": "Ваша команда має обрати між LTS і STS релізами .NET для продукту з трирічною дорожньою картою. Яке твердження про модель підтримки .NET правильне?",
+              "options": [
+                {
+                  "text": "Парні релізи — LTS з трьома роками підтримки; непарні — STS, які мають ту саму планку якості й щомісячні патчі, але коротше вікно підтримки (24 місяці після зміни політики у вересні 2025 року, раніше 18).",
+                  "correct": true
+                },
+                {
+                  "text": "STS-релізи — це preview з нижчими гарантіями якості; для production-навантажень рекомендовані лише LTS-релізи.",
+                  "correct": false
+                },
+                {
+                  "text": "LTS-релізи протягом вікна підтримки отримують нові можливості мови й бібліотек, бекпортовані з пізніших релізів, тоді як STS-релізи отримують лише виправлення безпеки.",
+                  "correct": false
+                },
+                {
+                  "text": "Непарні релізи є LTS, бо консолідують можливості, що були в preview в попередньому парному релізі.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Microsoft випускає мажорний реліз щолистопада; парні версії (.NET 8, .NET 10) — LTS з 36 місяцями підтримки, непарні (.NET 9, .NET 11) — STS. Обидва типи — повноцінно підтримувані production-релізи з однаковим обслуговуванням; різниця лише в тривалості підтримки, яку для STS у 2025 році подовжили з 18 до 24 місяців, тож .NET 9 тепер завершує підтримку разом з .NET 8 у листопаді 2026 року. Варіант 2 — найпоширеніше хибне уявлення; STS-релізи не є preview. Варіант 3 хибний: servicing-релізи для обох треків містять виправлення безпеки й надійності, а не нові можливості. Варіант 4 перевертає правило парності."
             }
           }
         },
@@ -1014,6 +1576,28 @@
                 }
               ],
               "explanation": "`global.json` controls which SDK the `dotnet` host resolves for commands run under that directory. With `rollForward: latestFeature`, 8.0.400 may roll forward to the highest installed 8.0.x feature band and patch — 8.0.415 here — but not to another major. An SDK can only build TFMs up to its own version, so `net10.0` produces NETSDK1045 (\"The current .NET SDK does not support targeting .NET 10.0\"). Option 1 states the misconception the question targets: `global.json` selects the SDK; the runtime comes from the TFM and `runtimeconfig.json`. Option 2 is wrong: targeting packs alone do not let an old SDK understand a newer TFM. Option 4 is wrong: the CLI does not silently fall back to another major; when no SDK satisfies the policy it reports an error."
+            },
+            "uk": {
+              "prompt": "Кореневий `global.json` репозиторію містить `{ \"sdk\": { \"version\": \"8.0.400\", \"rollForward\": \"latestFeature\" } }`. Проєкт у ньому таргетує `net10.0`. На build-машині встановлено SDK 8.0.415 і 10.0.100. Що станеться при `dotnet build`?",
+              "options": [
+                {
+                  "text": "Збірка успішна з SDK 10.0.100, бо `global.json` обирає лише runtime, на якому працюватиме застосунок, а не SDK.",
+                  "correct": false
+                },
+                {
+                  "text": "Збірка успішна з SDK 8.0.415, який компілює проєкт проти reference assemblies .NET 10, завантажених з NuGet.",
+                  "correct": false
+                },
+                {
+                  "text": "CLI обирає SDK 8.0.415 (останній feature band/patch у межах 8.0, дозволений `latestFeature`), і збірка падає, бо SDK 8.0 не може таргетувати `net10.0` (NETSDK1045).",
+                  "correct": true
+                },
+                {
+                  "text": "CLI ігнорує `global.json`, бо SDK 8.0.400 не встановлено, і переходить на найновіший встановлений SDK.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`global.json` визначає, який SDK host `dotnet` обирає для команд, запущених у цьому каталозі. З `rollForward: latestFeature` версія 8.0.400 може зробити roll forward до найвищого встановленого feature band і патча 8.0.x — тут 8.0.415, — але не до іншої major. SDK може збирати лише TFM до власної версії включно, тож `net10.0` дає NETSDK1045 («The current .NET SDK does not support targeting .NET 10.0»). Варіант 1 формулює хибне уявлення, на яке націлене питання: `global.json` обирає SDK; runtime визначається TFM і `runtimeconfig.json`. Варіант 2 хибний: самі по собі targeting packs не дозволяють старому SDK розуміти новіший TFM. Варіант 4 хибний: CLI не переходить мовчки на іншу major; коли жоден SDK не задовольняє політику, він повідомляє про помилку."
             }
           }
         },
@@ -1049,6 +1633,28 @@
                 }
               ],
               "explanation": "The host reads `runtimeconfig.json`, which records `Microsoft.NETCore.App` 8.0.0 and the default roll-forward policy `Minor`: use the latest installed patch of 8.0, or the lowest higher 8.x minor, but never 9 or 10. With none present, startup fails with the 'You must install or update .NET' message. `RollForward=Major` (project property, `runtimeconfig.json`, `--roll-forward` or `DOTNET_ROLL_FORWARD`) lets it run on 10 — technically possible but untested against .NET 10 breaking changes. Option 1 describes `LatestMajor`, which is not the default. Option 3 invents a compatibility mode; a few behaviours can be toggled with `AppContext` switches, but there is no version emulation. Option 2 is wrong because the app would not start in the first place."
+            },
+            "uk": {
+              "prompt": "Framework-dependent застосунок, зібраний для `net8.0` (без налаштування `RollForward`), скопійовано на сервер, де встановлено лише runtime .NET 10. Що станеться під час запуску?",
+              "options": [
+                {
+                  "text": "Він працює на .NET 10, бо host завжди робить roll forward до найновішого встановленого runtime.",
+                  "correct": false
+                },
+                {
+                  "text": "Він стартує, але будь-який API, чия реалізація змінилася між версіями, кидає `MissingMethodException` при першому виклику.",
+                  "correct": false
+                },
+                {
+                  "text": "Він працює на .NET 10 у режимі сумісності, що емулює поведінку .NET 8 для breaking changes.",
+                  "correct": false
+                },
+                {
+                  "text": "Він не стартує з повідомленням, що потрібний framework `Microsoft.NETCore.App` 8.0.x не знайдено; стандартний `RollForward=Minor` ніколи не перетинає межу major-версії, тож треба встановити .NET 8 або явно ввімкнути `RollForward=Major` (чи `DOTNET_ROLL_FORWARD`).",
+                  "correct": true
+                }
+              ],
+              "explanation": "Host читає `runtimeconfig.json`, де записано `Microsoft.NETCore.App` 8.0.0 і стандартну політику roll-forward `Minor`: використати останній встановлений патч 8.0 або найнижчу вищу minor 8.x, але ніколи 9 чи 10. Коли нічого з цього немає, старт падає з повідомленням «You must install or update .NET». `RollForward=Major` (властивість проєкту, `runtimeconfig.json`, `--roll-forward` або `DOTNET_ROLL_FORWARD`) дозволяє запуск на 10 — технічно можливо, але без тестування проти breaking changes .NET 10. Варіант 1 описує `LatestMajor`, яка не є значенням за замовчуванням. Варіант 3 вигадує режим сумісності; кілька видів поведінки можна перемикати через `AppContext` switches, але емуляції версії немає. Варіант 2 хибний, бо застосунок узагалі не стартував би."
             }
           }
         },
@@ -1085,6 +1691,28 @@
                 }
               ],
               "explanation": "Native AOT compiles the whole app and the parts of the runtime it uses into one native executable ahead of time: excellent startup and working set, ideal for serverless, CLIs and dense container fleets. Without a JIT, `Reflection.Emit` is unavailable (compiled expression trees fall back to the interpreter), Dynamic PGO cannot specialise hot code, all code must survive trimming, and you publish per RID (cross-OS compilation is not supported). ASP.NET Core supports minimal APIs, gRPC and worker services under AOT, not MVC or Razor Pages. Option 1 describes ReadyToRun, which keeps IL and the JIT and is a different feature. Option 3 is a misconception: a JIT with tiered compilation and Dynamic PGO frequently matches or beats AOT on long-running, throughput-bound services. Option 4 is wrong: the trimmer can only follow statically analysable reflection; string-based `Type.GetType(variable)` and similar patterns produce trim/AOT warnings and break at runtime unless annotated or replaced by source generators."
+            },
+            "uk": {
+              "prompt": "Яке твердження про Native AOT у .NET 10 точне?",
+              "options": [
+                {
+                  "text": "Native AOT генерує той самий код, що й ReadyToRun, але пакує його в один файл; JIT усе одно постачається для повторної оптимізації гарячих методів.",
+                  "correct": false
+                },
+                {
+                  "text": "Native AOT дає значно швидший старт і менший обсяг пам'яті, але не має JIT (тож немає `Reflection.Emit` і Dynamic PGO, що може знизити пікову пропускну здатність), вимагає trim-сумісного коду, збирається під кожну цільову ОС/архітектуру і підтримує не все (наприклад, MVC controllers).",
+                  "correct": true
+                },
+                {
+                  "text": "Native AOT у всіх випадках дає найкращу пропускну здатність у сталому стані, бо в runtime немає накладних витрат JIT.",
+                  "correct": false
+                },
+                {
+                  "text": "Native AOT прозоро працює з бібліотеками, що інтенсивно використовують reflection, бо trimmer аналізує кожен виклик `Type.GetType(string)` і зберігає згадані типи.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Native AOT заздалегідь компілює весь застосунок і ті частини runtime, які він використовує, в один нативний виконуваний файл: чудовий старт і working set, ідеально для serverless, CLI і щільних контейнерних парків. Без JIT `Reflection.Emit` недоступний (скомпільовані expression trees переходять на інтерпретатор), Dynamic PGO не може спеціалізувати гарячий код, увесь код має пережити trimming, а publish робиться для кожного RID (крос-ОС компіляція не підтримується). ASP.NET Core під AOT підтримує minimal APIs, gRPC і worker services, але не MVC чи Razor Pages. Варіант 1 описує ReadyToRun, який зберігає IL і JIT, — це інша можливість. Варіант 3 — хибне уявлення: JIT з tiered compilation і Dynamic PGO часто зрівнюється з AOT або перевершує його на довготривалих сервісах, обмежених пропускною здатністю. Варіант 4 хибний: trimmer може відстежувати лише статично аналізований reflection; рядкові `Type.GetType(variable)` та подібні патерни дають trim/AOT-попередження і ламаються в runtime, якщо їх не анотувати або не замінити source generators."
             }
           }
         },
@@ -1108,6 +1736,16 @@
                 "For the Kubernetes API: rejects Native AOT because MVC controllers are unsupported and EF Core/reflection-heavy code is not AOT-friendly, and explains that JIT with tiered compilation/Dynamic PGO gives good steady-state throughput (ReadyToRun optional for startup).",
                 "For the shared library: multi-targets `netstandard2.0` (required for .NET Framework 4.8) plus a modern TFM such as `net10.0`/`net8.0`, and notes that publish modes do not apply to libraries.",
                 "Chooses LTS (.NET 10) for the products with a concrete justification (3-year support window, monthly patches) and treats STS as an option only with a planned upgrade path."
+              ]
+            },
+            "uk": {
+              "prompt": "Вас просять визначити варіанти деплою для трьох артефактів: (1) чутливий до latency handler AWS Lambda / Azure Functions, що масштабується до нуля, (2) довготривалий API на ASP.NET Core в Kubernetes, обмежений пропускною здатністю, побудований на MVC controllers і EF Core, і (3) спільна NuGet-бібліотека, яку використовують застосунок на .NET Framework 4.8 і сервіси на .NET 10. Для кожного оберіть target framework(s), трек релізів .NET і режим publish (framework-dependent, self-contained, trimmed, ReadyToRun або Native AOT) та обґрунтуйте компроміси.",
+              "explanation": "Еталонна відповідь: (1) serverless handler таргетує поточний LTS (`net10.0`) і публікується з Native AOT (або принаймні з ReadyToRun + trimming, якщо залежності не AOT-safe), щоб скоротити час cold start і пам'ять; це вимагає trim/AOT-сумісного коду — minimal API або «сирий» handler, source generation System.Text.Json, без бібліотек з інтенсивним reflection — і збірки для конкретного RID, що відповідає платформі (наприклад, `linux-x64` або `linux-arm64`). (2) API залишається на JIT, бо MVC controllers не підтримуються під Native AOT, а підтримка AOT в EF Core обмежена/експериментальна; publish як framework-dependent на офіційному runtime image ASP.NET Core (або self-contained), за бажанням з ReadyToRun для кращого старту/scale-out, і покладання на tiered JIT + Dynamic PGO для пропускної здатності в сталому стані; стандартизуватися на LTS (.NET 10, підтримка до листопада 2028 року) і патчити щомісяця. (3) Бібліотека робить multi-targeting на `netstandard2.0` (єдиний варіант, який може використати .NET Framework 4.8) плюс `net10.0` (або `net8.0`), щоб використовувати сучасні API там, де вони доступні, через `#if` або polyfills; режими publish до бібліотек не застосовуються, але її слід анотувати/проаналізувати як trim- і AOT-сумісну (`IsAotCompatible`), щоб споживачі могли її використовувати. Згадати `global.json` для фіксації SDK заради відтворюваних збірок і те, що STS обирається лише з планом переходу на наступний LTS.",
+              "rubric": [
+                "Для serverless handler: обирає Native AOT (або обґрунтовує ReadyToRun/trimming як запасний варіант) заради cold start і пам'яті та називає його вимоги (trim/AOT-safe код, source-generated серіалізація, збірка для кожного RID).",
+                "Для API в Kubernetes: відкидає Native AOT, бо MVC controllers не підтримуються, а код з EF Core/інтенсивним reflection не дружній до AOT, і пояснює, що JIT з tiered compilation/Dynamic PGO дає хорошу пропускну здатність у сталому стані (ReadyToRun — опційно для старту).",
+                "Для спільної бібліотеки: робить multi-targeting на `netstandard2.0` (обов'язковий для .NET Framework 4.8) плюс сучасний TFM на кшталт `net10.0`/`net8.0` і зазначає, що режими publish до бібліотек не застосовуються.",
+                "Обирає LTS (.NET 10) для продуктів з конкретним обґрунтуванням (трирічне вікно підтримки, щомісячні патчі) і розглядає STS лише як варіант із запланованим шляхом оновлення."
               ]
             }
           }

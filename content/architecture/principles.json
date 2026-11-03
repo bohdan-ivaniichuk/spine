@@ -10,6 +10,10 @@
         "en": {
           "title": "SOLID in Practice: Violations and Refactors",
           "note": "## What it is\n\nSOLID is five design heuristics for keeping object-oriented code cheap to change. Interviewers do not want the acronym recited; they want each principle tied to a concrete violation you have seen and the refactor that fixed it.\n\n- **SRP, Single Responsibility.** Robert Martin's own clarification: a module should be responsible to *one actor*, so it has one *reason to change*. It is not \"a class does one thing\" or \"one public method\".\n- **OCP, Open/Closed.** You add behaviour by adding code (a new implementation, a new handler), not by editing a stable module that every case passes through.\n- **LSP, Liskov Substitution.** A subtype must honour the *behavioural contract* of its base type: no stronger preconditions, no weaker postconditions, invariants preserved, no new exceptions the caller cannot expect. Compiling is not enough.\n- **ISP, Interface Segregation.** Clients should not depend on members they do not use. Prefer narrow role interfaces owned by the consumer.\n- **DIP, Dependency Inversion.** High-level policy should not depend on low-level detail; both depend on an abstraction, and the abstraction is *owned by the policy side*.\n\n## How it shows up in real .NET code\n\n- **SRP violation:** an `InvoiceService` that calculates tax (finance rules), renders the PDF (design team) and emails it (ops). A tax change forces a redeploy of the rendering code and risks breaking it. Refactor: `TaxCalculator`, `InvoiceRenderer`, `InvoiceMailer`, composed by a thin use case.\n- **OCP violation:** a `switch (carrier)` in a shipping-cost method that grows with every new carrier and is edited by every team. Refactor: `IShippingRateProvider` per carrier, resolved by key (keyed services in .NET 8+, or a dictionary).\n- **LSP violation:** `ReadOnlyCollection<T>` implements `ICollection<T>` and throws `NotSupportedException` from `Add`. Any code taking `ICollection<T>` and calling `Add` breaks at runtime. The BCL papers over it with `IsReadOnly`, which is itself a smell: callers must check a flag to know if the contract holds. The modern fix is depending on `IReadOnlyCollection<T>` where you only read.\n- **ISP violation:** a 15-method `IRepository<T>` injected into a report that only reads. Every fake in tests must stub 15 methods, and a change to `BulkUpdate` recompiles the report. Refactor: `IOrderReader` with the two queries the report needs.\n- **DIP violation:** `OrderService` news up `SqlOrderRepository` or references `Microsoft.EntityFrameworkCore` directly. Refactor: the Application layer declares `IOrderRepository`; Infrastructure implements it; the composition root wires it.\n\n## What an interviewer probes\n\n- \"DIP and DI are the same thing, right?\" No. DI is a *technique* (pass dependencies in); DIP is about *which side owns the abstraction*. You can inject a concrete `SqlConnection` (DI without DIP) or apply DIP with a hand-written factory and no container.\n- \"Is a class with one method SRP-compliant by definition?\" No: one method can serve two actors (a `Calculate` that mixes pricing and tax policy).\n- \"Show me an LSP violation that compiles.\" Square/Rectangle is the textbook one; the `ReadOnlyCollection<T>` / `NotSupportedException` case is the one that bites in production.\n- \"When do you *not* apply OCP?\" When there is one implementation and no evidence of a second. Speculative extension points cost readability now for a benefit that may never arrive.\n\n## Common misconceptions\n\n- \"Every class needs an interface for SOLID.\" Interfaces exist to decouple a *volatile* dependency or a consumer-owned role. `IOrderMapper` with one implementation that never varies adds a file and a hop, nothing else.\n- \"SRP means tiny classes.\" Fragmenting cohesive logic over ten classes spreads one reason to change across ten files: the opposite of the goal.\n- \"OCP means never modify code.\" Bug fixes and refactors modify code. OCP is about not editing a stable dispatch point for every *new variant*.\n\n```csharp\n// DIP: the policy (Application) owns the abstraction; the detail (Infrastructure) implements it.\n// --- Shop.Application project (no reference to Infrastructure) ---\npublic interface IPaymentGateway            // owned by the consumer, shaped by its needs\n{\n    Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct);\n}\n\npublic sealed class PlaceOrder(IPaymentGateway payments, IOrderRepository orders)\n{\n    public async Task<OrderId> Handle(PlaceOrderCommand cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        var result = await payments.ChargeAsync(order.Total, cmd.CardToken, ct);\n        if (!result.Succeeded) throw new PaymentDeclinedException(result.Reason);\n        await orders.AddAsync(order, ct);\n        return order.Id;\n    }\n}\n\n// --- Shop.Infrastructure project (references Application) ---\npublic sealed class StripePaymentGateway(StripeClient client) : IPaymentGateway\n{\n    public Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct) =>\n        /* Stripe-specific mapping lives here and nowhere else */ throw new NotImplementedException();\n}\n```\n"
+        },
+        "uk": {
+          "title": "SOLID на практиці: порушення та рефакторинги",
+          "note": "## Що це\n\nSOLID — це п'ять евристик проєктування, які допомагають зберігати об'єктно-орієнтований код дешевим для змін. Інтерв'юер не хоче почути розшифровку акроніма; він хоче, щоб кожен принцип був прив'язаний до конкретного порушення, яке ви бачили, і рефакторингу, що його виправив.\n\n- **SRP, Single Responsibility.** Власне уточнення Роберта Мартіна: модуль має відповідати перед *одним актором*, тож у нього одна *причина для змін*. Це не \"клас робить одну річ\" і не \"один публічний метод\".\n- **OCP, Open/Closed.** Нова поведінка додається додаванням коду (нова реалізація, новий handler), а не редагуванням стабільного модуля, через який проходить кожен випадок.\n- **LSP, Liskov Substitution.** Підтип має дотримуватися *поведінкового контракту* базового типу: жодних сильніших передумов, жодних слабших постумов, інваріанти збережено, жодних нових винятків, яких викликач не може очікувати. Того, що код компілюється, недостатньо.\n- **ISP, Interface Segregation.** Клієнти не повинні залежати від членів, якими не користуються. Віддавайте перевагу вузьким рольовим інтерфейсам, якими володіє споживач.\n- **DIP, Dependency Inversion.** Високорівнева політика не повинна залежати від низькорівневих деталей; обидві залежать від абстракції, і цією абстракцією *володіє сторона політики*.\n\n## Як це проявляється в реальному .NET-коді\n\n- **Порушення SRP:** `InvoiceService`, який рахує податок (фінансові правила), рендерить PDF (команда дизайну) і надсилає його поштою (ops). Зміна податку змушує перевикладати код рендерингу й ризикує його зламати. Рефакторинг: `TaxCalculator`, `InvoiceRenderer`, `InvoiceMailer`, які компонує тонкий use case.\n- **Порушення OCP:** `switch (carrier)` у методі розрахунку вартості доставки, що росте з кожним новим перевізником і який редагує кожна команда. Рефакторинг: `IShippingRateProvider` для кожного перевізника, що резолвиться за ключем (keyed services у .NET 8+ або словник).\n- **Порушення LSP:** `ReadOnlyCollection<T>` реалізує `ICollection<T>` і кидає `NotSupportedException` з `Add`. Будь-який код, що приймає `ICollection<T>` і викликає `Add`, ламається в runtime. BCL маскує це прапорцем `IsReadOnly`, що саме по собі є запахом: викликач мусить перевірити прапорець, щоб дізнатися, чи виконується контракт. Сучасне виправлення — залежати від `IReadOnlyCollection<T>` там, де ви лише читаєте.\n- **Порушення ISP:** `IRepository<T>` на 15 методів, інжектований у звіт, який лише читає. Кожен fake у тестах мусить застабити 15 методів, а зміна `BulkUpdate` перекомпільовує звіт. Рефакторинг: `IOrderReader` з двома запитами, які потрібні звіту.\n- **Порушення DIP:** `OrderService` створює `SqlOrderRepository` через `new` або напряму посилається на `Microsoft.EntityFrameworkCore`. Рефакторинг: шар Application оголошує `IOrderRepository`; Infrastructure його реалізує; composition root усе зв'язує.\n\n## Що перевіряє інтерв'юер\n\n- \"DIP і DI — це ж одне й те саме?\" Ні. DI — це *техніка* (передати залежності ззовні); DIP — про те, *яка сторона володіє абстракцією*. Можна інжектувати конкретний `SqlConnection` (DI без DIP) або застосувати DIP з написаною вручну фабрикою і без контейнера.\n- \"Клас з одним методом за визначенням відповідає SRP?\" Ні: один метод може обслуговувати двох акторів (`Calculate`, що змішує політику ціноутворення та податків).\n- \"Покажіть порушення LSP, яке компілюється.\" Square/Rectangle — хрестоматійний приклад; випадок `ReadOnlyCollection<T>` / `NotSupportedException` — той, що кусає в production.\n- \"Коли ви *не* застосовуєте OCP?\" Коли є одна реалізація і немає жодних ознак другої. Спекулятивні точки розширення коштують читабельності вже зараз заради вигоди, яка може ніколи не настати.\n\n## Поширені хибні уявлення\n\n- \"Для SOLID кожному класу потрібен інтерфейс.\" Інтерфейси існують, щоб відв'язати *нестабільну* залежність або роль, якою володіє споживач. `IOrderMapper` з однією реалізацією, яка ніколи не змінюється, додає файл і зайвий перехід — і нічого більше.\n- \"SRP означає крихітні класи.\" Розкидання згуртованої логіки по десяти класах розносить одну причину для змін по десяти файлах — протилежність меті.\n- \"OCP означає ніколи не змінювати код.\" Виправлення багів і рефакторинги змінюють код. OCP — про те, щоб не редагувати стабільну точку диспетчеризації для кожного *нового варіанта*.\n\n```csharp\n// DIP: the policy (Application) owns the abstraction; the detail (Infrastructure) implements it.\n// --- Shop.Application project (no reference to Infrastructure) ---\npublic interface IPaymentGateway            // owned by the consumer, shaped by its needs\n{\n    Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct);\n}\n\npublic sealed class PlaceOrder(IPaymentGateway payments, IOrderRepository orders)\n{\n    public async Task<OrderId> Handle(PlaceOrderCommand cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        var result = await payments.ChargeAsync(order.Total, cmd.CardToken, ct);\n        if (!result.Succeeded) throw new PaymentDeclinedException(result.Reason);\n        await orders.AddAsync(order, ct);\n        return order.Id;\n    }\n}\n\n// --- Shop.Infrastructure project (references Application) ---\npublic sealed class StripePaymentGateway(StripeClient client) : IPaymentGateway\n{\n    public Task<PaymentResult> ChargeAsync(Money amount, string token, CancellationToken ct) =>\n        /* Stripe-specific mapping lives here and nowhere else */ throw new NotImplementedException();\n}\n```\n"
         }
       },
       "questions": [
@@ -45,6 +49,28 @@
                 }
               ],
               "explanation": "Martin restated SRP as 'a module should be responsible to one, and only one, actor': the test is who asks for changes, not how many things the code does. An `InvoiceService` touched by finance (tax rules), design (PDF layout) and ops (mail delivery) has three reasons to change, even if it is short. Option 1 confuses SRP with a method count; a single `Calculate` can still serve two actors and mix their rules. Option 3 is the popular 'do one thing' paraphrase, which is about function-level cohesion (from Clean Code), not SRP, and a size limit measures neither. Option 4 describes separation of concerns at the layer level; a data-access layer can still contain a class that changes for many unrelated business reasons."
+            },
+            "uk": {
+              "prompt": "Яке твердження найкраще передає Single Responsibility Principle у визначенні Роберта Мартіна?",
+              "options": [
+                {
+                  "text": "Клас має надавати рівно один публічний метод, щоб його можна було використовувати лише одним способом.",
+                  "correct": false
+                },
+                {
+                  "text": "Модуль має відповідати перед одним актором, щоб у нього була лише одна причина для змін.",
+                  "correct": true
+                },
+                {
+                  "text": "Клас має робити одну річ, що вимірюється тим, що він не перевищує фіксованої кількості рядків чи методів.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожен шар застосунку має відповідати рівно за одну технічну задачу, наприклад доступ до даних.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Мартін переформулював SRP як \"модуль має відповідати перед одним і лише одним актором\": критерій — хто просить змін, а не скільки всього робить код. `InvoiceService`, який змінюють фінанси (податкові правила), дизайн (макет PDF) та ops (доставка пошти), має три причини для змін, навіть якщо він короткий. Варіант 1 плутає SRP з кількістю методів; один `Calculate` усе одно може обслуговувати двох акторів і змішувати їхні правила. Варіант 3 — популярний переказ \"роби одну річ\", який стосується згуртованості на рівні функції (з Clean Code), а не SRP, і обмеження розміру не вимірює ні те, ні інше. Варіант 4 описує розділення відповідальностей на рівні шарів; шар доступу до даних усе одно може містити клас, що змінюється з багатьох не пов'язаних бізнес-причин."
             }
           }
         },
@@ -80,6 +106,28 @@
                 }
               ],
               "explanation": "`ReadOnlyCollection<T>` implements `ICollection<T>` (and `IList<T>`) and throws `NotSupportedException` from the explicitly implemented `Add`, `Remove` and `Clear`. The code type-checks, but a caller written against the `ICollection<T>` contract fails at runtime: the textbook Liskov violation in the BCL. The `IsReadOnly` flag is the workaround that proves the point, since callers must check it to know whether the contract holds. Option 2 is wrong: it compiles fine because the type does implement the interface, which is exactly why LSP is a behavioural rule and not a type-system rule. Option 3 invents behaviour; nothing is copied or discarded, the call throws. Option 4 is wrong because the explicit interface implementation is precisely the member that throws; there is no back door. The fix is to depend on `IReadOnlyCollection<T>` when you only read and on `ICollection<T>` only when you genuinely mutate."
+            },
+            "uk": {
+              "prompt": "Метод приймає `ICollection<string> target` і викликає `target.Add(item)`. Викликач передає `ReadOnlyCollection<string>`. Що станеться і який принцип це ілюструє?",
+              "options": [
+                {
+                  "text": "У runtime буде кинуто `NotSupportedException`: тип компілюється як підтип, але порушує контракт, на який покладаються викликачі, — це порушення LSP.",
+                  "correct": true
+                },
+                {
+                  "text": "Код не скомпілюється, бо компілятор відхиляє передачу read-only колекції туди, де очікується змінювана `ICollection<T>` (ISP).",
+                  "correct": false
+                },
+                {
+                  "text": "Елемент додається до прихованої копії й мовчки відкидається, що порушує Open/Closed Principle, бо базову поведінку було змінено.",
+                  "correct": false
+                },
+                {
+                  "text": "Це працює: `ReadOnlyCollection<T>` блокує зміни лише через власний публічний API, а не через інтерфейс `ICollection<T>`, тож DIP дотримано.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`ReadOnlyCollection<T>` реалізує `ICollection<T>` (і `IList<T>`) та кидає `NotSupportedException` з явно реалізованих `Add`, `Remove` і `Clear`. Типи сходяться, але викликач, написаний під контракт `ICollection<T>`, падає в runtime: хрестоматійне порушення Лісков у BCL. Прапорець `IsReadOnly` — обхідний шлях, який лише підтверджує це, адже викликачі мусять його перевіряти, щоб знати, чи виконується контракт. Варіант 2 хибний: код чудово компілюється, бо тип справді реалізує інтерфейс, — саме тому LSP є поведінковим правилом, а не правилом системи типів. Варіант 3 вигадує поведінку; нічого не копіюється і не відкидається, виклик кидає виняток. Варіант 4 хибний, бо саме явна реалізація інтерфейсу і є тим членом, що кидає виняток; жодного чорного ходу немає. Виправлення — залежати від `IReadOnlyCollection<T>`, коли ви лише читаєте, і від `ICollection<T>` лише тоді, коли справді змінюєте колекцію."
             }
           }
         },
@@ -115,6 +163,28 @@
                 }
               ],
               "explanation": "Dependency Inversion says high-level policy must not depend on low-level detail; both depend on an abstraction that the policy side defines. Dependency injection is only a delivery mechanism. Injecting `AppDbContext` or `StripeClient` straight into a use case is DI, yet the policy now compiles against infrastructure, so DIP is not met. Option 1 conflates inversion of *control* (who constructs objects) with inversion of *dependency direction*. Option 2 is closer but still wrong: an interface defined in the Infrastructure project (`Infrastructure.ISqlOrderStore`) and consumed by Application keeps the arrow pointing outward; ownership matters, not the keyword `interface`. Option 4 is backwards: a service locator hides dependencies and is generally treated as an anti-pattern; DIP needs no container at all, and a hand-wired composition root satisfies it."
+            },
+            "uk": {
+              "prompt": "Колега каже: \"Ми всюди використовуємо DI-контейнер ASP.NET Core, тож ми вже дотримуємося Dependency Inversion Principle.\" Яка відповідь точна?",
+              "options": [
+                {
+                  "text": "Правильно: реєстрація сервісів у контейнері — це і є DIP, бо контейнер інвертує те, хто створює об'єкти й володіє ними.",
+                  "correct": false
+                },
+                {
+                  "text": "Правильно, але лише якщо кожен клас зареєстровано через інтерфейс, а не через його конкретний тип.",
+                  "correct": false
+                },
+                {
+                  "text": "Не обов'язково: DIP означає, що високорівневий модуль володіє абстракцією; інжектування конкретних типів EF Core чи HTTP — це DI без DIP.",
+                  "correct": true
+                },
+                {
+                  "text": "Не обов'язково: DIP вимагає service locator, щоб високорівневі модулі могли резолвити абстракції на вимогу в runtime.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Dependency Inversion каже, що високорівнева політика не повинна залежати від низькорівневих деталей; обидві залежать від абстракції, яку визначає сторона політики. Dependency injection — лише механізм доставки. Інжектування `AppDbContext` чи `StripeClient` прямо в use case — це DI, але політика тепер компілюється проти інфраструктури, тож DIP не виконано. Варіант 1 змішує інверсію *керування* (хто конструює об'єкти) з інверсією *напрямку залежності*. Варіант 2 ближчий, але все одно хибний: інтерфейс, визначений у проєкті Infrastructure (`Infrastructure.ISqlOrderStore`) і використаний Application, лишає стрілку спрямованою назовні; важить володіння, а не ключове слово `interface`. Варіант 4 — навпаки: service locator ховає залежності й загалом вважається anti-pattern; DIP взагалі не потребує контейнера, і composition root, зібраний вручну, його задовольняє."
             }
           }
         },
@@ -150,6 +220,28 @@
                 }
               ],
               "explanation": "ISP says clients should not be forced to depend on members they do not use. A role interface declared from the consumer's point of view (`IOrderReader`) shrinks the coupling surface: changes to bulk update no longer affect the report, fakes are two methods, and one concrete repository can implement several role interfaces. Option 1 only hides the problem in tests; the report still compiles against 15 members and is still recompiled and versioned with them, and default interface methods were designed for API evolution, not for segregation. Option 3 swaps an interface for a fat base class, which couples even harder (inherited state, constructor, virtual call rules). Option 4 is the classic workaround that creates an LSP violation in test code: a substitute that throws on part of its contract, so a later change in the report's calls fails at runtime instead of compile time."
+            },
+            "uk": {
+              "prompt": "Клас звітності залежить від generic `IRepository<Order>` з 15 членами (CRUD, bulk update, пагінація, soft delete), але викликає лише два запити на читання. Тести мусять застабити весь інтерфейс. Який рефакторинг найкраще застосовує Interface Segregation Principle?",
+              "options": [
+                {
+                  "text": "Залишити `IRepository<Order>` і дати невикористаним членам default interface implementations, щоб fakes перевизначали лише два запити.",
+                  "correct": false
+                },
+                {
+                  "text": "Ввести вузький `IOrderReader`, яким володіє код звітності, лише з двома запитами, і реалізувати його наявним класом репозиторію.",
+                  "correct": true
+                },
+                {
+                  "text": "Зробити так, щоб звіт залежав натомість від абстрактного класу `RepositoryBase<Order>`, щоб тести могли успадковувати його й перевизначати лише потрібне.",
+                  "correct": false
+                },
+                {
+                  "text": "Нехай test fake звіту кидає `NotImplementedException` з 13 невикористаних членів; так інтерфейс лишається стабільним для інших споживачів.",
+                  "correct": false
+                }
+              ],
+              "explanation": "ISP каже, що клієнтів не слід змушувати залежати від членів, якими вони не користуються. Рольовий інтерфейс, оголошений з погляду споживача (`IOrderReader`), зменшує поверхню зв'язності: зміни в bulk update більше не зачіпають звіт, fakes мають два методи, а один конкретний репозиторій може реалізовувати кілька рольових інтерфейсів. Варіант 1 лише ховає проблему в тестах; звіт і далі компілюється проти 15 членів, перекомпільовується та версіонується разом із ними, а default interface methods створювалися для еволюції API, а не для сегрегації. Варіант 3 замінює інтерфейс товстим базовим класом, що зв'язує ще сильніше (успадкований стан, конструктор, правила віртуальних викликів). Варіант 4 — класичний обхідний шлях, що створює порушення LSP у тестовому коді: замінник, який кидає виняток на частині свого контракту, тож пізніша зміна викликів у звіті впаде в runtime, а не під час компіляції."
             }
           }
         },
@@ -174,6 +266,17 @@
                 "Explains ISP with a fat interface and a consumer-owned narrow interface, and DIP as the high-level module owning the abstraction, explicitly distinguishing DIP from using a DI container.",
                 "Names a real over-engineering case (an interface per class with one implementation, speculative extension points, over-fragmented classes) and explains why it increased cost without reducing coupling."
               ]
+            },
+            "uk": {
+              "prompt": "Проведіть мене через принципи SOLID. Для кожного наведіть конкретне порушення, яке ви очікували б знайти в типовій .NET-кодовій базі, й опишіть рефакторинг, що його виправляє. Завершіть однією ситуацією, коли механічне застосування принципу SOLID зробило код гіршим.",
+              "explanation": "Еталонна відповідь: SRP — про одного актора й одну причину для змін (`InvoiceService`, що змішує податкові правила, рендеринг PDF та email; розділити на співпрацівників, яких компонує use case). OCP означає додавати варіанти додаванням коду (зростаючий `switch` за перевізником замінюється на `IShippingRateProvider` для кожного перевізника). LSP — поведінковий контракт (`ReadOnlyCollection<T>` кидає `NotSupportedException` з `ICollection<T>.Add`; залежати від `IReadOnlyCollection<T>`). ISP — про те, щоб споживачі залежали лише від того, чим користуються (товстий `IRepository<T>` замінюється рольовим інтерфейсом на кшталт `IOrderReader`). DIP — про те, що політика володіє абстракцією (Application оголошує `IPaymentGateway`, Infrastructure його реалізує), а це не те саме, що просто використовувати DI-контейнер. Надмірне застосування: інтерфейси для кожного класу з єдиною стабільною реалізацією або точки розширення OCP без другого варіанта, які додають непрямість, нічого не розв'язуючи.",
+              "rubric": [
+                "Формулює SRP через одного актора чи одну причину для змін (а не \"один метод\" чи \"робить одну річ\") і наводить конкретний клас із кількома акторами та рефакторинг із розділенням.",
+                "Наводить приклад OCP, де новий варіант змушує редагувати центральний умовний оператор, і рефакторинг, що додає варіанти додаванням нових типів (strategy, keyed services чи подібне).",
+                "Пояснює LSP як поведінковий контракт (передумови, постумови, інваріанти, неочікувані винятки) з порушенням, яке все ж компілюється, наприклад `NotSupportedException` з інтерфейсу колекції або Square/Rectangle.",
+                "Пояснює ISP через товстий інтерфейс і вузький інтерфейс, яким володіє споживач, а DIP — як володіння абстракцією високорівневим модулем, явно розрізняючи DIP і використання DI-контейнера.",
+                "Називає реальний випадок over-engineering (інтерфейс на кожен клас з однією реалізацією, спекулятивні точки розширення, надмірно роздроблені класи) і пояснює, чому це збільшило вартість, не зменшивши зв'язності."
+              ]
             }
           }
         }
@@ -187,6 +290,10 @@
         "en": {
           "title": "GoF Patterns That Matter: Strategy, Decorator, Factory, Builder, Observer, Mediator, Specification",
           "note": "## What it is\n\nOf the 23 Gang of Four patterns, a handful show up weekly in a modern .NET + Angular codebase. Interviewers care less about UML and more about: can you recognise the pattern in the framework you already use, can you say what problem it solves, and do you know when it is over-engineering.\n\n## The ones that matter, and where .NET already uses them\n\n- **Strategy:** interchangeable algorithms behind one interface, chosen by the context. `IComparer<T>`, a per-carrier `IShippingRateProvider`, `IPasswordHasher<T>`. In C# a `Func<T, TResult>` is often a perfectly good strategy.\n- **Decorator:** wraps an object implementing the *same* interface, adds behaviour, delegates to the inner instance; decorators stack. `GZipStream` over `FileStream`, `BufferedStream`, `DelegatingHandler` chains on `HttpClient`, a caching `IProductRepository` around the EF one. The built-in container has no `Decorate` helper; Scrutor adds one, or you register a factory by hand.\n- **Factory (Method / Abstract Factory):** centralise creation when the concrete type or its lifetime is decided at runtime. `IHttpClientFactory` exists because creating `HttpClient` naively causes socket exhaustion or stale DNS; `ILoggerFactory`; `IDbContextFactory<T>` for Blazor and background work.\n- **Builder:** step-by-step construction of a complex, often immutable object, with validation at `Build()`. `WebApplication.CreateBuilder`, `StringBuilder`, `HostBuilder`, test-data builders (`new OrderBuilder().WithLines(3).Paid().Build()`).\n- **Observer:** subjects notify subscribers. C# `event`s, `IObservable<T>`/Rx, Angular signals and RxJS. The production pitfall: the publisher's delegate list holds a *strong* reference to the subscriber.\n- **Mediator:** objects talk through a hub instead of to each other. MediatR, the Angular router outlet, a chat-room hub. Reduces N-to-N coupling at the price of an extra indirection that hides the call graph.\n- **Specification** (Evans/Fowler, not GoF, but asked alongside): a business rule as a combinable object, `IsSatisfiedBy(T)`, often exposed as an `Expression<Func<T, bool>>` so EF Core can translate it to SQL.\n\n## What an interviewer probes\n\n- \"Strategy vs Decorator?\" Strategy *replaces* the algorithm the context delegates to; Decorator *wraps* the same abstraction to add behaviour around it, and several can stack.\n- \"Where is Decorator in ASP.NET Core?\" `DelegatingHandler` pipelines for `HttpClient` (retry, auth header, logging). Middleware is closer to Chain of Responsibility: each component may short-circuit.\n- \"Why `Expression<Func<T,bool>>` and not `Func<T,bool>` in a specification?\" Passing a `Func` to `Where` on an `IQueryable` binds to `Enumerable.Where`: EF loads the whole table and filters in memory, silently.\n- \"Singleton?\" As a *lifetime* (DI `AddSingleton`) it is fine. As the GoF pattern with a static `Instance`, it is global mutable state that hides dependencies and blocks testing.\n\n## Anti-patterns to name\n\n- **Service Locator:** `serviceProvider.GetService<T>()` inside business code hides dependencies; legitimate only in framework plumbing and factories.\n- **God object / God service:** one `Manager` everything calls; usually an SRP failure dressed as a Facade.\n- **Pattern-first design:** a `IStrategyFactoryProvider` for a branch that has had one case for three years. Introduce a pattern when the second variant appears.\n- **Leaking events:** subscribing a short-lived object to a long-lived event without unsubscribing.\n\n```csharp\n// Decorator: caching around the real repository, same interface, stackable.\npublic sealed class CachedProductRepository(IProductRepository inner, IMemoryCache cache)\n    : IProductRepository\n{\n    public Task<Product?> GetAsync(int id, CancellationToken ct) =>\n        cache.GetOrCreateAsync($\"product:{id}\", entry =>\n        {\n            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n            return inner.GetAsync(id, ct);\n        });\n}\n\n// Wiring without Scrutor: register the concrete inner type, expose the decorator.\nservices.AddScoped<EfProductRepository>();\nservices.AddScoped<IProductRepository>(sp =>\n    new CachedProductRepository(sp.GetRequiredService<EfProductRepository>(),\n                                sp.GetRequiredService<IMemoryCache>()));\n\n// Specification that EF Core can translate.\npublic sealed class ActiveCustomerSpec\n{\n    public Expression<Func<Customer, bool>> Criteria { get; } =\n        c => c.IsActive && c.LastOrderAt > DateTime.UtcNow.AddMonths(-12);\n}\nvar active = await db.Customers.Where(new ActiveCustomerSpec().Criteria).ToListAsync(ct);\n```\n"
+        },
+        "uk": {
+          "title": "GoF-патерни, які мають значення: Strategy, Decorator, Factory, Builder, Observer, Mediator, Specification",
+          "note": "## Що це\n\nЗ 23 патернів Gang of Four лише кілька трапляються щотижня в сучасній кодовій базі на .NET + Angular. Інтерв'юера менше цікавить UML і більше таке: чи впізнаєте ви патерн у фреймворку, яким уже користуєтеся, чи можете сказати, яку проблему він розв'язує, і чи знаєте, коли він стає over-engineering.\n\n## Ті, що мають значення, і де .NET уже їх використовує\n\n- **Strategy:** взаємозамінні алгоритми за одним інтерфейсом, які обирає контекст. `IComparer<T>`, `IShippingRateProvider` для кожного перевізника, `IPasswordHasher<T>`. У C# `Func<T, TResult>` часто є цілком гідною strategy.\n- **Decorator:** обгортає об'єкт, що реалізує *той самий* інтерфейс, додає поведінку й делегує внутрішньому екземпляру; декоратори можна нашаровувати. `GZipStream` поверх `FileStream`, `BufferedStream`, ланцюжки `DelegatingHandler` на `HttpClient`, кешувальний `IProductRepository` навколо EF-репозиторію. Вбудований контейнер не має хелпера `Decorate`; його додає Scrutor, або ж фабрику реєструють вручну.\n- **Factory (Method / Abstract Factory):** централізує створення, коли конкретний тип або його lifetime визначається в runtime. `IHttpClientFactory` існує тому, що наївне створення `HttpClient` спричиняє socket exhaustion або застарілий DNS; `ILoggerFactory`; `IDbContextFactory<T>` для Blazor і фонової роботи.\n- **Builder:** покрокове конструювання складного, часто незмінного об'єкта з валідацією в `Build()`. `WebApplication.CreateBuilder`, `StringBuilder`, `HostBuilder`, builders тестових даних (`new OrderBuilder().WithLines(3).Paid().Build()`).\n- **Observer:** суб'єкти сповіщають підписників. `event` у C#, `IObservable<T>`/Rx, Angular signals і RxJS. Пастка в production: список делегатів видавця тримає *сильне* посилання на підписника.\n- **Mediator:** об'єкти спілкуються через хаб, а не напряму один з одним. MediatR, router outlet в Angular, хаб чат-кімнати. Зменшує зв'язність N-до-N ціною додаткової непрямості, яка ховає граф викликів.\n- **Specification** (Evans/Fowler, не GoF, але про нього питають поруч): бізнес-правило як об'єкт, який можна комбінувати, `IsSatisfiedBy(T)`, часто виставлене як `Expression<Func<T, bool>>`, щоб EF Core міг транслювати його в SQL.\n\n## Що перевіряє інтерв'юер\n\n- \"Strategy чи Decorator?\" Strategy *замінює* алгоритм, якому делегує контекст; Decorator *обгортає* ту саму абстракцію, щоб додати навколо неї поведінку, і кілька декораторів можна нашарувати.\n- \"Де Decorator в ASP.NET Core?\" Конвеєри `DelegatingHandler` для `HttpClient` (retry, auth header, logging). Middleware ближче до Chain of Responsibility: кожен компонент може зробити short-circuit.\n- \"Чому в specification `Expression<Func<T,bool>>`, а не `Func<T,bool>`?\" Передача `Func` у `Where` на `IQueryable` прив'язується до `Enumerable.Where`: EF мовчки завантажує всю таблицю й фільтрує в пам'яті.\n- \"Singleton?\" Як *lifetime* (DI `AddSingleton`) — нормально. Як GoF-патерн зі статичним `Instance` — це глобальний змінюваний стан, що ховає залежності й блокує тестування.\n\n## Anti-patterns, які варто назвати\n\n- **Service Locator:** `serviceProvider.GetService<T>()` всередині бізнес-коду ховає залежності; доречний лише в інфраструктурній обв'язці фреймворку та фабриках.\n- **God object / God service:** один `Manager`, який викликають усі; зазвичай це провал SRP, перевдягнений у Facade.\n- **Pattern-first design:** `IStrategyFactoryProvider` для гілки, яка три роки має лише один випадок. Вводьте патерн, коли з'являється другий варіант.\n- **Витік через події:** підписка короткоживучого об'єкта на довгоживучу подію без відписки.\n\n```csharp\n// Decorator: caching around the real repository, same interface, stackable.\npublic sealed class CachedProductRepository(IProductRepository inner, IMemoryCache cache)\n    : IProductRepository\n{\n    public Task<Product?> GetAsync(int id, CancellationToken ct) =>\n        cache.GetOrCreateAsync($\"product:{id}\", entry =>\n        {\n            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n            return inner.GetAsync(id, ct);\n        });\n}\n\n// Wiring without Scrutor: register the concrete inner type, expose the decorator.\nservices.AddScoped<EfProductRepository>();\nservices.AddScoped<IProductRepository>(sp =>\n    new CachedProductRepository(sp.GetRequiredService<EfProductRepository>(),\n                                sp.GetRequiredService<IMemoryCache>()));\n\n// Specification that EF Core can translate.\npublic sealed class ActiveCustomerSpec\n{\n    public Expression<Func<Customer, bool>> Criteria { get; } =\n        c => c.IsActive && c.LastOrderAt > DateTime.UtcNow.AddMonths(-12);\n}\nvar active = await db.Customers.Where(new ActiveCustomerSpec().Criteria).ToListAsync(ct);\n```\n"
         }
       },
       "questions": [
@@ -222,6 +329,28 @@
                 }
               ],
               "explanation": "Strategy answers 'which algorithm?': the context holds one interchangeable implementation (`IComparer<T>`, a per-carrier rate provider) and the choice replaces behaviour. Decorator answers 'what extra behaviour around this?': it implements the same interface as the object it wraps, delegates to it and adds work before or after (`GZipStream` over `FileStream`, a caching repository over the EF one), and several decorators compose into a chain. Option 1 is wrong on both counts: strategies are usually chosen at runtime (by configuration, by key), and decorators are normally plain composition, no reflection required. Option 2 inverts the GoF intent: Decorator exists precisely to avoid subclass explosion and works through the shared abstraction, not by inheriting the concrete type. Option 3 has a grain of truth (both use composition and an interface) but the relationship differs: a decorator *is-a* and *has-a* the same abstraction, a strategy is a collaborator of a different type than its context."
+            },
+            "uk": {
+              "prompt": "У чому суттєва відмінність між патернами Strategy і Decorator?",
+              "options": [
+                {
+                  "text": "Strategy обирається під час компіляції через generics, а Decorator застосовується в runtime через reflection або proxies.",
+                  "correct": false
+                },
+                {
+                  "text": "Decorator вимагає успадкування від конкретного класу, який розширюється, тоді як Strategy — єдиний із двох, побудований на інтерфейсах.",
+                  "correct": false
+                },
+                {
+                  "text": "Структурно вони ідентичні; назви описують лише намір, тож будь-яка з них підходить для довільного класу, що реалізує інтерфейс.",
+                  "correct": false
+                },
+                {
+                  "text": "Strategy замінює алгоритм, якому делегує контекст; Decorator обгортає ту саму абстракцію, щоб додати поведінку, і декоратори можна нашаровувати.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Strategy відповідає на питання \"який алгоритм?\": контекст тримає одну взаємозамінну реалізацію (`IComparer<T>`, провайдер тарифів для конкретного перевізника), і вибір замінює поведінку. Decorator відповідає на питання \"яку додаткову поведінку навколо цього?\": він реалізує той самий інтерфейс, що й обгорнутий об'єкт, делегує йому й додає роботу до або після (`GZipStream` поверх `FileStream`, кешувальний репозиторій поверх EF-репозиторію), а кілька декораторів складаються в ланцюжок. Варіант 1 хибний в обох частинах: strategies зазвичай обирають у runtime (за конфігурацією, за ключем), а декоратори — це звичайна композиція, reflection не потрібен. Варіант 2 перевертає намір GoF: Decorator існує саме для того, щоб уникнути вибуху підкласів, і працює через спільну абстракцію, а не через успадкування конкретного типу. У варіанті 3 є зерно правди (обидва використовують композицію та інтерфейс), але відношення різне: декоратор *є* і *має* ту саму абстракцію, а strategy — це співпрацівник іншого типу, ніж її контекст."
             }
           }
         },
@@ -257,6 +386,28 @@
                 }
               ],
               "explanation": "An event is a multicast delegate field on the publisher, and each delegate holds a strong reference to its target object. A static event is a GC root for as long as the AppDomain lives, so every subscriber it references stays alive: memory grows with every scope, and disposed instances keep executing their handlers (often throwing `ObjectDisposedException`). That is the classic Observer leak. Option 1 is the misconception: CLR events are not weak; WPF's `WeakEventManager` exists precisely because they are not. Option 3 is wrong: the container disposes `IDisposable` instances it created, it knows nothing about event subscriptions, so you must unsubscribe in `Dispose`. Option 4 is wrong: a method-group subscription to an instance method creates a delegate whose `Target` is the instance, exactly like a lambda that captures `this`."
+            },
+            "uk": {
+              "prompt": "Scoped-сервіс на кшталт ViewModel підписується на `AppEvents.SettingsChanged` — `static event EventHandler` — у своєму конструкторі й ніколи не відписується. Що відбувається з часом?",
+              "options": [
+                {
+                  "text": "Нічого шкідливого: події .NET тримають слабкі посилання на підписників, тож екземпляри збираються, коли scope звільняється.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожен екземпляр лишається досяжним зі списку делегатів статичної події: жоден не збирається, і кожен продовжує виконувати свій handler.",
+                  "correct": true
+                },
+                {
+                  "text": "DI-контейнер відписує handler, коли звільняє scope, бо відстежує підписки на події, зроблені scoped-сервісами.",
+                  "correct": false
+                },
+                {
+                  "text": "Протікають лише підписки через лямбди; підписка через method group, як-от `+= OnChanged`, зберігається без посилання на екземпляр.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Подія — це поле multicast-делегата у видавця, і кожен делегат тримає сильне посилання на свій цільовий об'єкт. Статична подія є GC root упродовж усього життя AppDomain, тож кожен підписник, на якого вона посилається, лишається живим: пам'ять росте з кожним scope, а звільнені екземпляри продовжують виконувати свої handlers (часто кидаючи `ObjectDisposedException`). Це класичний витік Observer. Варіант 1 — хибне уявлення: події CLR не слабкі; `WeakEventManager` у WPF існує саме тому, що вони не слабкі. Варіант 3 хибний: контейнер звільняє створені ним екземпляри `IDisposable`, але нічого не знає про підписки на події, тож відписуватися треба в `Dispose`. Варіант 4 хибний: підписка через method group на метод екземпляра створює делегат, чий `Target` — це екземпляр, точно так само, як лямбда, що захоплює `this`."
             }
           }
         },
@@ -292,6 +443,28 @@
                 }
               ],
               "explanation": "`DbSet<T>` implements both `IQueryable<T>` and `IEnumerable<T>`. Overload resolution cannot convert a `Func<T,bool>` to `Expression<Func<T,bool>>`, so `Queryable.Where` is not applicable and the compiler silently picks `Enumerable.Where`. From that point the query is LINQ to Objects: EF issues `SELECT ... FROM Orders` with no filter, materialises (and by default tracks) every row, and the delegate runs in memory. It works in a dev database and falls over in production. That is why a specification exposes `Expression<Func<T,bool>>`. Option 1 is wrong: EF never decompiles delegates. Option 2 describes what happens when an *expression tree* contains something untranslatable; here EF never sees the predicate. Option 4 overlooks the `IEnumerable<T>` overload, which is exactly what makes this bug silent."
+            },
+            "uk": {
+              "prompt": "Specification виставляє `Func<Order, bool> Predicate { get; }`, а handler виконує `var due = db.Orders.Where(spec.Predicate).ToList();`. Що робить EF Core?",
+              "options": [
+                {
+                  "text": "Транслює делегат у SQL, бо EF Core у runtime декомпілює IL скомпільованих делегатів у expression tree.",
+                  "correct": false
+                },
+                {
+                  "text": "Кидає `InvalidOperationException` з повідомленням, що LINQ-вираз не вдалося транслювати, тож баг ловиться під час першого запуску тестів.",
+                  "correct": false
+                },
+                {
+                  "text": "Код компілюється й виконується, але `Where` прив'язується до `Enumerable.Where`: завантажується кожен рядок `Orders`, а предикат виконується в пам'яті.",
+                  "correct": true
+                },
+                {
+                  "text": "Код не компілюється, бо `Queryable.Where` приймає лише `Expression<Func<T, bool>>`, а іншого придатного overload немає.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`DbSet<T>` реалізує і `IQueryable<T>`, і `IEnumerable<T>`. Overload resolution не може перетворити `Func<T,bool>` на `Expression<Func<T,bool>>`, тож `Queryable.Where` не підходить, і компілятор мовчки обирає `Enumerable.Where`. Відтак запит стає LINQ to Objects: EF виконує `SELECT ... FROM Orders` без фільтра, матеріалізує (і за замовчуванням відстежує) кожен рядок, а делегат виконується в пам'яті. На dev-базі це працює, а в production падає. Саме тому specification виставляє `Expression<Func<T,bool>>`. Варіант 1 хибний: EF ніколи не декомпілює делегати. Варіант 2 описує те, що відбувається, коли *expression tree* містить щось нетранслятовне; тут EF взагалі не бачить предиката. Варіант 4 не враховує overload для `IEnumerable<T>`, через який цей баг і є тихим."
             }
           }
         },
@@ -327,6 +500,28 @@
                 }
               ],
               "explanation": "Builder earns its place when construction is a multi-step process with optional parts and invariants that span fields: `WebApplication.CreateBuilder` collects services, configuration and logging before `Build()` freezes them into an immutable host, and test-data builders hide twenty irrelevant fields behind defaults. Option 2 is a heuristic, not a justification: C# named arguments, `required` init-only properties and records solve 'many parameters' without a second type. Option 3 describes a Factory (or Abstract Factory): the problem is *which* type, not *how* to assemble it. Option 4 describes a Singleton concern, which in modern .NET belongs to the DI lifetime (`AddSingleton`), not to a construction pattern."
+            },
+            "uk": {
+              "prompt": "У якій ситуації введення Builder (замість конструктора чи object initializer) найбільш очевидно виправдане?",
+              "options": [
+                {
+                  "text": "Побудова незмінного об'єкта складається з кількох необов'язкових кроків плюс валідації між полями, яка має виконатися один раз, наприкінці.",
+                  "correct": true
+                },
+                {
+                  "text": "Клас має понад три параметри конструктора, що саме по собі означає, що викликачам потрібен fluent API, щоб надійно їх задавати.",
+                  "correct": false
+                },
+                {
+                  "text": "Конкретний тип, який треба створити, залежить від конфігурації в runtime, тож викликачі не повинні знати, яку реалізацію вони отримують.",
+                  "correct": false
+                },
+                {
+                  "text": "Об'єкт має бути спільним єдиним екземпляром на весь застосунок, і builder гарантує, що його створено лише один раз.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Builder виправдовує себе, коли конструювання — це багатокроковий процес з необов'язковими частинами та інваріантами, що охоплюють кілька полів: `WebApplication.CreateBuilder` збирає сервіси, конфігурацію та logging, перш ніж `Build()` заморозить їх у незмінний host, а builders тестових даних ховають двадцять нерелевантних полів за значеннями за замовчуванням. Варіант 2 — евристика, а не обґрунтування: іменовані аргументи C#, init-only властивості з `required` і records розв'язують проблему \"багатьох параметрів\" без другого типу. Варіант 3 описує Factory (або Abstract Factory): проблема в тому, *який* тип, а не *як* його зібрати. Варіант 4 описує задачу Singleton, яка в сучасному .NET належить DI lifetime (`AddSingleton`), а не патерну конструювання."
             }
           }
         },
@@ -351,6 +546,17 @@
                 "Names concrete anti-patterns (Service Locator, static Singleton as global state, God object, speculative pattern use) and why they hurt (hidden dependencies, testability, indirection without a second variant).",
                 "States a decision rule such as introducing a pattern when a second variant or a real cross-cutting concern appears, rather than up front."
               ]
+            },
+            "uk": {
+              "prompt": "Які GoF-патерни ви реально використовуєте в щоденній роботі з .NET? Оберіть щонайменше чотири, покажіть, де ASP.NET Core або BCL уже використовує кожен із них, і поясніть, коли застосування патерну стає anti-pattern.",
+              "explanation": "Еталонна відповідь: Strategy (`IComparer<T>`, провайдери тарифів для перевізників, keyed services) для взаємозамінних алгоритмів; Decorator (`GZipStream` поверх `FileStream`, ланцюжки `DelegatingHandler`, кешувальний репозиторій, що обгортає EF-репозиторій), щоб додати поведінку навколо тієї самої абстракції; Factory (`IHttpClientFactory` для керування lifetime handlers і уникнення socket exhaustion чи застарілого DNS, `IDbContextFactory<T>`), коли тип або lifetime визначається в runtime; Builder (`WebApplication.CreateBuilder`, builders тестових даних) для багатокрокового конструювання незмінних об'єктів; Observer (події, `IObservable<T>`, RxJS) з пасткою витоку через сильне посилання; Mediator (MediatR), щоб відв'язати відправників від handlers ціною прихованого графа викликів. Anti-patterns: GoF Singleton зі статичним станом замість DI lifetime, Service Locator у бізнес-коді, pattern-first design з однією реалізацією і без другого варіанта на горизонті, God services, що ховаються за Facade.",
+              "rubric": [
+                "Називає щонайменше чотири патерни з-поміж strategy, decorator, factory, builder, observer, mediator, specification і одним реченням формулює проблему, яку розв'язує кожен.",
+                "Наводить коректні приклади з фреймворку, наприклад обгортки `DelegatingHandler` чи `Stream` для Decorator, `IHttpClientFactory` для Factory, `WebApplication.CreateBuilder` для Builder, події або `IObservable<T>` для Observer.",
+                "Коректно розрізняє щонайменше одну пару, яку часто плутають (Strategy vs Decorator, Decorator vs Chain of Responsibility/middleware, Factory vs Builder).",
+                "Називає конкретні anti-patterns (Service Locator, статичний Singleton як глобальний стан, God object, спекулятивне використання патернів) і пояснює, чому вони шкодять (приховані залежності, тестованість, непрямість без другого варіанта).",
+                "Формулює правило ухвалення рішення, наприклад вводити патерн, коли з'являється другий варіант або реальна наскрізна задача, а не наперед."
+              ]
             }
           }
         }
@@ -364,6 +570,10 @@
         "en": {
           "title": "Clean, Hexagonal and Onion Architecture",
           "note": "## What it is\n\nClean Architecture (Martin), Onion Architecture (Palermo) and Hexagonal Architecture / Ports and Adapters (Cockburn) are three framings of one idea: **put business rules at the centre and make every framework, database and transport a replaceable detail at the edge**. They differ in vocabulary and in how many rings they draw, not in substance.\n\n- **Hexagonal:** the application exposes *ports* (interfaces). *Driving* (primary) adapters call into it: HTTP endpoints, message consumers, CLI verbs, tests. *Driven* (secondary) adapters are called by it: EF Core repositories, SMTP senders, payment gateways, the system clock.\n- **Onion:** concentric rings: domain model, domain services, application services, then infrastructure/UI/tests in the outer ring.\n- **Clean:** Entities, Use Cases, Interface Adapters, Frameworks & Drivers, with *the Dependency Rule* as the one non-negotiable.\n\n## How it works underneath: the dependency rule\n\nSource-code dependencies point **only inward**. An inner ring never names a type from an outer ring: Domain does not reference EF Core, Application does not reference ASP.NET Core. Control flow still goes outward at runtime (a use case calls the repository to save), so the inner ring *declares an interface* (a port) and the outer ring implements it. That is Dependency Inversion applied at the project level, and in .NET you enforce it with project references: `Domain` → nothing; `Application` → `Domain`; `Infrastructure` → `Application`; `Api` → everything, as the composition root. Architecture tests (NetArchTest, ArchUnitNET) catch the violations project references cannot, such as a `using Microsoft.EntityFrameworkCore` in `Application` when the package flows transitively.\n\n## Where DTOs live\n\n- **HTTP contracts** (`CreateOrderRequest`, `OrderResponse`): at the edge, in the API project or a slice next to its endpoint. They are shaped by clients and versioned with the API.\n- **Use-case input/output** (`PlaceOrderCommand`, `OrderSummary`): in Application. They can coincide with the HTTP contract in small systems; that is a pragmatic shortcut, not a rule violation, as long as Domain does not see them.\n- **Persistence models**: in Infrastructure. With EF Core you usually map domain entities directly through configuration (`IEntityTypeConfiguration<T>`), which keeps one model; a separate persistence model is worth it only when the domain and the schema diverge strongly.\n- **Domain entities are never serialised as API responses**: that couples the wire format to invariants and leaks fields.\n\n## What an interviewer probes\n\n- \"State the dependency rule\" and \"how do you make a use case save to the database without referencing EF?\" (port in Application, adapter in Infrastructure, wired in the composition root).\n- \"Is a controller a driving or driven adapter? A test?\" Both are driving.\n- \"Do you wrap `DbContext` in a repository?\" `DbContext` already is a unit of work and `DbSet<T>` already a repository. A per-aggregate repository that expresses domain queries is defensible; a generic `IRepository<T>` that re-exposes `IQueryable<T>` mostly re-leaks EF while adding a layer.\n- \"When is this over-engineering?\" See below.\n\n## Over-engineering signals\n\n- Four projects and four mappings for a CRUD service with no business rules.\n- Interfaces with a single implementation that is not volatile and not an I/O boundary (`IOrderMapper`, `IOrderValidatorFactory`).\n- Use cases that only forward to a repository.\n- The same shape copied through `Request` → `Command` → `Entity` → `DbModel` → `Dto` → `Response` with AutoMapper hiding that nothing changes.\n- Domain \"entities\" with public setters and no behaviour: the rings exist but there is nothing at the centre to protect.\n\n## Common misconceptions\n\n- \"Layered (N-tier) is the same thing.\" Classic UI → BLL → DAL makes business logic depend on data access; Clean inverts that arrow.\n- \"The goal is swapping the database.\" Rarely happens. The real payoff is testable, framework-free business rules and isolating volatile integrations.\n- \"Every call must go through every layer.\" Queries can bypass the domain and project straight from the read side.\n\n```csharp\n// Application: the port, owned by the core.\npublic interface IOrderRepository\n{\n    Task<Order?> GetAsync(OrderId id, CancellationToken ct);\n    void Add(Order order);\n}\n\n// Infrastructure: the driven adapter.\ninternal sealed class EfOrderRepository(ShopDbContext db) : IOrderRepository\n{\n    public Task<Order?> GetAsync(OrderId id, CancellationToken ct) =>\n        db.Orders.Include(o => o.Lines).SingleOrDefaultAsync(o => o.Id == id, ct);\n    public void Add(Order order) => db.Orders.Add(order);\n}\n\n// Api: composition root and driving adapter.\nbuilder.Services.AddScoped<IOrderRepository, EfOrderRepository>();\napp.MapPost(\"/orders\", async (CreateOrderRequest req, PlaceOrder useCase, CancellationToken ct) =>\n    TypedResults.Created($\"/orders/{await useCase.Handle(req.ToCommand(), ct)}\"));\n```\n"
+        },
+        "uk": {
+          "title": "Clean, Hexagonal та Onion Architecture",
+          "note": "## Що це\n\nClean Architecture (Martin), Onion Architecture (Palermo) та Hexagonal Architecture / Ports and Adapters (Cockburn) — три формулювання однієї ідеї: **помістити бізнес-правила в центр, а кожен фреймворк, базу даних і транспорт зробити замінною деталлю на краю**. Вони відрізняються словником і кількістю намальованих кілець, а не суттю.\n\n- **Hexagonal:** застосунок виставляє *ports* (інтерфейси). *Driving* (primary) adapters викликають його: HTTP endpoints, споживачі повідомлень, CLI-команди, тести. *Driven* (secondary) adapters викликає він сам: EF Core-репозиторії, SMTP-відправники, платіжні шлюзи, системний годинник.\n- **Onion:** концентричні кільця: доменна модель, доменні сервіси, application services, а потім infrastructure/UI/тести у зовнішньому кільці.\n- **Clean:** Entities, Use Cases, Interface Adapters, Frameworks & Drivers, де *Dependency Rule* — єдине, що не обговорюється.\n\n## Як це працює під капотом: правило залежностей\n\nЗалежності у вихідному коді спрямовані **лише всередину**. Внутрішнє кільце ніколи не згадує тип із зовнішнього: Domain не посилається на EF Core, Application не посилається на ASP.NET Core. Потік керування в runtime усе одно йде назовні (use case викликає репозиторій, щоб зберегти дані), тож внутрішнє кільце *оголошує інтерфейс* (port), а зовнішнє його реалізує. Це Dependency Inversion, застосована на рівні проєктів, і в .NET її забезпечують посиланнями між проєктами: `Domain` → нічого; `Application` → `Domain`; `Infrastructure` → `Application`; `Api` → усе, як composition root. Архітектурні тести (NetArchTest, ArchUnitNET) ловлять порушення, які посилання між проєктами не можуть, наприклад `using Microsoft.EntityFrameworkCore` в `Application`, коли пакет потрапляє транзитивно.\n\n## Де живуть DTO\n\n- **HTTP-контракти** (`CreateOrderRequest`, `OrderResponse`): на краю, у проєкті API або в slice поруч зі своїм endpoint. Їхню форму визначають клієнти, і вони версіонуються разом з API.\n- **Вхід/вихід use case** (`PlaceOrderCommand`, `OrderSummary`): в Application. У невеликих системах вони можуть збігатися з HTTP-контрактом; це прагматичне скорочення, а не порушення правила, доки Domain їх не бачить.\n- **Моделі персистентності**: в Infrastructure. З EF Core доменні сутності зазвичай мапляться напряму через конфігурацію (`IEntityTypeConfiguration<T>`), що зберігає одну модель; окрема модель персистентності варта зусиль лише тоді, коли домен і схема сильно розходяться.\n- **Доменні сутності ніколи не серіалізуються як відповіді API**: це зв'язує формат передачі з інваріантами й призводить до витоку полів.\n\n## Що перевіряє інтерв'юер\n\n- \"Сформулюйте правило залежностей\" і \"як змусити use case зберегти дані в базу, не посилаючись на EF?\" (port в Application, adapter в Infrastructure, зв'язування в composition root).\n- \"Контролер — це driving чи driven adapter? А тест?\" Обидва — driving.\n- \"Чи обгортаєте ви `DbContext` у репозиторій?\" `DbContext` уже є unit of work, а `DbSet<T>` — репозиторієм. Репозиторій на aggregate, що виражає доменні запити, можна обґрунтувати; generic `IRepository<T>`, який знову виставляє `IQueryable<T>`, здебільшого знову протікає EF, додаючи ще й шар.\n- \"Коли це over-engineering?\" Див. нижче.\n\n## Ознаки over-engineering\n\n- Чотири проєкти й чотири мапінги для CRUD-сервісу без бізнес-правил.\n- Інтерфейси з єдиною реалізацією, яка не є нестабільною і не є межею I/O (`IOrderMapper`, `IOrderValidatorFactory`).\n- Use cases, що лише переадресовують виклик репозиторію.\n- Та сама форма, скопійована через `Request` → `Command` → `Entity` → `DbModel` → `Dto` → `Response`, де AutoMapper ховає те, що нічого не змінюється.\n- Доменні \"сутності\" з публічними setters і без поведінки: кільця є, але в центрі немає нічого, що треба захищати.\n\n## Поширені хибні уявлення\n\n- \"Шарова (N-tier) архітектура — це те саме.\" Класичне UI → BLL → DAL змушує бізнес-логіку залежати від доступу до даних; Clean інвертує цю стрілку.\n- \"Мета — можливість замінити базу даних.\" Таке трапляється рідко. Справжня вигода — тестовані бізнес-правила без фреймворків та ізоляція нестабільних інтеграцій.\n- \"Кожен виклик має проходити крізь кожен шар.\" Запити можуть оминати домен і проєктувати дані напряму зі сторони читання.\n\n```csharp\n// Application: the port, owned by the core.\npublic interface IOrderRepository\n{\n    Task<Order?> GetAsync(OrderId id, CancellationToken ct);\n    void Add(Order order);\n}\n\n// Infrastructure: the driven adapter.\ninternal sealed class EfOrderRepository(ShopDbContext db) : IOrderRepository\n{\n    public Task<Order?> GetAsync(OrderId id, CancellationToken ct) =>\n        db.Orders.Include(o => o.Lines).SingleOrDefaultAsync(o => o.Id == id, ct);\n    public void Add(Order order) => db.Orders.Add(order);\n}\n\n// Api: composition root and driving adapter.\nbuilder.Services.AddScoped<IOrderRepository, EfOrderRepository>();\napp.MapPost(\"/orders\", async (CreateOrderRequest req, PlaceOrder useCase, CancellationToken ct) =>\n    TypedResults.Created($\"/orders/{await useCase.Handle(req.ToCommand(), ct)}\"));\n```\n"
         }
       },
       "questions": [
@@ -399,6 +609,28 @@
                 }
               ],
               "explanation": "The Dependency Rule constrains *compile-time* dependencies: nothing in an inner circle may name anything in an outer circle. When a use case needs to persist, it declares a port (`IOrderRepository`) and Infrastructure implements it, so the source-code arrow points inward while the runtime call goes outward. Option 1 describes classic N-tier layering, where business logic depends on the data-access layer; Clean Architecture exists to invert exactly that arrow. Option 2 confuses control flow with source dependencies; a use case calls a repository at runtime all the time, it just does so through an abstraction it owns. Option 4 is the database-centric design the rule was written against: putting infrastructure at the centre makes business rules untestable without it."
+            },
+            "uk": {
+              "prompt": "Що таке Dependency Rule у Clean Architecture?",
+              "options": [
+                {
+                  "text": "Кожен шар може посилатися лише на шар безпосередньо під ним, тож UI викликає бізнес-логіку, а бізнес-логіка — доступ до даних.",
+                  "correct": false
+                },
+                {
+                  "text": "Виклики в runtime можуть іти лише всередину, тож домен ніколи не викликає інфраструктурний код, як-от репозиторій, навіть через інтерфейс.",
+                  "correct": false
+                },
+                {
+                  "text": "Залежності у вихідному коді спрямовані лише всередину: внутрішні шари ніколи не посилаються на зовнішні, а зовнішні реалізують ports, оголошені всередині.",
+                  "correct": true
+                },
+                {
+                  "text": "Infrastructure розташована в центрі, бо кожному іншому шару потрібна персистентність, тож усі проєкти посилаються на неї, а вона — на жоден із них.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Dependency Rule обмежує залежності *часу компіляції*: ніщо у внутрішньому колі не може згадувати щось із зовнішнього. Коли use case потрібно зберегти дані, він оголошує port (`IOrderRepository`), а Infrastructure його реалізує, тож стрілка у вихідному коді спрямована всередину, а виклик у runtime йде назовні. Варіант 1 описує класичну N-tier-шаровість, де бізнес-логіка залежить від шару доступу до даних; Clean Architecture існує саме для того, щоб інвертувати цю стрілку. Варіант 2 плутає потік керування із залежностями у вихідному коді; use case постійно викликає репозиторій у runtime, просто робить це через абстракцію, якою сам володіє. Варіант 4 — це дизайн із базою даних у центрі, проти якого і було сформульовано правило: інфраструктура в центрі робить бізнес-правила нетестованими без неї."
             }
           }
         },
@@ -434,6 +666,28 @@
                 }
               ],
               "explanation": "Driven (secondary) adapters are the ones the application calls out to through ports it declares: persistence, email, payment providers, clocks. The EF Core repository implements a port owned by the core and is invoked by it, so it is driven. The HTTP endpoint (option 1) and the message consumer (option 4) are driving adapters: external stimuli that call *into* the application; the transport differs but the direction is the same. Option 3 is the one people miss: Cockburn explicitly lists tests as a driving adapter, which is the whole point of the pattern, because the core can be exercised without any UI or transport."
+            },
+            "uk": {
+              "prompt": "Що з наведеного є driven (secondary) adapter у застосунку Ports and Adapters (hexagonal)?",
+              "options": [
+                {
+                  "text": "Endpoint FastEndpoints, який мапить вхідний HTTP-запит на команду use case і викликає її.",
+                  "correct": false
+                },
+                {
+                  "text": "Реалізація на EF Core для port `IOrderRepository`, оголошеного ядром застосунку.",
+                  "correct": true
+                },
+                {
+                  "text": "Тест xUnit, який конструює use case з fakes і перевіряє його результат.",
+                  "correct": false
+                },
+                {
+                  "text": "Споживач RabbitMQ, який отримує повідомлення `OrderPaid` і викликає use case доставки.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Driven (secondary) adapters — це ті, до яких застосунок звертається назовні через оголошені ним ports: персистентність, email, платіжні провайдери, годинник. Репозиторій на EF Core реалізує port, яким володіє ядро, і викликається ним, тож він driven. HTTP endpoint (варіант 1) і споживач повідомлень (варіант 4) — driving adapters: зовнішні стимули, що викликають застосунок *ззовні*; транспорт різний, але напрямок той самий. Варіант 3 часто пропускають: Cockburn явно відносить тести до driving adapters, і в цьому весь сенс патерну, адже ядро можна прогнати без жодного UI чи транспорту."
             }
           }
         },
@@ -469,6 +723,28 @@
                 }
               ],
               "explanation": "HTTP contracts change for client reasons (versioning, field naming, pagination) and must not drag the domain along. They belong to the outermost driving adapter, and the use case accepts either its own command/result types defined in Application or, in small systems, the same shape. The invariant is that Domain does not reference them. Option 1 couples wire format to invariants: renaming a JSON field becomes a domain change, and serialising entities leaks internal state and breaks encapsulation (public setters for the deserialiser). Option 2 is the same coupling with an extra project, and makes Domain depend on something outer. Option 3 ties the API to the schema, which is the dependency direction the architecture exists to prevent; Infrastructure is also an outer ring the Api should not need for its contracts."
+            },
+            "uk": {
+              "prompt": "Де в .NET-рішенні за Clean Architecture мають жити HTTP-контракти запитів/відповідей, як-от `CreateOrderRequest` і `OrderResponse`?",
+              "options": [
+                {
+                  "text": "У проєкті Domain, щоб кожен шар використовував одну модель і між шарами не потрібен був код мапінгу.",
+                  "correct": false
+                },
+                {
+                  "text": "У спільному проєкті `Contracts`, на який посилаються Domain, Application і Api, щоб доменна модель могла валідувати вхідні запити напряму.",
+                  "correct": false
+                },
+                {
+                  "text": "В Infrastructure, поруч із конфігураціями EF Core, бо форма відповідей зазвичай віддзеркалює таблиці бази даних.",
+                  "correct": false
+                },
+                {
+                  "text": "На краю, у проєкті Api (або як моделі use case рівня Application), з мапінгом на доменні типи; Domain ніколи на них не посилається.",
+                  "correct": true
+                }
+              ],
+              "explanation": "HTTP-контракти змінюються з причин, пов'язаних із клієнтами (версіонування, найменування полів, пагінація), і не повинні тягнути за собою домен. Вони належать найзовнішньому driving adapter, а use case приймає або власні типи команд/результатів, визначені в Application, або, у невеликих системах, ту саму форму. Інваріант: Domain на них не посилається. Варіант 1 зв'язує формат передачі з інваріантами: перейменування JSON-поля стає доменною зміною, а серіалізація сутностей призводить до витоку внутрішнього стану й ламає інкапсуляцію (публічні setters для десеріалізатора). Варіант 2 — та сама зв'язність із додатковим проєктом, і він змушує Domain залежати від чогось зовнішнього. Варіант 3 прив'язує API до схеми, а саме цей напрямок залежності архітектура й має запобігати; до того ж Infrastructure — теж зовнішнє кільце, яке не має бути потрібне Api для його контрактів."
             }
           }
         },
@@ -504,6 +780,28 @@
                 }
               ],
               "explanation": "Clean/Onion/Hexagonal pay off when there are business rules worth protecting or volatile integrations worth isolating. Here there are neither: the centre is empty, `IRepository<T>` re-wraps what `DbContext` (unit of work) and `DbSet<T>` (repository) already provide, and four identical models multiply change cost. A vertical slice or a minimal API with EF Core directly is honest about the problem's size. Option 2 is a common myth: EF Core can be tested against SQLite in-memory or a real database via Testcontainers, and a generic repository that exposes `IQueryable<T>` does not make queries more testable anyway. Option 3 misreads the architecture: EF Core in Infrastructure is a perfectly legal detail; swapping ORMs changes nothing about the over-layering. Option 4 can be a factor in a large organisation, but 'always' is the tell: cargo-culted structure for a trivial service is exactly the over-engineering signal interviewers look for."
+            },
+            "uk": {
+              "prompt": "Внутрішній admin-сервіс має п'ять CRUD endpoints і жодних бізнес-правил. У ньому є проєкти Domain, Application, Infrastructure та Api, generic `IRepository<T>` поверх EF Core, а AutoMapper копіює ті самі поля через чотири моделі. Яка оцінка найточніша?",
+              "options": [
+                {
+                  "text": "Шари додають непрямість, але не ізолюють жодного бізнес-правила чи нестабільної залежності; тонкий дизайн поверх `DbContext` пасує краще.",
+                  "correct": true
+                },
+                {
+                  "text": "Generic-репозиторій усе одно потрібен, бо без нього код EF Core неможливо ізольовано протестувати ні unit-, ні інтеграційними тестами.",
+                  "correct": false
+                },
+                {
+                  "text": "Дизайн правильний, але проблема в EF Core: Clean Architecture вимагає замінити його на Dapper, щоб персистентність лишалася чистою деталлю.",
+                  "correct": false
+                },
+                {
+                  "text": "Дизайн слід залишити, бо узгодженість з іншими сервісами завжди переважає локальну ціну додаткових шарів і мапінгів.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Clean/Onion/Hexagonal окупаються, коли є бізнес-правила, які варто захищати, або нестабільні інтеграції, які варто ізолювати. Тут немає ні того, ні іншого: центр порожній, `IRepository<T>` повторно обгортає те, що вже дають `DbContext` (unit of work) і `DbSet<T>` (репозиторій), а чотири ідентичні моделі множать вартість змін. Vertical slice або minimal API з EF Core напряму чесно відповідає розміру задачі. Варіант 2 — поширений міф: EF Core можна тестувати проти SQLite in-memory або реальної бази через Testcontainers, а generic-репозиторій, що виставляє `IQueryable<T>`, і так не робить запити тестованішими. Варіант 3 хибно трактує архітектуру: EF Core в Infrastructure — цілком легітимна деталь; заміна ORM нічого не змінює в надмірній шаровості. Варіант 4 може бути чинником у великій організації, але \"завжди\" себе видає: карго-культна структура для тривіального сервісу — саме та ознака over-engineering, яку шукають інтерв'юери."
             }
           }
         },
@@ -528,6 +826,17 @@
                 "Describes concrete enforcement in .NET: project reference direction, composition root in the host project, and/or architecture tests (NetArchTest, ArchUnitNET).",
                 "Gives concrete over-engineering signals or contexts where it should not be used (CRUD with no rules, pass-through layers, single-implementation interfaces, duplicated mappings)."
               ]
+            },
+            "uk": {
+              "prompt": "Поясніть Clean, Onion і Hexagonal Architecture. Що в них спільного, чим вони відрізняються, як ви забезпечуєте їх дотримання в .NET-рішенні і коли ви свідомо їх не використовували б?",
+              "explanation": "Еталонна відповідь: усі три ставлять бізнес-правила в центр, а UI, базу даних і обмін повідомленнями трактують як замінні деталі. Спільний інваріант — правило залежностей: залежності у вихідному коді спрямовані всередину, а ядро оголошує ports, які реалізують зовнішні adapters. Hexagonal формулює це як ports із driving adapters (HTTP, споживачі, тести) та driven adapters (база даних, email, платежі); Onion — як концентричні кільця (доменна модель, доменні сервіси, application services, зовнішня інфраструктура); Clean — як Entities, Use Cases, Interface Adapters, Frameworks. У .NET це забезпечують посиланнями між проєктами (Domain ні на що не посилається, Application посилається на Domain, Infrastructure — на Application, Api — composition root) плюс архітектурними тестами на транзитивні витоки. DTO живуть на краю, сутності не серіалізуються. Варто відмовитися для CRUD-сервісів без правил, прототипів або малих команд, де vertical-slice дизайн з EF Core напряму дешевший; тривожні сигнали — інтерфейси з єдиною реалізацією, use cases, що лише переадресовують виклики, і повторювані ідентичні мапінги.",
+              "rubric": [
+                "Коректно формулює правило залежностей (залежності у вихідному коді спрямовані всередину; внутрішні шари оголошують інтерфейси, які реалізують зовнішні) і відрізняє його від потоку керування в runtime.",
+                "Пояснює ports and adapters, включно з розрізненням driving і driven, з коректними прикладами кожного (HTTP endpoint або тест як driving; репозиторій, email чи платіжний шлюз як driven).",
+                "Визначає, що всі три — варіації однієї ідеї, і називає реальну відмінність у формулюванні (кільця та словник), а не стверджує, що вони не пов'язані.",
+                "Описує конкретне забезпечення в .NET: напрямок посилань між проєктами, composition root у host-проєкті та/або архітектурні тести (NetArchTest, ArchUnitNET).",
+                "Наводить конкретні ознаки over-engineering або контексти, де це не слід використовувати (CRUD без правил, прохідні шари, інтерфейси з єдиною реалізацією, дубльовані мапінги)."
+              ]
             }
           }
         }
@@ -541,6 +850,10 @@
         "en": {
           "title": "DDD-lite: Entities, Value Objects, Aggregates, Domain Events, Bounded Contexts",
           "note": "## What it is\n\n\"DDD-lite\" is the tactical half of Domain-Driven Design used without the full strategic process: entities, value objects, aggregates and domain events inside a codebase, plus enough strategic thinking (bounded contexts, ubiquitous language) to keep models from sprawling. Interviewers use it to check whether you can put business rules *in the model* and draw consistency boundaries deliberately.\n\n## The building blocks\n\n- **Entity:** has an identity that survives state changes. Two `Order`s with the same lines are different orders; equality is by id.\n- **Value object:** defined entirely by its attributes, immutable, compared by value, replaced rather than mutated: `Money`, `Address`, `DateRange`, `EmailAddress`. It is the cheapest place to enforce invariants: an `EmailAddress` that exists is valid. In C# a `record` (or `readonly record struct`) gives value equality for free; EF Core maps them as owned types or, from EF Core 8, as complex types.\n- **Aggregate:** a cluster of entities and value objects treated as one consistency boundary, reached only through its **root**. All invariants inside the boundary hold after every transaction (`Order` total never exceeds the credit limit snapshot; no duplicate product lines). Vaughn Vernon's rules of thumb: design small aggregates, reference other aggregates *by id*, modify one aggregate per transaction, and use eventual consistency between aggregates.\n- **Domain event:** a fact that happened in the domain, named in the past tense (`OrderPlaced`). The aggregate records it; a dispatcher runs in-process handlers. An **integration event** is a different thing: a published contract for other services, usually delivered via an outbox.\n- **Domain service:** a stateless operation that does not naturally belong to one entity (a pricing policy spanning several aggregates).\n- **Bounded context:** the boundary within which one model and its language are consistent. \"Customer\" in Billing (payment terms, VAT id) and in Support (tickets, SLA tier) are *different models* sharing an id. Context maps describe how they integrate (anti-corruption layer, shared kernel, customer/supplier).\n\n## Anemic domain model\n\nFowler's anti-pattern: entities are property bags with public setters and every rule lives in services (`OrderService.Approve(order)` sets `order.Status`). Invariants are enforced nowhere central, so any caller can put an `Order` in an invalid state. It is not automatically wrong: for CRUD with no invariants, an anemic model plus transaction scripts is the honest choice. It becomes a problem when there are real rules and they are duplicated across services.\n\n## What an interviewer probes\n\n- \"Entity vs value object?\" Identity vs attribute equality, mutability, lifecycle.\n- \"How do you choose aggregate boundaries?\" By *true invariants* that must hold transactionally, not by navigation convenience or by the table diagram.\n- \"Order needs to check the Customer's credit. Same aggregate?\" No: reference by id, check via a domain service or snapshot, and handle the rest with eventual consistency.\n- \"When do domain events dispatch?\" Before `SaveChanges` (handlers' changes commit atomically; external side effects must not happen there) or after commit (side effects are safe but need an outbox for reliability).\n\n## Common misconceptions\n\n- \"Aggregate = table\" or \"aggregate = everything reachable from the root.\" Large aggregates cause lock contention and load storms.\n- \"Value objects must be structs.\" The semantics matter, not the CLR kind; a `record class` is fine.\n- \"DDD means one shared enterprise model.\" DDD argues the opposite: multiple bounded models, each consistent internally.\n\n```csharp\npublic sealed record Money(decimal Amount, string Currency)\n{\n    public static Money operator +(Money a, Money b) =>\n        a.Currency == b.Currency ? a with { Amount = a.Amount + b.Amount }\n                                 : throw new InvalidOperationException(\"Currency mismatch\");\n}\n\npublic sealed class Order                                // aggregate root\n{\n    private readonly List<OrderLine> _lines = [];\n    private readonly List<IDomainEvent> _events = [];\n    public OrderId Id { get; }\n    public CustomerId CustomerId { get; }                // reference by id, not navigation\n    public OrderStatus Status { get; private set; }\n    public IReadOnlyList<OrderLine> Lines => _lines;\n    public IReadOnlyList<IDomainEvent> Events => _events;\n\n    public void AddLine(ProductId product, int qty, Money unitPrice)\n    {\n        if (Status != OrderStatus.Draft) throw new DomainException(\"Order is not editable.\");\n        if (_lines.Any(l => l.ProductId == product)) throw new DomainException(\"Duplicate line.\");\n        _lines.Add(new OrderLine(product, qty, unitPrice));\n    }\n\n    public void Place()\n    {\n        if (_lines.Count == 0) throw new DomainException(\"Empty order.\");\n        Status = OrderStatus.Placed;\n        _events.Add(new OrderPlaced(Id, CustomerId));\n    }\n}\n```\n"
+        },
+        "uk": {
+          "title": "DDD-lite: entities, value objects, aggregates, domain events, bounded contexts",
+          "note": "## Що це\n\n\"DDD-lite\" — це тактична половина Domain-Driven Design, яку використовують без повного стратегічного процесу: entities, value objects, aggregates і domain events у кодовій базі плюс достатньо стратегічного мислення (bounded contexts, ubiquitous language), щоб моделі не розповзалися. Інтерв'юери використовують цю тему, щоб перевірити, чи вмієте ви розміщувати бізнес-правила *в моделі* і свідомо проводити межі консистентності.\n\n## Будівельні блоки\n\n- **Entity:** має ідентичність, яка переживає зміни стану. Два `Order` з однаковими рядками — це різні замовлення; рівність визначається за id.\n- **Value object:** повністю визначається своїми атрибутами, незмінний, порівнюється за значенням, замінюється, а не змінюється: `Money`, `Address`, `DateRange`, `EmailAddress`. Це найдешевше місце для забезпечення інваріантів: якщо `EmailAddress` існує, він валідний. У C# `record` (або `readonly record struct`) дає рівність за значенням безкоштовно; EF Core мапить їх як owned types або, починаючи з EF Core 8, як complex types.\n- **Aggregate:** кластер entities і value objects, що трактується як одна межа консистентності і доступний лише через свій **root**. Усі інваріанти всередині межі виконуються після кожної транзакції (сума `Order` ніколи не перевищує знімок кредитного ліміту; немає дубльованих рядків товару). Емпіричні правила Вона Вернона: проєктуйте малі aggregates, посилайтеся на інші aggregates *за id*, змінюйте один aggregate за транзакцію і використовуйте eventual consistency між aggregates.\n- **Domain event:** факт, що стався в домені, названий у минулому часі (`OrderPlaced`). Aggregate його фіксує; dispatcher запускає in-process handlers. **Integration event** — інша річ: опублікований контракт для інших сервісів, який зазвичай доставляється через outbox.\n- **Domain service:** операція без стану, яка природно не належить жодній одній entity (політика ціноутворення, що охоплює кілька aggregates).\n- **Bounded context:** межа, у якій одна модель та її мова узгоджені. \"Customer\" у Billing (умови оплати, VAT id) і в Support (тікети, рівень SLA) — це *різні моделі* зі спільним id. Context maps описують, як вони інтегруються (anti-corruption layer, shared kernel, customer/supplier).\n\n## Anemic domain model\n\nAnti-pattern Фаулера: entities — це мішки властивостей із публічними setters, а кожне правило живе в сервісах (`OrderService.Approve(order)` встановлює `order.Status`). Інваріанти ніде централізовано не забезпечуються, тож будь-який викликач може перевести `Order` у невалідний стан. Це не автоматично неправильно: для CRUD без інваріантів anemic model плюс transaction scripts — чесний вибір. Проблемою це стає тоді, коли є реальні правила і вони дублюються між сервісами.\n\n## Що перевіряє інтерв'юер\n\n- \"Entity чи value object?\" Ідентичність проти рівності атрибутів, змінюваність, життєвий цикл.\n- \"Як ви обираєте межі aggregate?\" За *справжніми інваріантами*, що мають виконуватися транзакційно, а не за зручністю навігації чи діаграмою таблиць.\n- \"Order має перевірити кредит Customer. Це той самий aggregate?\" Ні: посилання за id, перевірка через domain service або знімок, а решта — через eventual consistency.\n- \"Коли диспетчеризуються domain events?\" До `SaveChanges` (зміни handlers комітяться атомарно; зовнішніх побічних ефектів там бути не повинно) або після коміту (побічні ефекти безпечні, але для надійності потрібен outbox).\n\n## Поширені хибні уявлення\n\n- \"Aggregate = таблиця\" або \"aggregate = усе, що досяжне з root.\" Великі aggregates спричиняють конкуренцію за блокування та лавини завантажень.\n- \"Value objects мають бути structs.\" Важить семантика, а не вид типу в CLR; `record class` цілком підходить.\n- \"DDD означає одну спільну корпоративну модель.\" DDD стверджує протилежне: кілька обмежених моделей, кожна з яких внутрішньо узгоджена.\n\n```csharp\npublic sealed record Money(decimal Amount, string Currency)\n{\n    public static Money operator +(Money a, Money b) =>\n        a.Currency == b.Currency ? a with { Amount = a.Amount + b.Amount }\n                                 : throw new InvalidOperationException(\"Currency mismatch\");\n}\n\npublic sealed class Order                                // aggregate root\n{\n    private readonly List<OrderLine> _lines = [];\n    private readonly List<IDomainEvent> _events = [];\n    public OrderId Id { get; }\n    public CustomerId CustomerId { get; }                // reference by id, not navigation\n    public OrderStatus Status { get; private set; }\n    public IReadOnlyList<OrderLine> Lines => _lines;\n    public IReadOnlyList<IDomainEvent> Events => _events;\n\n    public void AddLine(ProductId product, int qty, Money unitPrice)\n    {\n        if (Status != OrderStatus.Draft) throw new DomainException(\"Order is not editable.\");\n        if (_lines.Any(l => l.ProductId == product)) throw new DomainException(\"Duplicate line.\");\n        _lines.Add(new OrderLine(product, qty, unitPrice));\n    }\n\n    public void Place()\n    {\n        if (_lines.Count == 0) throw new DomainException(\"Empty order.\");\n        Status = OrderStatus.Placed;\n        _events.Add(new OrderPlaced(Id, CustomerId));\n    }\n}\n```\n"
         }
       },
       "questions": [
@@ -576,6 +889,28 @@
                 }
               ],
               "explanation": "The distinction is conceptual: an entity is tracked by identity over its lifecycle (an `Order` stays the same order when lines change), while a value object is interchangeable with any other instance with the same attributes (`Money(10, \"EUR\")`) and is replaced, not mutated. Option 1 confuses the model with its mapping: value objects can be stored in their own table (EF Core owned collections) and entities can share a table (table splitting). Option 2 confuses semantics with implementation: a `record class` is a fine value object, and structs are only a performance choice. Option 4 is backwards: value objects are the best place for behaviour and validation (`Money.Add` enforcing currency, `EmailAddress` validating its format on construction)."
+            },
+            "uk": {
+              "prompt": "У чому фундаментальна відмінність між entity і value object у DDD?",
+              "options": [
+                {
+                  "text": "Entity має власну таблицю в базі даних, а value object зберігається inline, тож розрізнення визначається мапінгом персистентності.",
+                  "correct": false
+                },
+                {
+                  "text": "Entity — це змінюваний клас, а value object — struct, тож розрізнення визначається видом типу в CLR.",
+                  "correct": false
+                },
+                {
+                  "text": "Entity має ідентичність, яка переживає зміни стану; value object визначається своїми атрибутами, порівнюється за значенням і незмінний.",
+                  "correct": true
+                },
+                {
+                  "text": "Entity містить поведінку, а value object — пасивний контейнер даних, що не повинен містити жодних методів чи логіки валідації.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Розрізнення концептуальне: entity відстежується за ідентичністю впродовж свого життєвого циклу (`Order` лишається тим самим замовленням, коли змінюються рядки), а value object взаємозамінний з будь-яким іншим екземпляром з тими самими атрибутами (`Money(10, \"EUR\")`) і замінюється, а не змінюється. Варіант 1 плутає модель з її мапінгом: value objects можна зберігати в окремій таблиці (owned collections в EF Core), а entities можуть ділити таблицю (table splitting). Варіант 2 плутає семантику з реалізацією: `record class` — чудовий value object, а structs — лише вибір з міркувань продуктивності. Варіант 4 — навпаки: value objects — найкраще місце для поведінки та валідації (`Money.Add` перевіряє валюту, `EmailAddress` валідує свій формат під час конструювання)."
             }
           }
         },
@@ -611,6 +946,28 @@
                 }
               ],
               "explanation": "Aggregates are consistency boundaries sized around invariants that must hold transactionally. Vernon's rules: keep aggregates small, reference other aggregates by identity, modify one per transaction, and use eventual consistency (domain events) across them. The order can check a credit snapshot or call a domain service; reserving credit then happens as a reaction to `OrderPlaced`, with compensation if it fails. Option 1 creates a giant aggregate: loading a customer means loading every order, and every order placement contends on the same root, so concurrency conflicts explode. Option 2 is the convenience path that makes boundaries meaningless: two roots changed together means two consistency boundaries pretending to be one, and locking/contention follows. Option 3 confuses aggregates with tables; `OrderLine` is inside the `Order` boundary precisely so that order-level invariants (no duplicate lines, total limits) are enforced atomically."
+            },
+            "uk": {
+              "prompt": "Оформлення `Order` має враховувати кредитний ліміт клієнта, що зберігається в aggregate `Customer`. Розробник пропонує дати `Order` навігаційну властивість `Customer` і оновлювати `Customer.AvailableCredit` та замовлення в одному `SaveChanges`. Яке правило проєктування aggregates тут застосовується?",
+              "options": [
+                {
+                  "text": "Об'єднати їх: зробити `Customer` aggregate root, що володіє всіма своїми замовленнями, щоб кредитний інваріант забезпечувався в межах однієї межі.",
+                  "correct": false
+                },
+                {
+                  "text": "Прийняти пропозицію: aggregates — це концепція сторони читання, і запис кількох із них в одній транзакції — нормальний спосіб тримати інваріанти.",
+                  "correct": false
+                },
+                {
+                  "text": "Натомість розділити за таблицями: кожна таблиця — окремий aggregate, тож `OrderLine` і `Order` також слід зберігати в окремих транзакціях.",
+                  "correct": false
+                },
+                {
+                  "text": "Посилатися на інші aggregates за id і змінювати один aggregate за транзакцію; перевіряти кредит через domain service, а узгоджувати — eventually.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Aggregates — це межі консистентності, розмір яких визначається інваріантами, що мають виконуватися транзакційно. Правила Вернона: тримайте aggregates малими, посилайтеся на інші aggregates за ідентичністю, змінюйте один за транзакцію і використовуйте eventual consistency (domain events) між ними. Замовлення може перевірити знімок кредиту або викликати domain service; резервування кредиту відбувається як реакція на `OrderPlaced`, з компенсацією в разі невдачі. Варіант 1 створює гігантський aggregate: завантаження клієнта означає завантаження кожного замовлення, а кожне оформлення замовлення конкурує за той самий root, тож кількість конфліктів конкурентності вибухає. Варіант 2 — шлях зручності, що робить межі безглуздими: два roots, змінені разом, — це дві межі консистентності, які вдають одну, а за цим ідуть блокування й конкуренція. Варіант 3 плутає aggregates з таблицями; `OrderLine` перебуває всередині межі `Order` саме для того, щоб інваріанти рівня замовлення (жодних дубльованих рядків, обмеження суми) забезпечувалися атомарно."
             }
           }
         },
@@ -646,6 +1003,28 @@
                 }
               ],
               "explanation": "An anemic model has the shape of a domain model but none of its behaviour: entities are property bags and the rules live in procedural services, so nothing stops a caller from putting an object in an invalid state, and the same rule is re-implemented (and drifts) in several places. Option 2 is a stylistic choice; plenty of rich models use no base class. Option 3 is good practice in any architecture, not a symptom of anything. Option 4 is legitimate DDD: domain services exist for behaviour that does not belong to one entity. Note that an anemic model is a deliberate, valid choice for CRUD with no invariants; it becomes an anti-pattern when real rules exist and are scattered."
+            },
+            "uk": {
+              "prompt": "Що з наведеного — найочевидніший симптом anemic domain model?",
+              "options": [
+                {
+                  "text": "Entities мають публічні setters, а правила на кшталт \"редагувати можна лише чернетки\" повторно перевіряються в кількох сервісах, які встановлюють `order.Status`.",
+                  "correct": true
+                },
+                {
+                  "text": "Entities не успадковуються від спільного базового класу `Entity<TId>`, що надає спільну рівність за ідентичністю та обв'язку для domain events.",
+                  "correct": false
+                },
+                {
+                  "text": "Шар API повертає DTO замість прямої серіалізації доменних сутностей, що вимагає окремого кроку мапінгу в кожному endpoint.",
+                  "correct": false
+                },
+                {
+                  "text": "Модель містить domain service без стану для розрахунку ціни, який охоплює кілька aggregates і не належить жодному з них.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Anemic model має форму доменної моделі, але жодної її поведінки: entities — мішки властивостей, а правила живуть у процедурних сервісах, тож ніщо не заважає викликачу перевести об'єкт у невалідний стан, а те саме правило реалізується повторно (і розходиться) в кількох місцях. Варіант 2 — стилістичний вибір; чимало багатих моделей не використовують базового класу. Варіант 3 — добра практика в будь-якій архітектурі, а не симптом чого-небудь. Варіант 4 — легітимний DDD: domain services існують для поведінки, яка не належить одній entity. Зауважте, що anemic model — свідомий і валідний вибір для CRUD без інваріантів; anti-pattern він стає тоді, коли реальні правила існують і розпорошені."
             }
           }
         },
@@ -681,6 +1060,28 @@
                 }
               ],
               "explanation": "A bounded context is the boundary within which one model and one ubiquitous language are consistent. The same real-world person legitimately has different models in different contexts; they share an id and integrate through published events, an API, or an anti-corruption layer that translates. Option 1 is the 'enterprise canonical model' DDD argues against: every change negotiates with every team, and the class accumulates fields nobody else needs. A *shared kernel* is a deliberate, small exception, not the default. Option 3 couples Support to Billing's storage schema, so any Billing refactor breaks Support; DRY applies to knowledge, not to data copies across contexts. Option 4 treats a feature of the domain as a bug and produces a model that is consistent for nobody."
+            },
+            "uk": {
+              "prompt": "І Billing, і Support мають `Customer`. Billing потрібні VAT id і умови оплати; Support — рівень SLA і відкриті тікети. Який підхід узгоджується з bounded contexts у DDD?",
+              "options": [
+                {
+                  "text": "Створити один канонічний клас `Customer` у спільній бібліотеці, на яку посилаються обидві команди, щоб визначення не могло розійтися.",
+                  "correct": false
+                },
+                {
+                  "text": "Дати кожному контексту власну модель `Customer` і мову, ділячи лише id та інтегруючись через події або шар трансляції.",
+                  "correct": true
+                },
+                {
+                  "text": "Дозволити Support напряму запитувати таблиці бази даних Billing, бо дані клієнта там уже є, а їх дублювання порушує DRY.",
+                  "correct": false
+                },
+                {
+                  "text": "Об'єднати Billing і Support в один bounded context, бо дві моделі для того самого поняття реального світу — це помилка моделювання.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Bounded context — це межа, в якій одна модель і одна ubiquitous language узгоджені. Та сама людина в реальному світі легітимно має різні моделі в різних контекстах; вони ділять id та інтегруються через опубліковані події, API або anti-corruption layer, що транслює. Варіант 1 — це \"корпоративна канонічна модель\", проти якої виступає DDD: кожну зміну доводиться узгоджувати з кожною командою, а клас накопичує поля, які більше нікому не потрібні. *Shared kernel* — свідомий, невеликий виняток, а не поведінка за замовчуванням. Варіант 3 зв'язує Support зі схемою зберігання Billing, тож будь-який рефакторинг Billing ламає Support; DRY стосується знань, а не копій даних між контекстами. Варіант 4 трактує особливість домену як баг і дає модель, яка не узгоджена ні для кого."
             }
           }
         },
@@ -716,6 +1117,28 @@
                 }
               ],
               "explanation": "Dispatching before `base.SaveChangesAsync` means handler changes to tracked entities join the same unit of work and commit or fail atomically with the aggregate. That is the reason to dispatch there. But anything a handler does *outside* the database (email, HTTP, message publish) is not transactional, so a failed save leaves a side effect for a state that was never committed. The rule: pre-commit handlers only touch the same unit of work; external side effects run after commit, reliably via an outbox. Option 1 overstates it: only database changes tracked by the context are rolled back; SMTP is not enlisted. Option 2 is wrong because EF Core has no concept of domain events; dispatch timing is whatever your override does. Option 4 invents behaviour: the change tracker knows nothing about email, and `EnableRetryOnFailure` retries transient failures, not concurrency conflicts."
+            },
+            "uk": {
+              "prompt": "Команда диспетчеризує domain events з перевизначеного `SaveChangesAsync` *перед* викликом `base.SaveChangesAsync`. Один handler оновлює іншу entity; інший надсилає вітальний email через SMTP. Потім фінальне збереження падає через конфлікт конкурентності. Яким буде результат?",
+              "options": [
+                {
+                  "text": "Ефекти обох handlers відкочуються, бо domain events автоматично беруть участь у транзакції EF Core.",
+                  "correct": false
+                },
+                {
+                  "text": "Жоден handler ще не виконався, бо EF Core відкладає handlers domain events до коміту транзакції.",
+                  "correct": false
+                },
+                {
+                  "text": "Оновлення entity втрачається разом з невдалим збереженням, але email уже надіслано щодо зміни, яка так і не відбулася.",
+                  "correct": true
+                },
+                {
+                  "text": "Email ставиться в чергу change tracker'ом EF Core і відкидається, а оновлення entity автоматично повторюється execution strategy.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Диспетчеризація перед `base.SaveChangesAsync` означає, що зміни handlers у відстежуваних entities потрапляють у той самий unit of work і комітяться або падають атомарно разом з aggregate. Саме заради цього диспетчеризують там. Але все, що handler робить *поза* базою даних (email, HTTP, публікація повідомлення), не транзакційне, тож невдале збереження лишає побічний ефект для стану, який так і не було закомічено. Правило: handlers до коміту торкаються лише того самого unit of work; зовнішні побічні ефекти виконуються після коміту, надійно — через outbox. Варіант 1 перебільшує: відкочуються лише зміни в базі, які відстежує контекст; SMTP у транзакції не бере участі. Варіант 2 хибний, бо EF Core не має поняття domain events; момент диспетчеризації такий, який визначає ваше перевизначення. Варіант 4 вигадує поведінку: change tracker нічого не знає про email, а `EnableRetryOnFailure` повторює транзієнтні збої, а не конфлікти конкурентності."
             }
           }
         },
@@ -740,6 +1163,17 @@
                 "Describes cross-aggregate consistency via domain events and eventual consistency, including what happens on failure (compensation or retry), and distinguishes in-process domain events from integration events.",
                 "Mentions concurrency control on the aggregate root (optimistic concurrency token/row version) to prevent lost updates."
               ]
+            },
+            "uk": {
+              "prompt": "Що таке aggregate і aggregate root? Як ви визначаєте межі aggregate, як забезпечуються інваріанти і як підтримувати узгодженість двох aggregates між собою?",
+              "explanation": "Еталонна відповідь: aggregate — це кластер entities і value objects, що утворює одну межу консистентності; root — єдина точка входу, тож усі зміни йдуть через методи, які забезпечують інваріанти (жодних публічних setters, приватні колекції). Межі визначаються справжніми інваріантами, що мають виконуватися наприкінці кожної транзакції, а не навігацією чи структурою таблиць; тримайте їх малими, щоб зменшити конкуренцію та вартість завантаження. На інші aggregates посилаються за id, і за транзакцію змінюється один aggregate. Узгодженість між aggregates — eventual: root фіксує domain events (`OrderPlaced`), на які реагують in-process handlers або, між сервісами, integration events через outbox, з компенсаційними діями, якщо пізніший крок падає. Optimistic concurrency (версія або row version `xmin`) захищає root від втрачених оновлень.",
+              "rubric": [
+                "Визначає aggregate як межу консистентності з єдиним root як єдиною точкою входу і пояснює, що інваріанти забезпечуються методами root (інкапсульований стан, жодних публічних setters).",
+                "Пояснює, що межі обирають навколо інваріантів, які мають бути транзакційно узгоджені, а не за структурою таблиць чи навігацією об'єктів, і обґрунтовує малі aggregates (конкуренція, обсяг завантаження).",
+                "Формулює правила посилання на інші aggregates за id і зміни одного aggregate за транзакцію.",
+                "Описує узгодженість між aggregates через domain events і eventual consistency, включно з тим, що відбувається в разі збою (компенсація чи повтор), і розрізняє in-process domain events та integration events.",
+                "Згадує контроль конкурентності на aggregate root (optimistic concurrency token/row version) для запобігання втраченим оновленням."
+              ]
             }
           }
         }
@@ -753,6 +1187,10 @@
         "en": {
           "title": "CQRS and the Mediator Pattern",
           "note": "## What it is\n\n**CQS** (Bertrand Meyer) is a method-level rule: a method either changes state (command) or returns data (query), not both. **CQRS** (Greg Young) lifts that split to the architecture: separate models, and possibly separate stores, for writes and reads. The **Mediator** pattern (and the MediatR library) is an in-process dispatch mechanism often used to implement it. The three are independent: you can do CQRS without MediatR, and MediatR without CQRS.\n\n## The spectrum of CQRS\n\n1. **Same database, separate code paths.** Commands load aggregates through the domain model and save; queries skip the domain and project straight to DTOs (`AsNoTracking().Select(...)`, Dapper, a SQL view). This is where most of the value is, at almost no cost.\n2. **Separate read models in the same database.** Denormalised tables or materialised views updated in the same transaction, or by triggers/handlers.\n3. **Separate read store.** Projections built asynchronously from domain events into a search index, a document store or a cache. Now reads are *eventually consistent*, and you must design for it (read-your-own-writes, version checks, UI that tolerates lag).\n4. **With Event Sourcing.** The write model *is* an event stream; read models are projections. CQRS does not require Event Sourcing, but Event Sourcing practically requires CQRS.\n\n## When CQRS helps\n\n- The write side has real invariants (aggregates) while reads need a very different shape (dashboards joining six tables, search, aggregates by period).\n- Reads vastly outnumber writes and need independent scaling or caching.\n- Different teams or performance profiles for each side.\n\n## When it is ceremony\n\n- CRUD where the read shape equals the write shape. A `GetOrderQuery` + handler + validator + DTO + mapping profile per endpoint, all forwarding to the same `DbSet`, is four files of indirection for zero decoupling.\n- Separate stores introduced before any read-performance problem exists: you pay for eventual consistency, projection rebuilds and monitoring forever.\n\n## Mediator and MediatR\n\nThe mediator decouples a sender from the handler type: an endpoint calls `mediator.Send(new PlaceOrder(...))` and never names the handler. The real feature is the **pipeline behaviour**: cross-cutting logic (validation, logging, transactions, caching) wrapped around every handler in one place. Costs: the call graph is no longer navigable with \"go to definition\", handlers calling `Send` inside other handlers create hidden coupling and re-run the pipeline (nested transactions), and request objects become a second contract next to the HTTP one. Note: MediatR moved to a commercial licence from version 13 (2025); earlier versions remain open source. Alternatives are direct handler injection, source-generated mediators, or the endpoint framework's own pre/post processors (FastEndpoints).\n\n## What an interviewer probes\n\n- \"CQS vs CQRS?\" Method-level vs architecture-level.\n- \"Does CQRS mean two databases?\" No; that is one end of a spectrum.\n- \"User creates an item and the list does not show it. Why, and what do you do?\" Eventual consistency of the read model; return the created resource, read from the write side for the author, or wait for a projection version.\n- \"What do you lose with MediatR?\" Navigability, explicit dependencies; and it is not a message bus: nothing is persisted or retried.\n\n## Common misconceptions\n\n- \"MediatR is CQRS.\" It is a dispatcher; the split is a modelling decision.\n- \"Queries must go through repositories and the domain model.\" Read paths should be as direct as possible.\n- \"Commands must return void.\" Returning the new id or a version is pragmatic and supports read-your-own-writes.\n\n```csharp\n// Write side: aggregate, invariants, one transaction.\npublic sealed class PlaceOrderHandler(ShopDbContext db)\n{\n    public async Task<Guid> Handle(PlaceOrder cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        return order.Id.Value;\n    }\n}\n\n// Read side: no domain model, no tracking, shaped for the screen.\npublic sealed class OrderListQuery(ShopDbContext db)\n{\n    public Task<List<OrderRow>> Handle(Guid customerId, CancellationToken ct) =>\n        db.Orders.AsNoTracking()\n          .Where(o => o.CustomerId == new CustomerId(customerId))\n          .OrderByDescending(o => o.PlacedAt)\n          .Select(o => new OrderRow(o.Id.Value, o.PlacedAt, o.Lines.Sum(l => l.Quantity)))\n          .ToListAsync(ct);\n}\n```\n"
+        },
+        "uk": {
+          "title": "CQRS і патерн Mediator",
+          "note": "## Що це\n\n**CQS** (Bertrand Meyer) — правило рівня методу: метод або змінює стан (command), або повертає дані (query), але не те й інше разом. **CQRS** (Greg Young) піднімає цей поділ на рівень архітектури: окремі моделі, а можливо й окремі сховища, для запису та читання. Патерн **Mediator** (і бібліотека MediatR) — механізм in-process диспетчеризації, яким часто це реалізують. Ці три речі незалежні: можна робити CQRS без MediatR і MediatR без CQRS.\n\n## Спектр CQRS\n\n1. **Та сама база даних, окремі шляхи коду.** Commands завантажують aggregates через доменну модель і зберігають; queries оминають домен і проєктують дані прямо в DTO (`AsNoTracking().Select(...)`, Dapper, SQL view). Саме тут більша частина цінності — майже без витрат.\n2. **Окремі read models у тій самій базі.** Денормалізовані таблиці або materialized views, які оновлюються в тій самій транзакції або тригерами/handlers.\n3. **Окреме сховище для читання.** Проєкції, які асинхронно будуються з domain events у пошуковий індекс, документне сховище чи кеш. Тепер читання *eventually consistent*, і під це треба проєктувати (read-your-own-writes, перевірки версій, UI, що терпить затримку).\n4. **З Event Sourcing.** Модель запису *і є* потоком подій; read models — проєкції. CQRS не вимагає Event Sourcing, але Event Sourcing практично вимагає CQRS.\n\n## Коли CQRS допомагає\n\n- Сторона запису має реальні інваріанти (aggregates), а читанню потрібна зовсім інша форма (дашборди з join шести таблиць, пошук, агрегати за періодами).\n- Читань значно більше, ніж записів, і їм потрібне незалежне масштабування чи кешування.\n- Різні команди або профілі продуктивності для кожної сторони.\n\n## Коли це церемонія\n\n- CRUD, де форма читання збігається з формою запису. `GetOrderQuery` + handler + validator + DTO + mapping profile на кожен endpoint, і все це переадресовує в той самий `DbSet`, — чотири файли непрямості з нульовою розв'язкою.\n- Окремі сховища, введені ще до того, як з'явилася будь-яка проблема з продуктивністю читання: ви назавжди платите за eventual consistency, перебудову проєкцій і моніторинг.\n\n## Mediator і MediatR\n\nMediator відв'язує відправника від типу handler: endpoint викликає `mediator.Send(new PlaceOrder(...))` і ніколи не називає handler. Справжня фіча — **pipeline behaviour**: наскрізна логіка (валідація, logging, транзакції, кешування), обгорнута навколо кожного handler в одному місці. Ціна: граф викликів більше не навігується через \"go to definition\", handlers, що викликають `Send` всередині інших handlers, створюють приховану зв'язність і повторно проганяють pipeline (вкладені транзакції), а об'єкти запитів стають другим контрактом поруч з HTTP-контрактом. Зауваження: MediatR перейшов на комерційну ліцензію з версії 13 (2025); попередні версії лишаються open source. Альтернативи — пряма ін'єкція handlers, mediators на source generators або власні pre/post processors фреймворку endpoints (FastEndpoints).\n\n## Що перевіряє інтерв'юер\n\n- \"CQS чи CQRS?\" Рівень методу проти рівня архітектури.\n- \"CQRS означає дві бази даних?\" Ні; це лише один край спектра.\n- \"Користувач створює елемент, а список його не показує. Чому і що робити?\" Eventual consistency read model; повернути створений ресурс, читати зі сторони запису для автора або чекати на версію проєкції.\n- \"Що ви втрачаєте з MediatR?\" Навігованість, явні залежності; і це не message bus: нічого не зберігається і не повторюється.\n\n## Поширені хибні уявлення\n\n- \"MediatR — це CQRS.\" Це dispatcher; поділ — рішення моделювання.\n- \"Queries мають іти через репозиторії та доменну модель.\" Шляхи читання мають бути якомога прямішими.\n- \"Commands мають повертати void.\" Повернення нового id або версії — прагматично й підтримує read-your-own-writes.\n\n```csharp\n// Write side: aggregate, invariants, one transaction.\npublic sealed class PlaceOrderHandler(ShopDbContext db)\n{\n    public async Task<Guid> Handle(PlaceOrder cmd, CancellationToken ct)\n    {\n        var order = Order.Create(cmd.CustomerId, cmd.Lines);\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        return order.Id.Value;\n    }\n}\n\n// Read side: no domain model, no tracking, shaped for the screen.\npublic sealed class OrderListQuery(ShopDbContext db)\n{\n    public Task<List<OrderRow>> Handle(Guid customerId, CancellationToken ct) =>\n        db.Orders.AsNoTracking()\n          .Where(o => o.CustomerId == new CustomerId(customerId))\n          .OrderByDescending(o => o.PlacedAt)\n          .Select(o => new OrderRow(o.Id.Value, o.PlacedAt, o.Lines.Sum(l => l.Quantity)))\n          .ToListAsync(ct);\n}\n```\n"
         }
       },
       "questions": [
@@ -788,6 +1226,28 @@
                 }
               ],
               "explanation": "CQS (Meyer) is a method-level rule: a method either mutates state or returns a value, so asking a question never changes the answer. CQRS (Young) applies the same separation to the system's models: commands go through a write model that enforces invariants, queries go through a read model shaped for consumers, possibly but not necessarily in a different store. Option 1 erases the scope difference that is the whole point. Option 2 is wrong on both halves: CQS covers both commands and queries, and CQRS needs no message bus. Option 4 is the most common misconception: CQRS works in one database with two code paths, and Event Sourcing is an optional companion, not part of the definition."
+            },
+            "uk": {
+              "prompt": "У чому різниця між CQS і CQRS?",
+              "options": [
+                {
+                  "text": "Це той самий принцип; CQRS — лише новіша назва, яку Greg Young дав CQS Мейєра, коли той став популярним у .NET.",
+                  "correct": false
+                },
+                {
+                  "text": "CQS стосується лише queries, а CQRS поширює ту саму ідею на commands, маршрутизуючи їх через message bus.",
+                  "correct": false
+                },
+                {
+                  "text": "CQS відокремлює commands від queries на рівні методу; CQRS застосовує цей поділ архітектурно — як окремі моделі читання й запису.",
+                  "correct": true
+                },
+                {
+                  "text": "CQS — in-process версія ідеї, тоді як CQRS за визначенням вимагає Event Sourcing плюс окремої бази даних для читання, що зберігає проєкції.",
+                  "correct": false
+                }
+              ],
+              "explanation": "CQS (Meyer) — правило рівня методу: метод або змінює стан, або повертає значення, тож поставлене питання ніколи не змінює відповідь. CQRS (Young) застосовує той самий поділ до моделей системи: commands проходять через модель запису, що забезпечує інваріанти, queries — через модель читання, сформовану під споживачів, можливо, але не обов'язково, в іншому сховищі. Варіант 1 стирає різницю в масштабі, у якій і полягає вся суть. Варіант 2 хибний в обох половинах: CQS охоплює і commands, і queries, а CQRS не потребує message bus. Варіант 4 — найпоширеніше хибне уявлення: CQRS працює в одній базі з двома шляхами коду, а Event Sourcing — необов'язковий супутник, а не частина визначення."
             }
           }
         },
@@ -823,6 +1283,28 @@
                 }
               ],
               "explanation": "CQRS pays off when the two sides genuinely differ: the write side needs an aggregate model with invariants, the read side needs denormalised, join-heavy or search-shaped data and different scaling. Separating them lets each be optimised without compromising the other. Option 1 is the ceremony case: identical read and write shapes gain nothing from two models, and uniformity is not a benefit by itself. Option 3 is unrelated: ACID comes from the database transaction, and a separate read store actually *loses* immediate consistency for reads. Option 4 is speculative architecture: you pay for eventual consistency, projections and extra code from day one for a scaling problem you may never have."
+            },
+            "uk": {
+              "prompt": "У якій ситуації CQRS (окремі моделі читання та запису) дає найочевиднішу користь?",
+              "options": [
+                {
+                  "text": "Екран налаштувань, де користувачі редагують і переглядають ті самі п'ять полів, а команда хоче, щоб кожен endpoint виглядав абсолютно однаково.",
+                  "correct": false
+                },
+                {
+                  "text": "Система замовлень з багатими інваріантами на стороні запису, тоді як читання — це високонавантажені дашборди й пошук іншої форми.",
+                  "correct": true
+                },
+                {
+                  "text": "Будь-яка система, якій потрібні ACID-транзакції, бо розділення моделей — це те, як реляційні бази гарантують атомарність.",
+                  "correct": false
+                },
+                {
+                  "text": "Новий сервіс, який ще не має трафіку, — щоб він був готовий до масштабування ще до появи першої проблеми з продуктивністю.",
+                  "correct": false
+                }
+              ],
+              "explanation": "CQRS окупається, коли дві сторони справді відрізняються: стороні запису потрібна модель aggregates з інваріантами, стороні читання — денормалізовані дані, дані з великою кількістю join або у формі для пошуку, а також інше масштабування. Розділення дає змогу оптимізувати кожну, не жертвуючи іншою. Варіант 1 — випадок церемонії: ідентичні форми читання й запису нічого не виграють від двох моделей, а однаковість сама по собі не є перевагою. Варіант 3 не пов'язаний із темою: ACID забезпечує транзакція бази даних, а окреме сховище для читання якраз *втрачає* негайну узгодженість читань. Варіант 4 — спекулятивна архітектура: ви з першого дня платите за eventual consistency, проєкції та додатковий код заради проблеми масштабування, якої може ніколи не бути."
             }
           }
         },
@@ -858,6 +1340,28 @@
                 }
               ],
               "explanation": "MediatR is an in-process mediator: `Send` resolves the handler for the request type from the DI container and invokes it synchronously within the same call, wrapped by any registered `IPipelineBehavior<,>` (validation, logging, transactions). The win is decoupling plus one place for cross-cutting concerns; the cost is indirection (no 'go to definition' from caller to handler) and a second contract next to the HTTP one. Option 1 confuses a dispatch mechanism with a modelling decision; you can send a request that both mutates and returns everything, which is not CQRS. Option 2 confuses a mediator with a message broker: nothing is persisted, and a crash loses the in-flight request. Option 4 is wrong because MediatR resolves handlers *from* the container (`AddMediatR` scans and registers them)."
+            },
+            "uk": {
+              "prompt": "Команда впроваджує MediatR, щоб контролери викликали `mediator.Send(command)` замість сервісів. Яке твердження про цю зміну точне?",
+              "options": [
+                {
+                  "text": "Сама по собі вона реалізує CQRS, бо кожен запит тепер класифікується як об'єкт command або query.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона робить обробку commands надійною: запити ставляться в in-process чергу, тож у разі падіння посеред handler command повториться після перезапуску.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона прибирає потребу в DI-реєстрації, бо mediator знаходить і конструює handlers без контейнера.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона відв'язує викликачів від типів handlers і вмикає pipeline behaviours для наскрізних задач, але ховає граф викликів.",
+                  "correct": true
+                }
+              ],
+              "explanation": "MediatR — in-process mediator: `Send` резолвить handler для типу запиту з DI-контейнера й синхронно викликає його в межах того самого виклику, обгорнувши будь-якими зареєстрованими `IPipelineBehavior<,>` (валідація, logging, транзакції). Виграш — розв'язка плюс одне місце для наскрізних задач; ціна — непрямість (немає \"go to definition\" від викликача до handler) і другий контракт поруч з HTTP-контрактом. Варіант 1 плутає механізм диспетчеризації з рішенням моделювання; можна надіслати запит, який і змінює стан, і повертає все, а це не CQRS. Варіант 2 плутає mediator з message broker: нічого не зберігається, а падіння втрачає запит, що обробляється. Варіант 3 хибний, бо MediatR резолвить handlers *з* контейнера (`AddMediatR` сканує та реєструє їх)."
             }
           }
         },
@@ -893,6 +1397,28 @@
                 }
               ],
               "explanation": "With an asynchronous projection, the read side lags the write side by design. The fix is to handle the author's own write explicitly: the command returns the id and a version, and the client either renders the created item from the command response or polls/waits until the read model's checkpoint has passed that version (some systems route the author's next read to the write side). Option 2 brings back two-phase commit across stores, giving up the availability and scaling CQRS was introduced for; most document stores and brokers do not support it anyway. Option 3 misdiagnoses: the data is not in the read store yet, so cache headers change nothing. Option 4 is impossible: the projection consumes events the write side produces, so it cannot run before them."
+            },
+            "uk": {
+              "prompt": "Read models асинхронно проєктуються з domain events в окреме сховище. Користувачі скаржаться, що після створення проєкту їх перенаправляє на список, а нового проєкту там немає секунду-дві. Яке виправлення відповідає архітектурі?",
+              "options": [
+                {
+                  "text": "Read-your-own-writes: command повертає новий елемент і його версію; UI показує його або чекає, доки проєкція наздожене.",
+                  "correct": true
+                },
+                {
+                  "text": "Оновлювати базу запису й сховище читання в одній розподіленій транзакції, щоб обидва атомарно комітилися на кожній command.",
+                  "correct": false
+                },
+                {
+                  "text": "Вимкнути HTTP-кешування на endpoint списку, бо застарілий результат, найімовірніше, походить з відповіді, закешованої браузером.",
+                  "correct": false
+                },
+                {
+                  "text": "Змусити handler проєкції виконуватися перед command handler, щоб read model завжди оновлювалася раніше за модель запису.",
+                  "correct": false
+                }
+              ],
+              "explanation": "З асинхронною проєкцією сторона читання за задумом відстає від сторони запису. Виправлення — явно обробити власний запис автора: command повертає id і версію, а клієнт або рендерить створений елемент з відповіді command, або опитує/чекає, доки checkpoint read model не пройде цю версію (деякі системи спрямовують наступне читання автора на сторону запису). Варіант 2 повертає two-phase commit між сховищами, відмовляючись від доступності й масштабування, заради яких запроваджували CQRS; більшість документних сховищ і брокерів його і так не підтримує. Варіант 3 ставить хибний діагноз: даних у сховищі читання ще немає, тож заголовки кешування нічого не змінять. Варіант 4 неможливий: проєкція споживає події, які породжує сторона запису, тож не може виконатися раніше за них."
             }
           }
         },
@@ -917,6 +1443,17 @@
                 "Positions MediatR correctly: optional in-process dispatcher with pipeline behaviours, not a durable message bus, with costs such as indirection or hidden coupling.",
                 "Explains consequences of an asynchronous read store: eventual consistency, read-your-own-writes handling, projection rebuild and idempotency, lag monitoring."
               ]
+            },
+            "uk": {
+              "prompt": "Коли ви запровадили б CQRS у .NET-сервісі, а коли це лише церемонія? Розкажіть про різні рівні CQRS, роль (якщо вона є) MediatR і наслідки окремого сховища для читання.",
+              "explanation": "Еталонна відповідь: CQRS відокремлює модель запису (aggregates, інваріанти, одна транзакція) від моделі читання (проєкції, сформовані під екрани). Він існує у спектрі: окремі шляхи коду на одній базі (queries використовують проєкції з `AsNoTracking`, Dapper або views), денормалізовані таблиці читання в тій самій базі, асинхронно спроєктоване окреме сховище і Event Sourcing на дальньому краю. Запроваджуйте його, коли інваріанти запису й форми читання справді розходяться або читанню потрібне незалежне масштабування; це церемонія для CRUD, де обидві форми збігаються, особливо у вигляді query/handler/validator/mapper на кожен endpoint. MediatR необов'язковий: це in-process dispatcher, справжня цінність якого — pipeline behaviours; він не є bus, нічого не зберігає, ховає граф викликів і з v13 має комерційну ліцензію. Окреме сховище для читання означає eventual consistency: проєктуйте read-your-own-writes, перебудову проєкцій, ідемпотентні handlers проєкцій і моніторинг затримки.",
+              "rubric": [
+                "Визначає CQRS як окремі моделі запису й читання та відрізняє його від CQS (рівень методу) і від Event Sourcing (необов'язковий, не вимагається).",
+                "Описує щонайменше два рівні спектра, включно з дешевим (та сама база, queries оминають доменну модель через no-tracking проєкції або raw SQL).",
+                "Наводить конкретні критерії, коли це допомагає (різні форми читання/запису, багаті інваріанти запису, масштабування читання) і коли це церемонія (CRUD з однаковими формами, boilerplate на кожен endpoint).",
+                "Коректно позиціонує MediatR: необов'язковий in-process dispatcher з pipeline behaviours, а не надійний message bus, з такими витратами, як непрямість чи прихована зв'язність.",
+                "Пояснює наслідки асинхронного сховища для читання: eventual consistency, обробка read-your-own-writes, перебудова та ідемпотентність проєкцій, моніторинг затримки."
+              ]
             }
           }
         }
@@ -930,6 +1467,10 @@
         "en": {
           "title": "Vertical Slice Architecture and REPR",
           "note": "## What it is\n\nVertical Slice Architecture (popularised by Jimmy Bogard) organises code **by feature / use case** instead of by technical layer. A slice contains everything one request needs: the request and response types, validation, the handler, data access and mapping. The guiding rule: *minimise coupling between slices, maximise coupling within a slice*. Each slice may choose its own implementation: one uses EF Core with the domain model, another uses raw SQL for a report.\n\n**REPR** (Request-Endpoint-Response, coined by Steve Smith) is the endpoint-level counterpart: one class per operation with its own request and response types, instead of a controller with twelve actions sharing constructor dependencies. FastEndpoints and minimal APIs grouped by feature are the usual .NET implementations.\n\n## How it works in practice\n\n```\nFeatures/\n  Orders/\n    PlaceOrder/        PlaceOrderEndpoint.cs, PlaceOrderRequest.cs, PlaceOrderValidator.cs\n    GetOrderById/      GetOrderByIdEndpoint.cs, OrderDetailsResponse.cs\n  Invoices/\n    ExportInvoices/    ...\nDomain/                Order.cs, Money.cs     (shared rules, when they really are shared)\nInfrastructure/        ShopDbContext.cs       (shared technical plumbing)\n```\n\nA change to \"place order\" touches one folder. Deleting a feature deletes a folder. Code review sees the whole use case in one diff.\n\n## Trade-offs against Clean Architecture\n\n- **Clean / layered** optimises for *protecting a shared domain model* and keeping infrastructure out of it; a feature change touches Api, Application, Domain and Infrastructure.\n- **Vertical slice** optimises for *change locality*; abstractions are introduced per slice only when needed, so simple slices stay simple.\n- They are not mutually exclusive. A common mature shape: slices for the application layer, a real domain model in the centre for the rules that span features, infrastructure shared underneath. This repository's API (FastEndpoints feature folders over Domain/Application/Infrastructure projects) is a hybrid of exactly that kind.\n\n## What goes wrong\n\n- **Transaction-script sprawl.** Without a domain model, the same rule (\"a cancelled order cannot be shipped\") is re-implemented in five handlers and drifts. The remedy is to push the rule *down* into the domain when the second slice needs it, not to create a shared service layer.\n- **Cross-slice calls.** Slice A invoking slice B's handler (often via `mediator.Send`) re-creates hidden coupling. Share the domain model or a small query, not handlers.\n- **Inconsistency.** Every slice \"chooses its own implementation\" can become every slice looks different. Conventions, templates and architecture tests keep slices recognisable.\n- **Premature de-duplication.** Two similar queries in two slices are fine; they may diverge tomorrow. Extract when the *knowledge* is the same, not when the *code* looks the same.\n\n## What an interviewer probes\n\n- \"Vertical slice vs Clean Architecture: which and why?\"\n- \"What is REPR, and what is wrong with fat controllers?\" (Shared constructor dependencies, unrelated actions coupled, huge files.)\n- \"Where do business rules live in a slice-based app?\" (In the handler for simple ones; in the domain model once shared.)\n- \"How do you stop slices calling each other?\"\n\n## Common misconceptions\n\n- \"VSA means no shared code.\" Shared domain and infrastructure are normal; shared *application flow* is what VSA avoids.\n- \"VSA requires MediatR.\" Endpoints can contain or directly call their handler.\n- \"VSA means microservices per feature.\" It is a code-organisation style inside one deployable.\n\n```csharp\n// Features/Orders/PlaceOrder/PlaceOrderEndpoint.cs: one REPR slice in FastEndpoints.\npublic sealed record PlaceOrderRequest(Guid CustomerId, List<LineDto> Lines);\npublic sealed record PlaceOrderResponse(Guid OrderId);\n\npublic sealed class PlaceOrderEndpoint(ShopDbContext db)\n    : Endpoint<PlaceOrderRequest, PlaceOrderResponse>\n{\n    public override void Configure() => Post(\"/orders\");\n\n    public override async Task HandleAsync(PlaceOrderRequest req, CancellationToken ct)\n    {\n        var order = Order.Create(new CustomerId(req.CustomerId),\n                                 req.Lines.Select(l => l.ToDomain()));   // rules in the domain\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        await Send.OkAsync(new PlaceOrderResponse(order.Id.Value), ct);\n    }\n}\n```\n"
+        },
+        "uk": {
+          "title": "Vertical Slice Architecture і REPR",
+          "note": "## Що це\n\nVertical Slice Architecture (популяризована Джиммі Богардом) організовує код **за фічами / use cases**, а не за технічними шарами. Slice містить усе, що потрібно одному запиту: типи запиту й відповіді, валідацію, handler, доступ до даних і мапінг. Керівне правило: *мінімізувати зв'язність між slices, максимізувати зв'язність усередині slice*. Кожен slice може обирати власну реалізацію: один використовує EF Core з доменною моделлю, інший — raw SQL для звіту.\n\n**REPR** (Request-Endpoint-Response, термін Стіва Сміта) — відповідник на рівні endpoint: один клас на операцію з власними типами запиту й відповіді замість контролера з дванадцятьма actions, що ділять залежності конструктора. FastEndpoints і minimal APIs, згруповані за фічами, — типові реалізації в .NET.\n\n## Як це працює на практиці\n\n```\nFeatures/\n  Orders/\n    PlaceOrder/        PlaceOrderEndpoint.cs, PlaceOrderRequest.cs, PlaceOrderValidator.cs\n    GetOrderById/      GetOrderByIdEndpoint.cs, OrderDetailsResponse.cs\n  Invoices/\n    ExportInvoices/    ...\nDomain/                Order.cs, Money.cs     (shared rules, when they really are shared)\nInfrastructure/        ShopDbContext.cs       (shared technical plumbing)\n```\n\nЗміна \"оформлення замовлення\" зачіпає одну теку. Видалення фічі — це видалення теки. Code review бачить увесь use case в одному diff.\n\n## Компроміси порівняно з Clean Architecture\n\n- **Clean / шарова** оптимізує *захист спільної доменної моделі* і не пускає в неї інфраструктуру; зміна фічі зачіпає Api, Application, Domain та Infrastructure.\n- **Vertical slice** оптимізує *локальність змін*; абстракції вводяться в кожному slice лише за потреби, тож прості slices лишаються простими.\n- Вони не виключають одна одну. Поширена зріла форма: slices для шару застосунку, справжня доменна модель у центрі для правил, що охоплюють кілька фіч, і спільна інфраструктура під ними. API цього репозиторію (теки фіч FastEndpoints поверх проєктів Domain/Application/Infrastructure) — саме такий гібрид.\n\n## Що йде не так\n\n- **Розростання transaction scripts.** Без доменної моделі те саме правило (\"скасоване замовлення не можна відвантажити\") реалізується повторно в п'яти handlers і розходиться. Ліки — перенести правило *вниз*, у домен, коли воно знадобиться другому slice, а не створювати спільний шар сервісів.\n- **Виклики між slices.** Slice A, що викликає handler slice B (часто через `mediator.Send`), відтворює приховану зв'язність. Діліться доменною моделлю або невеликим запитом, а не handlers.\n- **Неузгодженість.** \"Кожен slice обирає власну реалізацію\" може перетворитися на \"кожен slice виглядає по-різному\". Конвенції, шаблони та архітектурні тести зберігають slices впізнаваними.\n- **Передчасна дедуплікація.** Два схожі запити у двох slices — це нормально; завтра вони можуть розійтися. Виносьте спільне, коли однакові *знання*, а не коли однаково виглядає *код*.\n\n## Що перевіряє інтерв'юер\n\n- \"Vertical slice чи Clean Architecture: що і чому?\"\n- \"Що таке REPR і що не так із товстими контролерами?\" (Спільні залежності конструктора, зв'язані між собою непов'язані actions, величезні файли.)\n- \"Де живуть бізнес-правила в застосунку на slices?\" (У handler — для простих; у доменній моделі — щойно вони стають спільними.)\n- \"Як не дати slices викликати один одного?\"\n\n## Поширені хибні уявлення\n\n- \"VSA означає жодного спільного коду.\" Спільні домен та інфраструктура — це нормально; VSA уникає саме спільного *потоку застосунку*.\n- \"VSA вимагає MediatR.\" Endpoints можуть містити свій handler або викликати його напряму.\n- \"VSA означає мікросервіс на кожну фічу.\" Це стиль організації коду всередині одного deployable.\n\n```csharp\n// Features/Orders/PlaceOrder/PlaceOrderEndpoint.cs: one REPR slice in FastEndpoints.\npublic sealed record PlaceOrderRequest(Guid CustomerId, List<LineDto> Lines);\npublic sealed record PlaceOrderResponse(Guid OrderId);\n\npublic sealed class PlaceOrderEndpoint(ShopDbContext db)\n    : Endpoint<PlaceOrderRequest, PlaceOrderResponse>\n{\n    public override void Configure() => Post(\"/orders\");\n\n    public override async Task HandleAsync(PlaceOrderRequest req, CancellationToken ct)\n    {\n        var order = Order.Create(new CustomerId(req.CustomerId),\n                                 req.Lines.Select(l => l.ToDomain()));   // rules in the domain\n        db.Orders.Add(order);\n        await db.SaveChangesAsync(ct);\n        await Send.OkAsync(new PlaceOrderResponse(order.Id.Value), ct);\n    }\n}\n```\n"
         }
       },
       "questions": [
@@ -965,6 +1506,28 @@
                 }
               ],
               "explanation": "VSA's organising axis is the use case: request, validation, handler, data access and response live together, coupling between slices is minimised, and each slice uses whatever implementation its complexity warrants. Layered/Clean organises by technical concern and protects a central domain model, so one feature change spreads across several projects. Option 1 is a common over-reading: shared domain models are normal in VSA; what it avoids is shared *application flow* (generic service layers). Option 2 confuses code organisation with deployment; slices live in one deployable. Option 4 is wrong: slices introduce abstractions when needed, they just do not mandate them up front."
+            },
+            "uk": {
+              "prompt": "У чому ключова відмінність між Vertical Slice Architecture і шаровою Clean Architecture?",
+              "options": [
+                {
+                  "text": "Vertical slices забороняють спільну доменну модель, тож кожне бізнес-правило має бути реалізоване всередині конкретного handler, що його використовує.",
+                  "correct": false
+                },
+                {
+                  "text": "Vertical slices розділяють систему на окремий мікросервіс для кожної фічі, тоді як Clean Architecture зберігає один deployable.",
+                  "correct": false
+                },
+                {
+                  "text": "Slices організовують код за фічами, тож use case змінюється в одному місці; шари організовують його за технічними задачами в кількох проєктах.",
+                  "correct": true
+                },
+                {
+                  "text": "Vertical slices прибирають усі абстракції всередині фічі, тоді як Clean Architecture — єдиний стиль, що дозволяє інтерфейси.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Організаційна вісь VSA — use case: запит, валідація, handler, доступ до даних і відповідь живуть разом, зв'язність між slices мінімізована, а кожен slice використовує ту реалізацію, якої вимагає його складність. Шарова/Clean організовує код за технічними задачами й захищає центральну доменну модель, тож зміна однієї фічі розтікається по кількох проєктах. Варіант 1 — поширене надмірне тлумачення: спільні доменні моделі — норма у VSA; уникає вона спільного *потоку застосунку* (generic шарів сервісів). Варіант 2 плутає організацію коду з розгортанням; slices живуть в одному deployable. Варіант 4 хибний: slices вводять абстракції за потреби, просто не вимагають їх наперед."
             }
           }
         },
@@ -1000,6 +1563,28 @@
                 }
               ],
               "explanation": "REPR (Steve Smith) stands for Request-Endpoint-Response. Each API operation is a small class with a dedicated request type, a single handler method and a dedicated response type. It fixes the fat-controller problem: twelve unrelated actions sharing a constructor with every dependency any of them needs, and DTOs reused across actions until they serve none well. FastEndpoints and feature-grouped minimal APIs implement it. Option 2 invents a mandatory layering that REPR does not prescribe. Option 3 mixes in REST/HATEOAS vocabulary; REPR is about code structure, not hypermedia. Option 4 describes binding to entities, which is an anti-pattern (over-posting, leaking internal state) and the opposite of REPR's dedicated request/response types."
+            },
+            "uk": {
+              "prompt": "Що описує патерн REPR?",
+              "options": [
+                {
+                  "text": "Request-Endpoint-Response: один клас endpoint на операцію з власними типами запиту й відповіді замість контролера з багатьма actions.",
+                  "correct": true
+                },
+                {
+                  "text": "Repository-Entity-Presenter-Router: чотири шари, через які має пройти кожен endpoint, перш ніж відповідь буде серіалізовано.",
+                  "correct": false
+                },
+                {
+                  "text": "Representation-Endpoint-Pipeline-Resource: рівень зрілості REST, де кожен ресурс виставляє власне hypermedia-представлення.",
+                  "correct": false
+                },
+                {
+                  "text": "Request-Entity-Persist-Return: endpoint прив'язує запит прямо до доменної entity, зберігає її та повертає entity як відповідь.",
+                  "correct": false
+                }
+              ],
+              "explanation": "REPR (Steve Smith) розшифровується як Request-Endpoint-Response. Кожна операція API — невеликий клас з окремим типом запиту, одним методом-handler і окремим типом відповіді. Це розв'язує проблему товстого контролера: дванадцять непов'язаних actions, що ділять конструктор з усіма залежностями, потрібними будь-якій з них, і DTO, які перевикористовуються між actions, доки не перестають добре служити будь-якій. FastEndpoints і minimal APIs, згруповані за фічами, реалізують цей патерн. Варіант 2 вигадує обов'язкову шаровість, якої REPR не приписує. Варіант 3 домішує словник REST/HATEOAS; REPR — про структуру коду, а не hypermedia. Варіант 4 описує прив'язку до entities, що є anti-pattern (over-posting, витік внутрішнього стану) і протилежністю окремих типів запиту/відповіді в REPR."
             }
           }
         },
@@ -1035,6 +1620,28 @@
                 }
               ],
               "explanation": "VSA tolerates duplicated *code* but not duplicated *knowledge*. Once a business rule is needed by a second slice, the idiomatic move is to push it down into the domain model, where it is enforced for every caller, rather than up into a shared application layer. Option 1 creates hidden cross-slice coupling: `CancelOrder` now depends on `ShipOrder`'s request shape and pipeline, and changes to one break the other. Option 2 rebuilds a horizontal service layer that tends to accumulate every operation, which is exactly what VSA moves away from. Option 3 over-applies the 'slices are independent' rule; duplicating a real invariant is how rules drift apart."
+            },
+            "uk": {
+              "prompt": "Двом slices, `ShipOrder` і `CancelOrder`, потрібне правило \"замовлення, яке вже відвантажене, не можна скасувати чи відвантажити повторно\". Який підхід ідіоматичний для кодової бази на vertical slices?",
+              "options": [
+                {
+                  "text": "Нехай `CancelOrder` викликає handler `ShipOrder` через mediator, щоб перевикористати його перевірки статусу.",
+                  "correct": false
+                },
+                {
+                  "text": "Створити спільний `OrderService`, який обидва handlers відтепер викликатимуть для кожної операції, пов'язаної зі статусом.",
+                  "correct": false
+                },
+                {
+                  "text": "Залишити перевірку продубльованою в обох handlers, бо slices ніколи і за жодних обставин не повинні ділити код, навіть доменну логіку.",
+                  "correct": false
+                },
+                {
+                  "text": "Перенести правило в доменну модель `Order`, наприклад у метод, що охороняє перехід статусу, і нехай обидва slices його викликають.",
+                  "correct": true
+                }
+              ],
+              "explanation": "VSA терпить дубльований *код*, але не дубльовані *знання*. Щойно бізнес-правило знадобилося другому slice, ідіоматичний крок — перенести його вниз, у доменну модель, де воно забезпечується для кожного викликача, а не вгору, у спільний шар застосунку. Варіант 1 створює приховану зв'язність між slices: `CancelOrder` тепер залежить від форми запиту та pipeline `ShipOrder`, і зміни в одному ламають інший. Варіант 2 відбудовує горизонтальний шар сервісів, який має тенденцію накопичувати кожну операцію, — саме від цього VSA відходить. Варіант 3 надмірно застосовує правило \"slices незалежні\"; дублювання справжнього інваріанта — саме те, як правила розходяться."
             }
           }
         },
@@ -1070,6 +1677,28 @@
                 }
               ],
               "explanation": "The freedom that makes VSA fast for one feature ('each slice chooses its own implementation') becomes inconsistency at scale: five ways to validate, three ways to page, and invariants re-implemented in handlers. Teams counter it with slice templates, architecture tests and a domain model for shared rules. Option 1 is false: slices can be tested through their endpoint with a real database (Testcontainers) or with the domain logic unit-tested separately. Option 3 is false: endpoints and handlers receive dependencies via DI like anything else. Option 4 is false: VSA needs no mediator, and the dispatch overhead of MediatR would be negligible next to I/O anyway."
+            },
+            "uk": {
+              "prompt": "Який ризик є справжньою слабкістю Vertical Slice Architecture у великій команді?",
+              "options": [
+                {
+                  "text": "Handlers неможливо ізольовано протестувати unit-тестами, бо кожен slice містить власний код доступу до даних замість мокабельного репозиторію.",
+                  "correct": false
+                },
+                {
+                  "text": "Slices розповзаються в неузгоджені стилі й правила, продубльовані між handlers, якщо їх не стримують конвенції та спільна доменна модель.",
+                  "correct": true
+                },
+                {
+                  "text": "Вона несумісна з dependency injection, бо кожен slice має сам конструювати свої залежності, щоб лишатися повністю незалежним.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона вимагає MediatR або подібної бібліотеки, і непрямість диспетчеризації робить кожен запит відчутно повільнішим за прямий виклик.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Свобода, що робить VSA швидкою для однієї фічі (\"кожен slice обирає власну реалізацію\"), у масштабі перетворюється на неузгодженість: п'ять способів валідації, три способи пагінації та інваріанти, повторно реалізовані в handlers. Команди протидіють цьому шаблонами slices, архітектурними тестами й доменною моделлю для спільних правил. Варіант 1 хибний: slices можна тестувати через їхній endpoint з реальною базою (Testcontainers) або тестувати доменну логіку unit-тестами окремо. Варіант 3 хибний: endpoints і handlers отримують залежності через DI, як і будь-що інше. Варіант 4 хибний: VSA не потребує mediator, а накладні витрати диспетчеризації MediatR і так були б мізерними поруч з I/O."
             }
           }
         },
@@ -1094,6 +1723,17 @@
                 "Describes a hybrid in which slices sit over a shared domain model and infrastructure, and states where shared business rules should go (into the domain, not a shared service layer).",
                 "Mentions REPR or endpoint-per-operation as the API-level expression of slices and why it improves on fat controllers."
               ]
+            },
+            "uk": {
+              "prompt": "Порівняйте Vertical Slice Architecture з Clean Architecture. Коли ви обрали б кожну, що йде не так з кожною в масштабі і чи можуть вони співіснувати в одному .NET-рішенні?",
+              "explanation": "Еталонна відповідь: Clean Architecture організовує код за технічними шарами навколо захищеної доменної моделі, забезпечуючи правило залежностей; зміна фічі зачіпає кілька проєктів, а в масштабі вона страждає від прохідних шарів, ланцюжків мапінгу та generic-абстракцій. Vertical Slice організовує код за фічами (часто REPR endpoints, як у FastEndpoints), максимізуючи згуртованість усередині slice і мінімізуючи зв'язність між slices, тож зміна локальна, а прості slices лишаються простими; у масштабі вона страждає від неузгодженості, викликів між slices і бізнес-правил, продубльованих у handlers-transaction scripts. Обирайте Clean, коли домінує багатий спільний домен, який треба ізолювати від інфраструктури; обирайте slices, коли фічі здебільшого незалежні і важлива локальність змін. Вони співіснують: slices для шару застосунку поверх спільної доменної моделі та спільної інфраструктури, з правилом, що спільні правила йдуть вниз, у домен, а не в спільний шар сервісів, і slices ніколи не викликають handlers один одного.",
+              "rubric": [
+                "Коректно пояснює організаційну вісь кожної: технічні шари з правилом залежностей, спрямованим усередину, проти фіч/use cases з низькою зв'язністю між slices і високою згуртованістю всередині slice.",
+                "Наводить конкретні критерії вибору для кожної (багатий спільний домен і потреба в ізоляції проти незалежних фіч і локальності змін).",
+                "Називає щонайменше один реалістичний сценарій збою в масштабі для кожного стилю (надмірна шаровість/прохідні шари/ланцюжки мапінгу проти неузгодженості/дубльованих правил/зв'язності між slices).",
+                "Описує гібрид, у якому slices розташовані поверх спільної доменної моделі та інфраструктури, і вказує, куди мають іти спільні бізнес-правила (у домен, а не в спільний шар сервісів).",
+                "Згадує REPR або endpoint-на-операцію як вираження slices на рівні API і пояснює, чим це краще за товсті контролери."
+              ]
             }
           }
         }
@@ -1107,6 +1747,10 @@
         "en": {
           "title": "Error Handling Strategy: Result Types vs Exceptions, Domain Errors to HTTP",
           "note": "## What it is\n\nAn error-handling strategy answers three questions consistently across a codebase: **which failures are expected and which are exceptional**, **how each kind travels from the domain to the edge**, and **how it becomes an HTTP response** without leaking internals.\n\n## Result types vs exceptions\n\n- **Expected outcomes** are part of the use case's contract: validation failed, order not found, insufficient stock, state transition not allowed. The caller is supposed to handle them, so model them as values: a `Result<T>`/`ErrorOr<T>`/`OneOf<...>` carrying a typed error (code, message, kind).\n- **Exceptional failures** are things the current code cannot reasonably handle: a bug (`NullReferenceException`), a violated programming contract (`ArgumentException`), infrastructure faults (database down, timeout). Let them propagate to one global handler; only catch where you can add context, retry, or translate.\n- **Cost** is a secondary argument. A throw captures a stack trace and unwinds frames; it costs microseconds, not nanoseconds (.NET 9 made throw/catch substantially faster by moving CoreCLR to the managed exception-handling model from NativeAOT). That matters for hot paths and for using exceptions as control flow in loops, much less for a 404 per request. The primary argument is *explicitness*: a `Result` in the signature tells the caller what can go wrong.\n- **Downsides of results in C#:** no native discriminated unions (as of C# 14) and no compiler enforcement, so a caller can ignore an error silently; propagation adds `if (result.IsFailure) return result.Error;` boilerplate through every layer. Exceptions propagate for free but are invisible in signatures.\n\nA defensible rule: *results for expected business outcomes at use-case boundaries, exceptions for bugs and infrastructure, and never both for the same failure.*\n\n## Mapping domain errors to HTTP\n\nThe domain knows *kinds* of failure, never status codes. The edge owns the mapping, in one place:\n\n| Error kind | HTTP |\n|---|---|\n| Validation (malformed or invalid input) | 400 (with `errors` dictionary via `ValidationProblem`) |\n| Not found | 404 |\n| Conflict with current state / concurrency | 409 (412 for failed `If-Match`) |\n| Not permitted for this user | 403 (401 if not authenticated) |\n| Unexpected | 500, generic message, correlation id, no stack trace |\n\nSome teams use 422 for semantically invalid but well-formed input; pick one and apply it everywhere. Responses use **Problem Details** (RFC 9457, which obsoletes RFC 7807): `type`, `title`, `status`, `detail`, `instance`, plus extensions such as `traceId` or an application error code.\n\nIn ASP.NET Core: `builder.Services.AddProblemDetails()`; `IExceptionHandler` (.NET 8+) implementations registered with `AddExceptionHandler<T>()` and run by `app.UseExceptionHandler()` in registration order until one returns `true`; `TypedResults.Problem(...)` / `TypedResults.ValidationProblem(...)` for result-based errors. Exception details belong in logs, never in `detail` in production.\n\n## What an interviewer probes\n\n- \"Exceptions or result objects?\" They want a rule, not a religion.\n- \"How does a `NotFound` in the domain become a 404 without the domain knowing HTTP?\"\n- \"What does your API return for an unhandled exception?\" (ProblemDetails 500 + trace id; details only in logs.)\n- \"`throw;` vs `throw ex;`\" and \"where do you catch?\" (Only where you can handle or add context.)\n\n## Common misconceptions\n\n- \"Never throw, exceptions are slow.\" Results everywhere turn infrastructure failures into boilerplate and get ignored.\n- \"Catch everything at every layer and log it.\" Produces duplicate logs and swallowed errors; log once, at the boundary.\n- \"Validation errors are 500s because the code threw.\" The status reflects *who* is at fault, not *how* the failure travelled.\n\n```csharp\npublic enum ErrorKind { Validation, NotFound, Conflict, Forbidden }\npublic sealed record Error(ErrorKind Kind, string Code, string Message);\n\npublic static class ErrorMapping\n{\n    public static IResult ToProblem(this Error e) => TypedResults.Problem(\n        statusCode: e.Kind switch\n        {\n            ErrorKind.Validation => StatusCodes.Status400BadRequest,\n            ErrorKind.NotFound   => StatusCodes.Status404NotFound,\n            ErrorKind.Conflict   => StatusCodes.Status409Conflict,\n            ErrorKind.Forbidden  => StatusCodes.Status403Forbidden,\n            _                    => StatusCodes.Status500InternalServerError\n        },\n        title: e.Code, detail: e.Message);\n}\n\n// Unexpected exceptions: one global handler, no internals in the response.\ninternal sealed class UnhandledExceptionHandler(IProblemDetailsService problems,\n    ILogger<UnhandledExceptionHandler> log) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct)\n    {\n        log.LogError(ex, \"Unhandled exception\");\n        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;\n        return await problems.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = ctx,\n            ProblemDetails = { Title = \"An unexpected error occurred.\" }\n        });\n    }\n}\n```\n"
+        },
+        "uk": {
+          "title": "Стратегія обробки помилок: result types проти винятків, доменні помилки в HTTP",
+          "note": "## Що це\n\nСтратегія обробки помилок узгоджено по всій кодовій базі відповідає на три питання: **які збої очікувані, а які виняткові**, **як кожен вид проходить від домену до краю** і **як він перетворюється на HTTP-відповідь**, не розкриваючи внутрішніх деталей.\n\n## Result types проти винятків\n\n- **Очікувані результати** — частина контракту use case: валідація не пройшла, замовлення не знайдено, недостатньо товару на складі, перехід стану не дозволено. Викликач має їх обробити, тож моделюйте їх як значення: `Result<T>`/`ErrorOr<T>`/`OneOf<...>`, що несе типізовану помилку (код, повідомлення, вид).\n- **Виняткові збої** — те, що поточний код не може розумно обробити: баг (`NullReferenceException`), порушений програмний контракт (`ArgumentException`), інфраструктурні збої (база даних недоступна, timeout). Дайте їм поширитися до одного глобального handler; перехоплюйте лише там, де можете додати контекст, повторити спробу або транслювати.\n- **Вартість** — другорядний аргумент. Throw захоплює stack trace і розмотує фрейми; це коштує мікросекунди, а не наносекунди (.NET 9 суттєво пришвидшив throw/catch, перевівши CoreCLR на керовану модель обробки винятків з NativeAOT). Це важливо для гарячих шляхів і для використання винятків як control flow у циклах, але набагато менше для одного 404 на запит. Головний аргумент — *явність*: `Result` у сигнатурі каже викликачеві, що може піти не так.\n- **Недоліки results у C#:** немає нативних discriminated unions (станом на C# 14) і немає перевірки компілятором, тож викликач може мовчки проігнорувати помилку; поширення додає boilerplate `if (result.IsFailure) return result.Error;` у кожному шарі. Винятки поширюються безкоштовно, але невидимі в сигнатурах.\n\nПравило, яке можна обґрунтувати: *results для очікуваних бізнес-результатів на межах use case, винятки для багів та інфраструктури, і ніколи обидва механізми для того самого збою.*\n\n## Мапінг доменних помилок у HTTP\n\nДомен знає *види* збоїв, але ніколи не статус-коди. Мапінгом володіє край, і він в одному місці:\n\n| Вид помилки | HTTP |\n|---|---|\n| Валідація (некоректний або невалідний вхід) | 400 (зі словником `errors` через `ValidationProblem`) |\n| Не знайдено | 404 |\n| Конфлікт із поточним станом / конкурентність | 409 (412 для невдалого `If-Match`) |\n| Не дозволено цьому користувачу | 403 (401, якщо не автентифікований) |\n| Неочікуване | 500, загальне повідомлення, correlation id, без stack trace |\n\nДеякі команди використовують 422 для семантично невалідного, але коректно сформованого входу; оберіть один варіант і застосовуйте його всюди. Відповіді використовують **Problem Details** (RFC 9457, що замінює RFC 7807): `type`, `title`, `status`, `detail`, `instance` плюс розширення, як-от `traceId` або код помилки застосунку.\n\nВ ASP.NET Core: `builder.Services.AddProblemDetails()`; реалізації `IExceptionHandler` (.NET 8+), зареєстровані через `AddExceptionHandler<T>()`, які `app.UseExceptionHandler()` запускає в порядку реєстрації, доки одна не поверне `true`; `TypedResults.Problem(...)` / `TypedResults.ValidationProblem(...)` для помилок на основі results. Деталям винятків місце в логах, ніколи — в `detail` у production.\n\n## Що перевіряє інтерв'юер\n\n- \"Винятки чи result objects?\" Від вас хочуть правило, а не релігію.\n- \"Як `NotFound` у домені стає 404 так, щоб домен нічого не знав про HTTP?\"\n- \"Що повертає ваш API для необробленого винятку?\" (ProblemDetails 500 + trace id; деталі лише в логах.)\n- \"`throw;` чи `throw ex;`\" і \"де ви перехоплюєте?\" (Лише там, де можете обробити або додати контекст.)\n\n## Поширені хибні уявлення\n\n- \"Ніколи не кидайте винятки, вони повільні.\" Results усюди перетворюють інфраструктурні збої на boilerplate, який зрештою ігнорують.\n- \"Перехоплюйте все на кожному шарі й логуйте.\" Це дає дубльовані логи й проковтнуті помилки; логуйте один раз, на межі.\n- \"Помилки валідації — це 500, бо код кинув виняток.\" Статус відображає, *хто* винен, а не *як* пройшов збій.\n\n```csharp\npublic enum ErrorKind { Validation, NotFound, Conflict, Forbidden }\npublic sealed record Error(ErrorKind Kind, string Code, string Message);\n\npublic static class ErrorMapping\n{\n    public static IResult ToProblem(this Error e) => TypedResults.Problem(\n        statusCode: e.Kind switch\n        {\n            ErrorKind.Validation => StatusCodes.Status400BadRequest,\n            ErrorKind.NotFound   => StatusCodes.Status404NotFound,\n            ErrorKind.Conflict   => StatusCodes.Status409Conflict,\n            ErrorKind.Forbidden  => StatusCodes.Status403Forbidden,\n            _                    => StatusCodes.Status500InternalServerError\n        },\n        title: e.Code, detail: e.Message);\n}\n\n// Unexpected exceptions: one global handler, no internals in the response.\ninternal sealed class UnhandledExceptionHandler(IProblemDetailsService problems,\n    ILogger<UnhandledExceptionHandler> log) : IExceptionHandler\n{\n    public async ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct)\n    {\n        log.LogError(ex, \"Unhandled exception\");\n        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;\n        return await problems.TryWriteAsync(new ProblemDetailsContext\n        {\n            HttpContext = ctx,\n            ProblemDetails = { Title = \"An unexpected error occurred.\" }\n        });\n    }\n}\n```\n"
         }
       },
       "questions": [
@@ -1142,6 +1786,28 @@
                 }
               ],
               "explanation": "Expected outcomes (validation failed, not found, transition not allowed) are part of the use case's contract, so modelling them as values makes them visible in the signature and forces a decision at the boundary. Bugs and infrastructure faults are not something the immediate caller can fix, so they propagate to a global handler (or a retry policy) as exceptions. Option 1 inverts the rule: a database timeout is exactly the failure you cannot handle locally, and a rejected business rule is exactly the one you expect. Option 2 overstates cost (a throw costs microseconds, and .NET 9 made it considerably cheaper) and turns every infrastructure failure into hand-written plumbing that is easy to ignore. Option 4 ignores the real benefit: explicit, typed, cheap-to-check expected failures instead of hidden control flow through `catch` blocks."
+            },
+            "uk": {
+              "prompt": "Яке правило вибору між result types і винятками в .NET-сервісі найлегше обґрунтувати?",
+              "options": [
+                {
+                  "text": "Використовувати винятки для збоїв валідації та бізнес-правил, а result types — для інфраструктурних збоїв, як-от timeout або недоступність бази даних.",
+                  "correct": false
+                },
+                {
+                  "text": "Завжди використовувати result types; винятки надто повільні для production-коду, і їх слід перехоплювати й перетворювати в кожному місці виклику.",
+                  "correct": false
+                },
+                {
+                  "text": "Results для очікуваних бізнес-результатів, які викликач має обробити; винятки для багів та інфраструктурних збоїв, які він не може обробити локально.",
+                  "correct": true
+                },
+                {
+                  "text": "Завжди використовувати винятки; result types — це запозичення з функціонального програмування, яке додає boilerplate без жодної користі в C#.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Очікувані результати (валідація не пройшла, не знайдено, перехід не дозволено) — частина контракту use case, тож моделювання їх як значень робить їх видимими в сигнатурі й змушує ухвалити рішення на межі. Баги та інфраструктурні збої — не те, що безпосередній викликач може виправити, тож вони поширюються до глобального handler (або retry policy) як винятки. Варіант 1 перевертає правило: timeout бази даних — саме той збій, який не можна обробити локально, а відхилене бізнес-правило — саме той, який очікують. Варіант 2 перебільшує вартість (throw коштує мікросекунди, а .NET 9 зробив його значно дешевшим) і перетворює кожен інфраструктурний збій на написану вручну обв'язку, яку легко проігнорувати. Варіант 4 ігнорує реальну користь: явні, типізовані, дешеві для перевірки очікувані збої замість прихованого control flow через блоки `catch`."
             }
           }
         },
@@ -1177,6 +1843,28 @@
                 }
               ],
               "explanation": "Status codes tell clients *who* must act and *whether to retry*: 400 for bad input (with a `ValidationProblem` errors dictionary), 404 for a missing resource, 409 when the request conflicts with current state (e.g. shipping a cancelled order, or an optimistic-concurrency clash), and 500 for anything unexpected, returned as RFC 9457 Problem Details with a correlation id while details go to logs. Option 2 collapses conflicts into 400, hiding a distinct, often retry-after-refresh case, and leaks stack traces, which is an information-disclosure issue. Option 3 has two errors: 204 means success with no body, so a missing resource looks like success, and 503 signals temporary unavailability, inviting retries of deterministic bugs. (422 for semantic validation is a legitimate alternative; that part alone is not the problem.) Option 4 defeats HTTP semantics: caches, proxies, monitoring, retries and generated clients all key on the status code."
+            },
+            "uk": {
+              "prompt": "Який мапінг видів доменних помилок у HTTP-відповіді найлегше обґрунтувати для публічного JSON API?",
+              "options": [
+                {
+                  "text": "Валідація — 400 з помилками полів, не знайдено — 404, конфлікт стану — 409, неочікуване — 500 як Problem Details з trace id і без внутрішніх деталей.",
+                  "correct": true
+                },
+                {
+                  "text": "Валідація — 400, не знайдено — 404, конфлікт — 400, а неочікуване — 500 з повідомленням винятку і stack trace у `detail`, щоб клієнти могли точно повідомляти про баги.",
+                  "correct": false
+                },
+                {
+                  "text": "Валідація — 422, не знайдено — 204 No Content, конфлікт — 409, неочікуване — 503, щоб клієнти завжди автоматично повторювали серверні збої.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожна доменна помилка — як 200 з обгорткою `{ success: false, error }`, і лише інфраструктурні збої — як 500, щоб парсинг на клієнті був однаковим.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Статус-коди кажуть клієнтам, *хто* має діяти і *чи варто повторювати*: 400 для поганого входу (зі словником помилок `ValidationProblem`), 404 для відсутнього ресурсу, 409, коли запит конфліктує з поточним станом (наприклад, відвантаження скасованого замовлення або конфлікт optimistic concurrency), і 500 для всього неочікуваного, що повертається як RFC 9457 Problem Details з correlation id, тоді як деталі йдуть у логи. Варіант 2 зводить конфлікти до 400, приховуючи окремий випадок, який часто можна повторити після оновлення, і розкриває stack traces, що є проблемою розкриття інформації. Варіант 3 має дві помилки: 204 означає успіх без тіла, тож відсутній ресурс виглядає як успіх, а 503 сигналізує тимчасову недоступність і заохочує повтори детермінованих багів. (422 для семантичної валідації — легітимна альтернатива; сама по собі ця частина не є проблемою.) Варіант 4 руйнує семантику HTTP: кеші, проксі, моніторинг, повтори та згенеровані клієнти орієнтуються на статус-код."
             }
           }
         },
@@ -1212,6 +1900,28 @@
                 }
               ],
               "explanation": "`ExceptionHandlerMiddleware` resolves all registered `IExceptionHandler` services and calls them in registration order. Returning `false` means 'not mine', so the next one is tried; the first `true` stops the chain and its response is used. Only if none returns `true` does the middleware fall back to its other options (an exception-handling path or delegate, or the `IProblemDetailsService` default). Option 1 misreads `false`: it is a pass, not an abort. Option 2 is wrong because the chain short-circuits on the first `true`; a later handler never sees an exception that was already handled. Option 3 inverts the order; the specific handler should be registered first precisely because order is registration order."
+            },
+            "uk": {
+              "prompt": "Застосунок на ASP.NET Core 8+ реєструє `AddExceptionHandler<ValidationExceptionHandler>()`, потім `AddExceptionHandler<GlobalExceptionHandler>()` і викликає `app.UseExceptionHandler()`. Кидається `DbUpdateConcurrencyException`; `ValidationExceptionHandler.TryHandleAsync` повертає для нього `false`. Що станеться?",
+              "options": [
+                {
+                  "text": "Виняток негайно перекидається далі, бо handler, що повертає `false`, сигналізує middleware припинити обробку.",
+                  "correct": false
+                },
+                {
+                  "text": "Обидва handlers завжди виконуються для кожного винятку, а відповідь записує той handler, що виконався останнім.",
+                  "correct": false
+                },
+                {
+                  "text": "Handlers виконуються у зворотному порядку реєстрації, тож `GlobalExceptionHandler` уже обробив виняток ще до виклику `ValidationExceptionHandler`.",
+                  "correct": false
+                },
+                {
+                  "text": "Middleware далі викликає `GlobalExceptionHandler.TryHandleAsync`; перший handler, що поверне `true`, завершує ланцюжок.",
+                  "correct": true
+                }
+              ],
+              "explanation": "`ExceptionHandlerMiddleware` резолвить усі зареєстровані сервіси `IExceptionHandler` і викликає їх у порядку реєстрації. Повернення `false` означає \"не мій\", тож пробується наступний; перший `true` зупиняє ланцюжок, і використовується його відповідь. Лише якщо жоден не повертає `true`, middleware переходить до інших своїх варіантів (шлях або делегат обробки винятків чи типова поведінка `IProblemDetailsService`). Варіант 1 хибно тлумачить `false`: це пропуск, а не переривання. Варіант 2 хибний, бо ланцюжок робить short-circuit на першому `true`; наступний handler ніколи не бачить винятку, який уже оброблено. Варіант 3 перевертає порядок; специфічний handler слід реєструвати першим саме тому, що порядок — це порядок реєстрації."
             }
           }
         },
@@ -1247,6 +1957,28 @@
                 }
               ],
               "explanation": "Languages with built-in sum types (Rust's `Result`, F# unions with exhaustive matching) make an unhandled error a compile-time warning or error. C# as of version 14 has neither native discriminated unions nor a built-in 'must use' check, so `var _ = DoThing();` or a forgotten `if (result.IsFailure)` compiles cleanly and the failure disappears. Analyzers and library conventions mitigate, but do not enforce, handling. Option 1 is false: a result can carry a list of errors, which is exactly how validation results are usually modelled. Option 3 is false: `Task<Result<T>>` is an ordinary generic instantiation. Option 4 is false: the edge maps a result to `TypedResults.Problem`/`ValidationProblem` or `Send.ResultAsync(...)` directly; throwing just to be caught by middleware is the anti-pattern."
+            },
+            "uk": {
+              "prompt": "Яке твердження описує справжній недолік використання власноруч написаного типу `Result<T>` для доменних помилок у C# 14?",
+              "options": [
+                {
+                  "text": "`Result<T>` може нести лише одну помилку, тож збої валідації з кількома помилками полів усе одно доводиться кидати як винятки.",
+                  "correct": false
+                },
+                {
+                  "text": "Ніщо не змушує викликачів його перевіряти: у C# немає нативних discriminated unions чи перевірок must-use, тож помилку можна мовчки проігнорувати.",
+                  "correct": true
+                },
+                {
+                  "text": "`Result<T>` не можна повернути з `async`-методу, бо `Task<T>` підтримує лише типи результатів, що не несуть стану помилки.",
+                  "correct": false
+                },
+                {
+                  "text": "Minimal APIs і FastEndpoints не можуть сформувати відповідь з `Result<T>`, тож handlers мають спершу перетворити його на виняток для middleware.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Мови з вбудованими sum types (`Result` у Rust, unions в F# з вичерпним зіставленням) роблять необроблену помилку попередженням або помилкою компіляції. C# станом на версію 14 не має ні нативних discriminated unions, ні вбудованої перевірки \"must use\", тож `var _ = DoThing();` або забутий `if (result.IsFailure)` компілюються без зауважень, і збій зникає. Аналізатори та конвенції бібліотек пом'якшують це, але не змушують обробляти помилку. Варіант 1 хибний: result може нести список помилок, і саме так зазвичай моделюють результати валідації. Варіант 3 хибний: `Task<Result<T>>` — звичайна інстанціація generic-типу. Варіант 4 хибний: край напряму мапить result на `TypedResults.Problem`/`ValidationProblem` або `Send.ResultAsync(...)`; кидати виняток лише для того, щоб його перехопив middleware, — anti-pattern."
             }
           }
         },
@@ -1270,6 +2002,17 @@
                 "Gives a correct mapping for at least validation (400 or a consistent 422), not found (404) and conflict (409), plus 500 for unexpected failures.",
                 "Uses Problem Details (RFC 9457/7807) and names concrete ASP.NET Core mechanisms such as `AddProblemDetails`, `IExceptionHandler`/`UseExceptionHandler` or `TypedResults.Problem`/`ValidationProblem`.",
                 "States that unexpected errors return a generic message with a correlation/trace id, are logged once at the boundary, and never expose exception messages or stack traces to clients."
+              ]
+            },
+            "uk": {
+              "prompt": "Опишіть стратегію обробки помилок, яку ви налаштували б для ASP.NET Core API з доменним шаром: як помилки представлені в домені, як вони проходять через шар застосунку, як перетворюються на HTTP-відповіді і що бачить клієнт у разі неочікуваного збою.",
+              "explanation": "Еталонна відповідь: розділити збої на очікувані результати та виняткові. Очікувані результати (валідація, не знайдено, конфлікт із поточним станом, заборонено) моделюються як типізовані помилки, що повертаються через тип на кшталт `Result<T>` (або як доменні винятки із закритого набору, якщо команда так вирішила, але не обидва механізми для того самого випадку); вони несуть вид і стабільний код, але ніколи не HTTP-статус. Баги та інфраструктурні збої — винятки, що поширюються недоторканими й перехоплюються лише там, де код може повторити спробу, додати контекст або транслювати. Край мапить види на статус-коди в одному місці (400 зі словником помилок валідації, 404, 409, 403/401, 500) і завжди відповідає RFC 9457 Problem Details через `AddProblemDetails`, `TypedResults.Problem/ValidationProblem` і ланцюжок `IExceptionHandler` (.NET 8+) для винятків. Неочікувані збої повертають загальний 500 Problem Details з trace/correlation id; виняток і stack trace логуються один раз на межі й ніколи не повертаються клієнту.",
+              "rubric": [
+                "Відокремлює очікувані бізнес-збої від неочікуваних і призначає кожному механізм (results або закритий набір доменних помилок проти винятків, що поширюються), з обґрунтуванням, яке виходить за межі \"продуктивності\".",
+                "Тримає знання про HTTP поза доменом: помилки несуть вид/код, а мапінг на статус-коди живе в одному місці на краю.",
+                "Дає коректний мапінг щонайменше для валідації (400 або послідовно 422), не знайдено (404) і конфлікту (409), плюс 500 для неочікуваних збоїв.",
+                "Використовує Problem Details (RFC 9457/7807) і називає конкретні механізми ASP.NET Core, як-от `AddProblemDetails`, `IExceptionHandler`/`UseExceptionHandler` або `TypedResults.Problem`/`ValidationProblem`.",
+                "Зазначає, що неочікувані помилки повертають загальне повідомлення з correlation/trace id, логуються один раз на межі й ніколи не розкривають клієнтам повідомлень винятків чи stack traces."
               ]
             }
           }

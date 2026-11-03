@@ -10,6 +10,10 @@
         "en": {
           "title": "Authentication vs Authorization: Schemes, Handlers, Policies, Requirements, Resource-Based Auth",
           "note": "## What it is\n\n**Authentication** answers *who is the caller* and produces a `ClaimsPrincipal`; **authorization** answers *may this principal do this* and produces allow / challenge / forbid. ASP.NET Core keeps them in two separate subsystems with separate middleware, and most production bugs come from mixing them up: a 401 where a 403 belongs, a policy evaluated against the wrong scheme, an ownership check that is impossible to express with an attribute.\n\n## How it works underneath\n\n**Schemes and handlers.** `AddAuthentication().AddJwtBearer().AddCookie()` registers *schemes*: a name bound to an `IAuthenticationHandler` and its options. A handler implements three verbs:\n\n- `AuthenticateAsync` — read the request (cookie, `Authorization` header), return an `AuthenticateResult` with a principal or nothing;\n- `ChallengeAsync` — the caller is **not authenticated**: JWT bearer writes `401` + `WWW-Authenticate`, cookies redirect to the login path, OIDC redirects to the identity provider;\n- `ForbidAsync` — the caller **is authenticated but not allowed**: JWT writes `403`, cookies redirect to `AccessDeniedPath`.\n\n`UseAuthentication()` calls `AuthenticateAsync` on the *default* scheme and assigns `HttpContext.User`. Since .NET 7 a single registered scheme becomes the default automatically, and `WebApplication` inserts `UseAuthentication`/`UseAuthorization` itself if you registered the services but did not call them. Authentication never rejects a request: an anonymous request simply continues with an unauthenticated principal. `IClaimsTransformation` runs after every successful `AuthenticateAsync` — possibly several times per request — so it must be idempotent and cheap.\n\n**Policies, requirements, handlers.** `UseAuthorization()` reads endpoint metadata (`[Authorize]`, `RequireAuthorization`, `[AllowAnonymous]`) and evaluates an `AuthorizationPolicy` = list of `IAuthorizationRequirement`s + optional list of authentication schemes. Every registered `IAuthorizationHandler` gets a chance at every requirement. Semantics:\n\n- **all requirements** of a policy must succeed (AND);\n- a requirement succeeds if **at least one handler** calls `context.Succeed(req)` (OR) and **no handler** calls `context.Fail()`;\n- not calling anything is \"no opinion\", not a failure.\n\nIf the policy fails and the user is unauthenticated, the middleware *challenges*; if authenticated, it *forbids*. `[Authorize]` with no policy uses `DefaultPolicy` (authenticated user); endpoints with no authorization metadata at all use `FallbackPolicy` (null by default, i.e. anonymous). Setting the fallback to \"require authenticated user\" makes the API secure by default; `[AllowAnonymous]` still opts out. Roles: `[Authorize(Roles = \"a,b\")]` is OR, two stacked attributes are AND.\n\n**Resource-based authorization.** \"Only the owner may edit this document\" depends on data the attribute cannot see: the authorization middleware runs before the endpoint loads anything, and with endpoint routing `context.Resource` is the `HttpContext` (or `AuthorizationFilterContext` in some MVC paths), never your entity. The pattern is imperative: load the resource, call `IAuthorizationService.AuthorizeAsync(User, resource, policyOrRequirement)`, return `Forbid()`/`NotFound()` on failure, with a handler derived from `AuthorizationHandler<TRequirement, TResource>`.\n\n## What an interviewer probes\n\n- 401 vs 403 and which handler verb produces each.\n- What happens with multiple schemes: a policy's `AuthenticationSchemes` re-authenticates with those schemes and merges the principals; a *policy scheme* (`AddPolicyScheme` + `ForwardDefaultSelector`) picks a scheme per request (e.g. cookie for the browser, bearer for machine clients).\n- Middleware order: `UseRouting` → `UseCors` → `UseAuthentication` → `UseAuthorization` → endpoints; authorization needs the selected endpoint's metadata.\n- Where IDOR comes from: a policy that only checks \"authenticated\" on `/orders/{id}`.\n\n## Common misconceptions\n\n- \"`UseAuthentication` blocks anonymous requests\" — only authorization does.\n- \"A requirement fails if one handler doesn't succeed\" — silence is neutral; only `Fail()` vetoes.\n- \"Roles are separate from claims\" — `IsInRole` checks claims of the identity's `RoleClaimType`.\n- \"Hide the 403 as 404\" is a choice, not a default; it avoids leaking existence of resources.\n\n## Code\n\n```csharp\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(o => { o.Authority = \"https://id.example.com\"; o.Audience = \"spine-api\"; o.MapInboundClaims = false; });\n\nbuilder.Services.AddAuthorizationBuilder()\n    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())\n    .AddPolicy(\"EditDocument\", p => p.AddRequirements(new EditDocumentRequirement()));\nbuilder.Services.AddSingleton<IAuthorizationHandler, DocumentOwnerHandler>();\n\npublic sealed class EditDocumentRequirement : IAuthorizationRequirement { }\n\npublic sealed class DocumentOwnerHandler : AuthorizationHandler<EditDocumentRequirement, Document>\n{\n    protected override Task HandleRequirementAsync(\n        AuthorizationHandlerContext ctx, EditDocumentRequirement req, Document doc)\n    {\n        if (doc.OwnerId == ctx.User.FindFirst(\"sub\")?.Value || ctx.User.IsInRole(\"editor\"))\n            ctx.Succeed(req);\n        return Task.CompletedTask;   // no Fail(): other handlers may still succeed\n    }\n}\n\napp.MapPut(\"/documents/{id:guid}\", async (Guid id, DocumentDto dto, ClaimsPrincipal user,\n    IAuthorizationService authz, AppDb db) =>\n{\n    var doc = await db.Documents.FindAsync(id);\n    if (doc is null) return Results.NotFound();\n    var result = await authz.AuthorizeAsync(user, doc, \"EditDocument\");\n    if (!result.Succeeded) return Results.Forbid();\n    doc.Title = dto.Title;\n    await db.SaveChangesAsync();\n    return Results.NoContent();\n});\n```\n"
+        },
+        "uk": {
+          "title": "Authentication vs Authorization: schemes, handlers, policies, requirements і resource-based authorization",
+          "note": "## Що це\n\n**Authentication** відповідає на питання *хто викликає* і створює `ClaimsPrincipal`; **authorization** відповідає на питання *чи може цей principal це зробити* і дає результат allow / challenge / forbid. ASP.NET Core тримає їх у двох окремих підсистемах з окремими middleware, і більшість продакшн-багів виникає саме через їхнє змішування: 401 там, де має бути 403, policy, що оцінюється не з тією scheme, перевірка власника, яку неможливо виразити атрибутом.\n\n## Як це працює під капотом\n\n**Schemes і handlers.** `AddAuthentication().AddJwtBearer().AddCookie()` реєструє *schemes*: ім'я, прив'язане до `IAuthenticationHandler` та його options. Handler реалізує три дієслова:\n\n- `AuthenticateAsync` — читає запит (cookie, заголовок `Authorization`) і повертає `AuthenticateResult` з principal або без нього;\n- `ChallengeAsync` — викликач **не автентифікований**: JWT bearer пише `401` + `WWW-Authenticate`, cookies перенаправляють на login path, OIDC перенаправляє на identity provider;\n- `ForbidAsync` — викликач **автентифікований, але не має доступу**: JWT пише `403`, cookies перенаправляють на `AccessDeniedPath`.\n\n`UseAuthentication()` викликає `AuthenticateAsync` для *default* scheme і присвоює `HttpContext.User`. Починаючи з .NET 7 єдина зареєстрована scheme автоматично стає default, а `WebApplication` сам вставляє `UseAuthentication`/`UseAuthorization`, якщо ви зареєстрували сервіси, але не викликали їх. Authentication ніколи не відхиляє запит: анонімний запит просто продовжує виконання з неавтентифікованим principal. `IClaimsTransformation` виконується після кожного успішного `AuthenticateAsync` — можливо, кілька разів за запит, — тому має бути ідемпотентною й дешевою.\n\n**Policies, requirements, handlers.** `UseAuthorization()` читає метадані endpoint (`[Authorize]`, `RequireAuthorization`, `[AllowAnonymous]`) і оцінює `AuthorizationPolicy` = список `IAuthorizationRequirement` + необов'язковий список authentication schemes. Кожен зареєстрований `IAuthorizationHandler` отримує шанс обробити кожен requirement. Семантика:\n\n- **усі requirements** policy мають бути виконані (AND);\n- requirement виконано, якщо **хоча б один handler** викликав `context.Succeed(req)` (OR) і **жоден handler** не викликав `context.Fail()`;\n- нічого не викликати означає «немає думки», а не невдачу.\n\nЯкщо policy не пройдена і користувач не автентифікований, middleware робить *challenge*; якщо автентифікований — *forbid*. `[Authorize]` без policy використовує `DefaultPolicy` (автентифікований користувач); endpoints без жодних authorization-метаданих використовують `FallbackPolicy` (за замовчуванням null, тобто анонімний доступ). Якщо задати fallback як «вимагати автентифікованого користувача», API стає secure by default; `[AllowAnonymous]` усе одно дозволяє відмовитися від цього. Ролі: `[Authorize(Roles = \"a,b\")]` — це OR, два атрибути один над одним — AND.\n\n**Resource-based authorization.** «Редагувати документ може лише власник» залежить від даних, яких атрибут не бачить: authorization middleware виконується до того, як endpoint щось завантажить, а з endpoint routing `context.Resource` — це `HttpContext` (або `AuthorizationFilterContext` у деяких MVC-сценаріях), але ніколи не ваша сутність. Патерн імперативний: завантажити ресурс, викликати `IAuthorizationService.AuthorizeAsync(User, resource, policyOrRequirement)`, у разі невдачі повернути `Forbid()`/`NotFound()`, з handler, успадкованим від `AuthorizationHandler<TRequirement, TResource>`.\n\n## Що перевіряє інтерв'юер\n\n- 401 проти 403 і яке дієслово handler дає кожен із них.\n- Що відбувається з кількома schemes: `AuthenticationSchemes` у policy повторно автентифікує цими schemes і об'єднує principals; *policy scheme* (`AddPolicyScheme` + `ForwardDefaultSelector`) обирає scheme для кожного запиту (наприклад, cookie для браузера, bearer для машинних клієнтів).\n- Порядок middleware: `UseRouting` → `UseCors` → `UseAuthentication` → `UseAuthorization` → endpoints; authorization потребує метаданих обраного endpoint.\n- Звідки береться IDOR: policy, що на `/orders/{id}` перевіряє лише «автентифікований».\n\n## Поширені хибні уявлення\n\n- «`UseAuthentication` блокує анонімні запити» — це робить лише authorization.\n- «Requirement не виконано, якщо один handler не викликав succeed» — мовчання нейтральне; вето накладає лише `Fail()`.\n- «Ролі — це окреме від claims» — `IsInRole` перевіряє claims типу `RoleClaimType` цієї identity.\n- «Ховати 403 за 404» — це вибір, а не поведінка за замовчуванням; він не розкриває існування ресурсів.\n\n## Код\n\n```csharp\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(o => { o.Authority = \"https://id.example.com\"; o.Audience = \"spine-api\"; o.MapInboundClaims = false; });\n\nbuilder.Services.AddAuthorizationBuilder()\n    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())\n    .AddPolicy(\"EditDocument\", p => p.AddRequirements(new EditDocumentRequirement()));\nbuilder.Services.AddSingleton<IAuthorizationHandler, DocumentOwnerHandler>();\n\npublic sealed class EditDocumentRequirement : IAuthorizationRequirement { }\n\npublic sealed class DocumentOwnerHandler : AuthorizationHandler<EditDocumentRequirement, Document>\n{\n    protected override Task HandleRequirementAsync(\n        AuthorizationHandlerContext ctx, EditDocumentRequirement req, Document doc)\n    {\n        if (doc.OwnerId == ctx.User.FindFirst(\"sub\")?.Value || ctx.User.IsInRole(\"editor\"))\n            ctx.Succeed(req);\n        return Task.CompletedTask;   // no Fail(): other handlers may still succeed\n    }\n}\n\napp.MapPut(\"/documents/{id:guid}\", async (Guid id, DocumentDto dto, ClaimsPrincipal user,\n    IAuthorizationService authz, AppDb db) =>\n{\n    var doc = await db.Documents.FindAsync(id);\n    if (doc is null) return Results.NotFound();\n    var result = await authz.AuthorizeAsync(user, doc, \"EditDocument\");\n    if (!result.Succeeded) return Results.Forbid();\n    doc.Title = dto.Title;\n    await db.SaveChangesAsync();\n    return Results.NoContent();\n});\n```\n"
         }
       },
       "questions": [
@@ -45,6 +49,28 @@
                 }
               ],
               "explanation": "Authentication and authorization are separate: `UseAuthentication` only tries to build `HttpContext.User`; the authorization middleware evaluates the policy and, on failure, calls the scheme's `ChallengeAsync` if the user is unauthenticated (JWT bearer: `401` + `WWW-Authenticate`) or `ForbidAsync` if authenticated (JWT bearer: `403`). 'Both 401' is the classic conflation of 'not allowed' with 'not logged in' — re-authenticating would not help in case (b), which is exactly what 403 communicates. 'Both 403' ignores that an anonymous caller must be challenged so it knows to authenticate. The last option is half right — `UseAuthentication` indeed never rejects — but the authorization middleware runs before the endpoint and challenges the anonymous user, so the endpoint is never reached."
+            },
+            "uk": {
+              "prompt": "ASP.NET Core API використовує лише JWT bearer scheme. Endpoint `DELETE /users/{id}` має `[Authorize(Policy = \"Admin\")]`. Що отримає клієнт у кожному випадку?\n\n- (a) немає заголовка `Authorization`;\n- (b) валідний, не прострочений token користувача, який не задовольняє policy `Admin`.",
+              "options": [
+                {
+                  "text": "(a) `401` із заголовком `WWW-Authenticate: Bearer` (challenge цієї scheme); (b) `403` (forbid цієї scheme), бо викликач автентифікований, але не авторизований.",
+                  "correct": true
+                },
+                {
+                  "text": "(a) `401`; (b) теж `401`, бо будь-яка помилка авторизації означає, що token неприйнятний для цього endpoint.",
+                  "correct": false
+                },
+                {
+                  "text": "(a) `403`, бо endpoint захищений; (b) `403`.",
+                  "correct": false
+                },
+                {
+                  "text": "(a) запит доходить до endpoint з анонімним `User`, бо `UseAuthentication` лише заповнює `User` і ніколи не відхиляє запит; (b) `403`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Authentication і authorization розділені: `UseAuthentication` лише намагається побудувати `HttpContext.User`; authorization middleware оцінює policy і в разі невдачі викликає `ChallengeAsync` scheme, якщо користувач не автентифікований (JWT bearer: `401` + `WWW-Authenticate`), або `ForbidAsync`, якщо автентифікований (JWT bearer: `403`). «Обидва 401» — класичне змішування «не дозволено» з «не залогінений»: у випадку (b) повторна автентифікація не допоможе, і саме це повідомляє 403. «Обидва 403» ігнорує те, що анонімному викликачеві треба надіслати challenge, щоб він знав, що потрібно автентифікуватися. Останній варіант наполовину правильний — `UseAuthentication` справді ніколи не відхиляє запит, — але authorization middleware виконується до endpoint і робить challenge анонімному користувачеві, тож до endpoint запит не доходить."
             }
           }
         },
@@ -80,6 +106,28 @@
                 }
               ],
               "explanation": "Requirement evaluation is AND across requirements, OR across handlers of one requirement: a requirement is satisfied if any handler calls `Succeed`, and the whole result fails only if some requirement is unsatisfied or any handler explicitly calls `Fail()`. A handler that does nothing expresses 'no opinion', which is what lets you add alternative handlers (owner OR editor) without them fighting. The first option treats handlers as AND — that would make alternative paths impossible. The third inverts the requirement semantics (requirements are AND, not OR) and invents short-circuiting on silence. The fourth misreads `InvokeHandlersAfterFailure`: it controls whether remaining handlers run *after a `Fail()`* call; it has nothing to do with silent handlers."
+            },
+            "uk": {
+              "prompt": "Policy має два requirements, `R1` і `R2`. Зареєстровано три handlers: `H1` викликає `Succeed(R1)`; `H2` обробляє `R2` і повертається, нічого не викликавши; `H3` обробляє `R2` і викликає `Succeed(R2)`. `AuthorizationOptions` за замовчуванням. Який результат?",
+              "options": [
+                {
+                  "text": "Невдача: `H2` не викликав succeed для `R2`, а кожен handler requirement має завершитися успіхом.",
+                  "correct": false
+                },
+                {
+                  "text": "Успіх: для кожного requirement хоча б один handler викликав `Succeed`, і жоден handler не викликав `Fail()`; мовчазне повернення `H2` нейтральне.",
+                  "correct": true
+                },
+                {
+                  "text": "Невдача: policy з кількома requirements проходить, якщо виконано будь-який із них, але оцінювання зупиняється на `H2`, бо він повернувся без рішення.",
+                  "correct": false
+                },
+                {
+                  "text": "Успіх, але лише тому, що `InvokeHandlersAfterFailure` за замовчуванням `true`; якби він був `false`, мовчання `H2` провалило б policy.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Оцінювання requirements — це AND між requirements і OR між handlers одного requirement: requirement задоволено, якщо будь-який handler викликав `Succeed`, а весь результат провальний, лише якщо якийсь requirement не задоволено або будь-який handler явно викликав `Fail()`. Handler, який нічого не робить, виражає «немає думки», і саме це дозволяє додавати альтернативні handlers (власник OR редактор), щоб вони не конфліктували. Перший варіант трактує handlers як AND — тоді альтернативні шляхи були б неможливими. Третій інвертує семантику requirements (requirements — це AND, а не OR) і вигадує short-circuit на мовчанні. Четвертий хибно тлумачить `InvokeHandlersAfterFailure`: він визначає, чи виконуються решта handlers *після виклику `Fail()`*, і не має жодного стосунку до мовчазних handlers."
             }
           }
         },
@@ -115,6 +163,28 @@
                 }
               ],
               "explanation": "Attribute/metadata authorization runs in `UseAuthorization`, before model binding and before your code has loaded anything. With endpoint routing the resource passed to handlers is the `HttpContext` (MVC filters may pass `AuthorizationFilterContext`), so `AuthorizationHandler<OwnerRequirement, Document>` is skipped because the resource is not a `Document`, nothing succeeds and the result is 403. Resource-based authorization is imperative: fetch the entity, then call `AuthorizeAsync` with it. Handler lifetime (option 1) is irrelevant — DI lifetime does not change what resource the middleware passes. Per-document role claims (option 2) do not scale and misunderstand roles; policies with custom requirements work fine from attributes. Option 4 invents a binding convention that does not exist; the handler base class is framework-agnostic."
+            },
+            "uk": {
+              "prompt": "Вимога: «користувач може редагувати документ, лише якщо він його власник». Розробник пише `[Authorize(Policy = \"DocumentOwner\")]` на endpoint і `AuthorizationHandler<OwnerRequirement, Document>`. Запити від власників отримують `403`. Чому і як це виправити?",
+              "options": [
+                {
+                  "text": "Handler має бути зареєстрований як scoped, а не singleton, щоб мати доступ до поточного документа; зареєструйте його через `AddScoped`, і він отримає `Document`.",
+                  "correct": false
+                },
+                {
+                  "text": "Policies не можуть містити кастомні requirements, якщо використовуються з атрибутів; перейдіть на `[Authorize(Roles = \"owner\")]` і видавайте role claim `owner` для кожного документа.",
+                  "correct": false
+                },
+                {
+                  "text": "Атрибут оцінює authorization middleware до виконання endpoint, коли `context.Resource` — це `HttpContext`, а не `Document`, тож типізований handler ніколи не виконується; завантажте документ в endpoint і викличте `IAuthorizationService.AuthorizeAsync(User, document, \"DocumentOwner\")`.",
+                  "correct": true
+                },
+                {
+                  "text": "`AuthorizationHandler<TRequirement, TResource>` працює лише з MVC-контролерами; у Minimal APIs ресурс автоматично біндиться з route, лише якщо параметр називається `resource`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Авторизація через атрибути/метадані виконується в `UseAuthorization`, до model binding і до того, як ваш код щось завантажив. З endpoint routing ресурс, що передається handlers, — це `HttpContext` (MVC-фільтри можуть передавати `AuthorizationFilterContext`), тому `AuthorizationHandler<OwnerRequirement, Document>` пропускається, бо ресурс не є `Document`; ніхто не викликає succeed, і результат — 403. Resource-based authorization імперативна: отримати сутність, потім викликати `AuthorizeAsync` з нею. Lifetime handler (варіант 1) не має значення — DI lifetime не змінює ресурс, який передає middleware. Role claims для кожного документа (варіант 2) не масштабуються і свідчать про нерозуміння ролей; policies з кастомними requirements чудово працюють з атрибутів. Варіант 4 вигадує неіснуючу конвенцію біндингу; базовий клас handler не залежить від фреймворку."
             }
           }
         },
@@ -150,6 +220,28 @@
                 }
               ],
               "explanation": "`FallbackPolicy` is used when the endpoint carries no `IAuthorizeData`/policy metadata; `DefaultPolicy` is what a bare `[Authorize]` resolves to; `[AllowAnonymous]` short-circuits authorization entirely. Setting the fallback to 'authenticated user' makes new endpoints secure by default — forgetting an attribute no longer opens a hole. Option 1 confuses the two policies (both default to 'authenticated user' in many setups, which hides the difference). Option 3 is wrong: an endpoint with its own metadata combines its own policies, the fallback is not added. Option 4 is wrong: `[AllowAnonymous]` still wins; middleware placed before `UseAuthorization` (e.g. static files) is unaffected for a different reason — it never reaches authorization."
+            },
+            "uk": {
+              "prompt": "У .NET 10 ви налаштовуєте `SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())`. Яке твердження правильне?",
+              "options": [
+                {
+                  "text": "Вона замінює `DefaultPolicy`, тож `[Authorize]` без імені policy тепер теж використовує fallback policy.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона застосовується лише до endpoints, які взагалі не мають authorization-метаданих; `[Authorize]` без policy і далі використовує `DefaultPolicy`, а endpoints з `[AllowAnonymous]` лишаються анонімними.",
+                  "correct": true
+                },
+                {
+                  "text": "Вона оцінюється додатково до власної policy кожного endpoint, тож endpoint з `[Authorize(Policy = \"Admin\")]` має задовольнити обидві.",
+                  "correct": false
+                },
+                {
+                  "text": "Вона також перекриває `[AllowAnonymous]`, тому health-check endpoints треба мапити до `UseAuthorization`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`FallbackPolicy` використовується, коли endpoint не несе метаданих `IAuthorizeData`/policy; `DefaultPolicy` — це те, у що резолвиться «голий» `[Authorize]`; `[AllowAnonymous]` повністю обходить авторизацію. Fallback «автентифікований користувач» робить нові endpoints secure by default — забутий атрибут більше не відкриває діру. Варіант 1 плутає дві policies (у багатьох конфігураціях обидві означають «автентифікований користувач», що приховує різницю). Варіант 3 хибний: endpoint з власними метаданими комбінує власні policies, fallback не додається. Варіант 4 хибний: `[AllowAnonymous]` усе одно перемагає; middleware, розміщене до `UseAuthorization` (наприклад, static files), не зачіпається з іншої причини — воно взагалі не доходить до авторизації."
             }
           }
         },
@@ -175,6 +267,17 @@
                 "Implements owner-or-editor as resource-based authorization: load the entity first, then `IAuthorizationService.AuthorizeAsync(User, resource, policy)` with an `AuthorizationHandler<TRequirement, TResource>`, explaining why an attribute alone cannot see the resource.",
                 "Mentions middleware order (`UseRouting` before `UseAuthentication`/`UseAuthorization`, endpoints after) or a secure-by-default fallback policy."
               ]
+            },
+            "uk": {
+              "prompt": "У чому різниця між authentication і authorization в ASP.NET Core? Опишіть, як обробляється запит до захищеного endpoint — schemes і handlers, два middleware, policies, requirements і handlers — і поясніть, як ви реалізували б «документ може редагувати лише його власник або користувач із роллю `editor`».",
+              "explanation": "Еталонна відповідь: authentication встановлює identity — `UseAuthentication` викликає handler default scheme (`AuthenticateAsync`), щоб побудувати `HttpContext.User` з cookie чи bearer token, і сам ніколи не відхиляє запит. Authorization вирішує питання доступу — `UseAuthorization` читає метадані endpoint і оцінює policy (requirements плюс необов'язкові schemes); усі requirements мають бути виконані, requirement виконано, коли будь-який handler викликає `Succeed` і жоден не викликає `Fail`. У разі невдачі робиться challenge (неавтентифікований: 401 або перенаправлення на login) або forbid (автентифікований: 403). «Власник або редактор» залежить від завантаженої сутності, тож це resource-based авторизація: `AuthorizationHandler<EditRequirement, Document>` перевіряє `OwnerId == sub` або `IsInRole(\"editor\")` (або два handlers для одного requirement), а endpoint завантажує документ і викликає `IAuthorizationService.AuthorizeAsync(User, doc, policy)`, повертаючи 403/404 у разі невдачі, бо атрибут оцінюється ще до того, як ресурс існує.",
+              "rubric": [
+                "Розрізняє identity (authentication, створює `ClaimsPrincipal`) і дозвіл (authorization, вирішує доступ) та зазначає, що `UseAuthentication` сам ніколи не відхиляє запит.",
+                "Пояснює schemes як ім'я + handler з `AuthenticateAsync`/`ChallengeAsync`/`ForbidAsync` і зіставляє challenge з 401 (або перенаправленням на login), а forbid — з 403.",
+                "Правильно описує оцінювання policy: усі requirements мають бути задоволені, requirement задоволено, якщо будь-який handler викликає `Succeed` і жоден handler не викликає `Fail`.",
+                "Реалізує «власник або редактор» як resource-based авторизацію: спершу завантажити сутність, потім `IAuthorizationService.AuthorizeAsync(User, resource, policy)` з `AuthorizationHandler<TRequirement, TResource>`, пояснюючи, чому сам атрибут не бачить ресурсу.",
+                "Згадує порядок middleware (`UseRouting` перед `UseAuthentication`/`UseAuthorization`, endpoints після) або secure-by-default fallback policy."
+              ]
             }
           }
         }
@@ -188,6 +291,10 @@
         "en": {
           "title": "JWT & OpenID Connect: Validation, Refresh Tokens, Flows, Microsoft.Identity.Web, Key Rotation",
           "note": "## What it is\n\nA **JWT** is a compact, signed (JWS) set of claims: `base64url(header).base64url(payload).base64url(signature)`. Signed is not encrypted — anyone holding the token can read the payload. **OAuth 2.0** is a delegation protocol that issues *access tokens* for APIs; **OpenID Connect** layers identity on top: an *ID token* (always a JWT) that tells the *client* who signed in, plus discovery (`/.well-known/openid-configuration`) and a JWKS endpoint with the provider's public keys.\n\n## How it works underneath\n\n**Validation in ASP.NET Core.** `AddJwtBearer(o => { o.Authority = ...; o.Audience = ...; })` fetches discovery metadata once and caches it in a `ConfigurationManager`. For every request the handler (since .NET 8, `JsonWebTokenHandler` from `Microsoft.IdentityModel.JsonWebTokens` rather than the older `JwtSecurityTokenHandler`) validates:\n\n- **signature** with the JWKS key matching the header's `kid`, and an algorithm the key supports (this blocks `alg: none` and RS256→HS256 confusion);\n- **issuer** (`iss`) and **audience** (`aud`) — the audience check is what stops a token minted for another API, or an ID token, from being accepted;\n- **lifetime** (`exp`, `nbf`) with `ClockSkew`, **5 minutes by default** — a token is accepted up to five minutes after `exp` unless you lower it.\n\nNo network call per request: validation is local, which is why JWTs scale and why they **cannot be revoked** before expiry without extra machinery (short lifetimes, introspection, or a deny-list). By default inbound claims are mapped to long WS-* URIs (`sub` → `ClaimTypes.NameIdentifier`); `MapInboundClaims = false` keeps the original names. The .NET 8 handler switch is a breaking change for code that casts `context.SecurityToken` to `JwtSecurityToken` in events — it is now a `JsonWebToken`.\n\n**Key rotation.** The provider publishes the next key in JWKS before signing with it. `ConfigurationManager` refreshes metadata automatically (default every 12 hours), and when a token arrives with an unknown `kid`, `RefreshOnIssuerKeyNotFound` (default `true`) forces a refresh, throttled by `RefreshInterval` (default 5 minutes). So rotation needs no restart; hard-coding a public key in `IssuerSigningKey` breaks it.\n\n**Flows.**\n\n- **Authorization Code + PKCE** — the default for every interactive client: web apps, SPAs, mobile. PKCE (`code_verifier`/`code_challenge`) binds the code to the client that started the flow. The OAuth 2.0 Security BCP (RFC 9700) and OAuth 2.1 drafts deprecate the **implicit** flow (tokens in URL fragments) and **ROPC** (password grant).\n- **Client credentials** — service-to-service, no user; the client authenticates with a secret, certificate or managed identity.\n- **Device code** — TVs and CLIs; **on-behalf-of** — an API exchanging a user token for a downstream token.\n\n**Refresh tokens** obtain new access tokens without user interaction. They are long-lived bearer credentials, sent only to the token endpoint, never to APIs. For public clients providers use **rotation with reuse detection**: each refresh returns a new refresh token, and reuse of an old one revokes the family. For browsers, the current recommendation (IETF *OAuth 2.0 for Browser-Based Applications*) is a **Backend-for-Frontend**: the server performs the code flow as a confidential client, keeps tokens server-side, and gives the SPA an `HttpOnly`, `Secure`, `SameSite` cookie — tokens never touch JavaScript, so XSS cannot exfiltrate them.\n\n**`Microsoft.Identity.Web`** wraps all of this for Microsoft Entra ID: `AddMicrosoftIdentityWebApi(config, \"AzureAd\")` configures bearer validation including multi-tenant issuer validation; `.EnableTokenAcquisitionToCallDownstreamApi()` adds MSAL-based token acquisition (on-behalf-of, client credentials) with a token cache; `RequiredScope`/`RequiredScopeOrAppPermission` check `scp`/`roles` claims.\n\n## What an interviewer probes\n\n- What exactly is validated, and why is the payload not a place for secrets?\n- ID token vs access token: the ID token is for the client; an API must reject it (wrong `aud`).\n- How do you log a user out or revoke access when JWTs are stateless?\n- Where does an SPA keep tokens? (`localStorage` is XSS-readable; BFF avoids the question.)\n\n## Common misconceptions\n\n- \"The JWT is encrypted\" — it is signed; JWE exists but is rarely used for access tokens.\n- \"The API calls the IdP to validate each token\" — only for opaque tokens via introspection.\n- \"Refresh tokens make access tokens safe to be long-lived\" — the opposite: they let access tokens be short.\n\n## Code\n\n```csharp\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(o =>\n    {\n        o.Authority = \"https://id.example.com/\";      // discovery + JWKS, rotated keys picked up automatically\n        o.Audience = \"api://spine\";                   // reject tokens issued for other resources\n        o.MapInboundClaims = false;                   // keep \"sub\", \"scp\", \"roles\" as-is\n        o.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);\n        o.TokenValidationParameters.ValidAlgorithms = [\"RS256\"];\n    });\n```\n"
+        },
+        "uk": {
+          "title": "JWT і OpenID Connect: валідація, refresh tokens, flows, Microsoft.Identity.Web, ротація ключів",
+          "note": "## Що це\n\n**JWT** — це компактний підписаний (JWS) набір claims: `base64url(header).base64url(payload).base64url(signature)`. Підписаний не означає зашифрований — будь-хто, хто має token, може прочитати payload. **OAuth 2.0** — протокол делегування, що видає *access tokens* для API; **OpenID Connect** додає поверх нього identity: *ID token* (завжди JWT), який повідомляє *клієнту*, хто увійшов, а також discovery (`/.well-known/openid-configuration`) і JWKS endpoint з публічними ключами провайдера.\n\n## Як це працює під капотом\n\n**Валідація в ASP.NET Core.** `AddJwtBearer(o => { o.Authority = ...; o.Audience = ...; })` один раз завантажує discovery-метадані й кешує їх у `ConfigurationManager`. Для кожного запиту handler (з .NET 8 — `JsonWebTokenHandler` з `Microsoft.IdentityModel.JsonWebTokens` замість старішого `JwtSecurityTokenHandler`) перевіряє:\n\n- **підпис** ключем з JWKS, що відповідає `kid` із header, і алгоритмом, який цей ключ підтримує (це блокує `alg: none` і плутанину RS256→HS256);\n- **issuer** (`iss`) і **audience** (`aud`) — саме перевірка audience не дає прийняти token, випущений для іншого API, або ID token;\n- **lifetime** (`exp`, `nbf`) з `ClockSkew`, що **за замовчуванням становить 5 хвилин** — token приймається ще до п'яти хвилин після `exp`, якщо ви не зменшите це значення.\n\nЖодного мережевого виклику на запит: валідація локальна, тому JWT добре масштабуються і тому їх **неможливо відкликати** до спливання терміну без додаткових механізмів (короткий lifetime, introspection або deny-list). За замовчуванням вхідні claims мапляться на довгі WS-* URI (`sub` → `ClaimTypes.NameIdentifier`); `MapInboundClaims = false` зберігає оригінальні імена. Перехід на новий handler у .NET 8 — breaking change для коду, який у events приводить `context.SecurityToken` до `JwtSecurityToken`: тепер це `JsonWebToken`.\n\n**Ротація ключів.** Провайдер публікує наступний ключ у JWKS ще до того, як почне ним підписувати. `ConfigurationManager` автоматично оновлює метадані (за замовчуванням кожні 12 годин), а коли надходить token з невідомим `kid`, `RefreshOnIssuerKeyNotFound` (за замовчуванням `true`) примусово запускає оновлення, обмежене `RefreshInterval` (за замовчуванням 5 хвилин). Тож ротація не потребує перезапуску; захардкоджений публічний ключ в `IssuerSigningKey` її ламає.\n\n**Flows.**\n\n- **Authorization Code + PKCE** — стандарт для кожного інтерактивного клієнта: вебзастосунків, SPA, мобільних. PKCE (`code_verifier`/`code_challenge`) прив'язує code до клієнта, який розпочав flow. OAuth 2.0 Security BCP (RFC 9700) і чернетки OAuth 2.1 оголошують застарілими **implicit** flow (tokens у URL fragment) і **ROPC** (password grant).\n- **Client credentials** — service-to-service, без користувача; клієнт автентифікується секретом, сертифікатом або managed identity.\n- **Device code** — для телевізорів і CLI; **on-behalf-of** — API обмінює token користувача на token для downstream-сервісу.\n\n**Refresh tokens** дають змогу отримувати нові access tokens без участі користувача. Це довгоживучі bearer-облікові дані, які надсилаються лише на token endpoint і ніколи — до API. Для public clients провайдери використовують **ротацію з reuse detection**: кожне оновлення повертає новий refresh token, а повторне використання старого відкликає всю «родину». Для браузерів поточна рекомендація (IETF *OAuth 2.0 for Browser-Based Applications*) — **Backend-for-Frontend**: сервер виконує code flow як confidential client, зберігає tokens на сервері й видає SPA cookie з `HttpOnly`, `Secure`, `SameSite` — tokens ніколи не потрапляють у JavaScript, тож XSS не може їх викрасти.\n\n**`Microsoft.Identity.Web`** обгортає все це для Microsoft Entra ID: `AddMicrosoftIdentityWebApi(config, \"AzureAd\")` налаштовує bearer-валідацію, включно з multi-tenant валідацією issuer; `.EnableTokenAcquisitionToCallDownstreamApi()` додає отримання tokens на основі MSAL (on-behalf-of, client credentials) з token cache; `RequiredScope`/`RequiredScopeOrAppPermission` перевіряють claims `scp`/`roles`.\n\n## Що перевіряє інтерв'юер\n\n- Що саме валідується і чому payload — не місце для секретів?\n- ID token проти access token: ID token призначений для клієнта; API має його відхилити (неправильний `aud`).\n- Як розлогінити користувача чи відкликати доступ, якщо JWT stateless?\n- Де SPA зберігає tokens? (`localStorage` читається через XSS; BFF знімає це питання.)\n\n## Поширені хибні уявлення\n\n- «JWT зашифрований» — він підписаний; JWE існує, але для access tokens використовується рідко.\n- «API звертається до IdP, щоб валідувати кожен token» — лише для opaque tokens через introspection.\n- «Refresh tokens роблять безпечними довгоживучі access tokens» — навпаки: вони дозволяють access tokens бути короткоживучими.\n\n## Код\n\n```csharp\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(o =>\n    {\n        o.Authority = \"https://id.example.com/\";      // discovery + JWKS, rotated keys picked up automatically\n        o.Audience = \"api://spine\";                   // reject tokens issued for other resources\n        o.MapInboundClaims = false;                   // keep \"sub\", \"scp\", \"roles\" as-is\n        o.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);\n        o.TokenValidationParameters.ValidAlgorithms = [\"RS256\"];\n    });\n```\n"
         }
       },
       "questions": [
@@ -223,6 +330,28 @@
                 }
               ],
               "explanation": "A JWS-signed JWT is `header.payload.signature`; the first two parts are just base64url, so any holder — including the browser and its extensions — can decode them. The signature, verified with the key from the provider's JWKS (`kid`), guarantees the token was issued by the provider and not modified; the handler additionally checks `iss`, `aud`, `exp`/`nbf`. Option 1 confuses signing with encryption (and you sign with a private key, you do not encrypt with it); JWE exists but is not what bearer access tokens normally are. Option 3 describes introspection of *opaque* tokens; JWT validation is local, which is precisely why JWTs cannot be revoked before expiry without extra machinery. Option 4 describes HS256 with a shared secret; OIDC providers sign access tokens asymmetrically (RS256/ES256), and the client secret is never the token-signing key."
+            },
+            "uk": {
+              "prompt": "Яке твердження про JWT access token, отриманий ASP.NET Core API (JWT bearer handler, налаштований `Authority`), правильне?",
+              "options": [
+                {
+                  "text": "Payload зашифрований приватним ключем identity provider, тож це безпечне місце для email користувача і внутрішніх дозволів.",
+                  "correct": false
+                },
+                {
+                  "text": "Payload лише закодований у base64url і доступний для читання будь-кому; підпис, який перевіряється локально публічним ключем, опублікованим провайдером, доводить цілісність і походження, а handler додатково валідує issuer, audience і lifetime.",
+                  "correct": true
+                },
+                {
+                  "text": "API пересилає кожен token на introspection endpoint identity provider, тому відкликаний token відхиляється негайно.",
+                  "correct": false
+                },
+                {
+                  "text": "Підпис — це HMAC, обчислений із client secret, тож для валідації tokens API має знати секрети всіх клієнтів.",
+                  "correct": false
+                }
+              ],
+              "explanation": "JWT, підписаний JWS, — це `header.payload.signature`; перші дві частини — просто base64url, тож будь-хто, хто ним володіє, включно з браузером і його розширеннями, може їх декодувати. Підпис, перевірений ключем з JWKS провайдера (`kid`), гарантує, що token випустив провайдер і його не змінювали; handler додатково перевіряє `iss`, `aud`, `exp`/`nbf`. Варіант 1 плутає підписування із шифруванням (і приватним ключем підписують, а не шифрують); JWE існує, але bearer access tokens зазвичай не такі. Варіант 3 описує introspection *opaque* tokens; валідація JWT локальна — саме тому JWT неможливо відкликати до спливання терміну без додаткових механізмів. Варіант 4 описує HS256 зі спільним секретом; OIDC-провайдери підписують access tokens асиметрично (RS256/ES256), і client secret ніколи не є ключем підпису tokens."
             }
           }
         },
@@ -258,6 +387,28 @@
                 }
               ],
               "explanation": "`TokenValidationParameters.ClockSkew` defaults to 5 minutes to tolerate clock drift between issuer and API, and it is applied to both `exp` and `nbf`. Tests that issue 1-minute tokens and expect a 401 after 2 minutes fail for this reason; production systems with short-lived tokens often lower it to 30–60 seconds. Option 1 ignores the skew. Option 2 is wrong because refresh tokens never go to the resource server — renewing is the client's job against the token endpoint. Option 4 is wrong: `ValidateLifetime` is `true` by default regardless of `Authority`, and key rotation has nothing to do with lifetime."
+            },
+            "uk": {
+              "prompt": "API використовує `AddJwtBearer` з `TokenValidationParameters` за замовчуванням. `exp` token минув 2 хвилини тому. Що станеться?",
+              "options": [
+                {
+                  "text": "Відхилено з `401`; `exp` порівнюється з годинником сервера точно.",
+                  "correct": false
+                },
+                {
+                  "text": "Handler автоматично використовує refresh token із запиту, щоб отримати новий access token, і продовжує обробку.",
+                  "correct": false
+                },
+                {
+                  "text": "Прийнято: `ClockSkew` за замовчуванням становить 5 хвилин, тож token лишається валідним до 5 хвилин після `exp`, якщо не зменшити `ClockSkew`.",
+                  "correct": true
+                },
+                {
+                  "text": "Прийнято, доки провайдер не змінить ключ підпису, бо lifetime не валідується, коли налаштовано `Authority`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`TokenValidationParameters.ClockSkew` за замовчуванням дорівнює 5 хвилинам, щоб толерувати розбіжність годинників між issuer і API, і застосовується як до `exp`, так і до `nbf`. Тести, що видають tokens на 1 хвилину й очікують 401 через 2 хвилини, падають саме через це; продакшн-системи з короткоживучими tokens часто зменшують його до 30–60 секунд. Варіант 1 ігнорує skew. Варіант 2 хибний, бо refresh tokens ніколи не надходять на resource server — оновлення є обов'язком клієнта через token endpoint. Варіант 4 хибний: `ValidateLifetime` за замовчуванням `true` незалежно від `Authority`, а ротація ключів не має стосунку до lifetime."
             }
           }
         },
@@ -293,6 +444,28 @@
                 }
               ],
               "explanation": "Key rotation relies on discovery: `ConfigurationManager<OpenIdConnectConfiguration>` caches metadata, refreshes it automatically (default every 12 hours) and, when signature validation fails with an unknown key, triggers a refresh because `RefreshOnIssuerKeyNotFound` is on by default; refreshes are rate-limited so a flood of bad tokens cannot hammer the provider. Well-behaved providers also pre-publish the next key, so most APIs already have it. Option 1 is the failure mode you get when you hard-code `IssuerSigningKey` instead of using `Authority` — not the default. Option 2 is dangerous nonsense: a missing key is a validation failure, never a bypass. Option 3 invents a 24-hour expiry; the automatic interval is 12 hours, and the unknown-`kid` refresh makes waiting unnecessary anyway."
+            },
+            "uk": {
+              "prompt": "Identity provider змінює свій ключ підпису. Невдовзі надходить token, чий `kid` у header відсутній у JWKS, який API закешував під час старту. API налаштований з `Authority`, решта — за замовчуванням. Що станеться?",
+              "options": [
+                {
+                  "text": "Кожен новий token падає з `401`, доки API не перезапустять, бо метадані завантажуються лише раз під час старту.",
+                  "correct": false
+                },
+                {
+                  "text": "Handler не знаходить ключ, тому пропускає перевірку підпису й покладається на перевірки issuer і audience.",
+                  "correct": false
+                },
+                {
+                  "text": "Handler відхиляє token, доки кешовані метадані не спливуть через 24 години, — тому провайдери тримають старі ключі добу.",
+                  "correct": false
+                },
+                {
+                  "text": "`RefreshOnIssuerKeyNotFound` (за замовчуванням `true`) змушує `ConfigurationManager` повторно завантажити JWKS (з обмеженням `RefreshInterval`, за замовчуванням 5 хвилин), і token валідується новим ключем; перезапуск не потрібен.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Ротація ключів спирається на discovery: `ConfigurationManager<OpenIdConnectConfiguration>` кешує метадані, автоматично оновлює їх (за замовчуванням кожні 12 годин) і, коли перевірка підпису падає через невідомий ключ, запускає оновлення, бо `RefreshOnIssuerKeyNotFound` увімкнено за замовчуванням; оновлення обмежені за частотою, тож потік поганих tokens не може перевантажити провайдера. Коректні провайдери ще й заздалегідь публікують наступний ключ, тож більшість API вже мають його. Варіант 1 — це режим відмови, який ви отримуєте, коли хардкодите `IssuerSigningKey` замість використання `Authority`, а не поведінка за замовчуванням. Варіант 2 — небезпечна нісенітниця: відсутній ключ — це помилка валідації, а ніколи не обхід. Варіант 3 вигадує 24-годинне спливання; автоматичний інтервал — 12 годин, а оновлення на невідомий `kid` і так робить очікування непотрібним."
             }
           }
         },
@@ -329,6 +502,28 @@
                 }
               ],
               "explanation": "Authorization Code + PKCE is the recommended flow for all interactive clients, including public ones: PKCE binds the authorization code to the instance that started the flow, so an intercepted code is useless. The browser-apps guidance goes further and recommends a BFF so access and refresh tokens never reach JavaScript (XSS cannot steal what is not there). Implicit (option 2) was the historical SPA answer but leaks tokens via URL fragments, history and referrers, and is deprecated by RFC 9700 and omitted from OAuth 2.1. ROPC (option 3) hands credentials to the client, breaks MFA/federation and is deprecated. Client credentials (option 4) authenticates an application, not a user, and any secret shipped in a JS bundle is public — minification is not secrecy."
+            },
+            "uk": {
+              "prompt": "Angular SPA має автентифікувати користувачів через OpenID Connect provider і викликати ваш ASP.NET Core API. Який підхід відповідає поточним рекомендаціям (OAuth 2.0 Security BCP, RFC 9700)?",
+              "options": [
+                {
+                  "text": "Authorization Code flow з PKCE — бажано через Backend-for-Frontend, який зберігає tokens на сервері й видає SPA cookie з `HttpOnly`; implicit flow застарів.",
+                  "correct": true
+                },
+                {
+                  "text": "Implicit flow, бо SPA не може зберігати секрет, а implicit flow створено саме для браузерних застосунків, які отримують tokens безпосередньо в URL fragment.",
+                  "correct": false
+                },
+                {
+                  "text": "Resource Owner Password Credentials: SPA надсилає логін і пароль на token endpoint, уникаючи редиректів.",
+                  "correct": false
+                },
+                {
+                  "text": "Client credentials flow з client secret у `environment.prod.ts`, бо Angular-збірка мініфікує й обфускує його.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Authorization Code + PKCE — рекомендований flow для всіх інтерактивних клієнтів, включно з public: PKCE прив'язує authorization code до екземпляра, що розпочав flow, тож перехоплений code марний. Рекомендації для браузерних застосунків ідуть далі й радять BFF, щоб access і refresh tokens ніколи не потрапляли в JavaScript (XSS не може вкрасти те, чого там немає). Implicit (варіант 2) був історичною відповіддю для SPA, але витікає tokens через URL fragment, історію та referrer, він оголошений застарілим у RFC 9700 і відсутній в OAuth 2.1. ROPC (варіант 3) передає облікові дані клієнту, ламає MFA/федерацію і теж застарів. Client credentials (варіант 4) автентифікує застосунок, а не користувача, і будь-який секрет, що потрапив у JS bundle, публічний — мініфікація не є секретністю."
             }
           }
         },
@@ -365,6 +560,28 @@
                 }
               ],
               "explanation": "OIDC defines the ID token as an assertion *to the client* about the authentication event; its `aud` is the client id. An access token is minted for a resource (API audience) with scopes/roles for that resource. Correct audience validation therefore rejects ID tokens, which is one of the main reasons audience validation must never be disabled. Option 1 is the misconception that 'signed by our provider' implies 'meant for me' — that is the confused-deputy problem audience exists to stop. Option 3 is wrong: the type and audience differ, not just scopes, and ID tokens do not carry `scp`. Option 4 is wrong: ID tokens are normally signed JWS, not encrypted."
+            },
+            "uk": {
+              "prompt": "Front-end-розробник надсилає OIDC **ID token** як bearer token до вашого API, бо «це валідний JWT, підписаний нашим провайдером». Ваш API валідує issuer, audience і підпис. Що має статися і чому?",
+              "options": [
+                {
+                  "text": "Його приймуть: обидва tokens від одного issuer з тими самими ключами, а ID token навіть містить багатші claims про користувача.",
+                  "correct": false
+                },
+                {
+                  "text": "Його відхилять: `aud` ID token — це `client_id` клієнта, а не audience API; ID tokens повідомляють клієнту, хто увійшов, а access tokens авторизують виклики до ресурсу.",
+                  "correct": true
+                },
+                {
+                  "text": "Його приймуть, лише якщо він також містить claim `scp`, бо scopes — єдина відмінність між цими двома типами tokens.",
+                  "correct": false
+                },
+                {
+                  "text": "Його відхилять, бо ID tokens завжди зашифровані (JWE), а в API немає ключа для розшифрування.",
+                  "correct": false
+                }
+              ],
+              "explanation": "OIDC визначає ID token як твердження *для клієнта* про подію автентифікації; його `aud` — client id. Access token випускається для ресурсу (audience API) зі scopes/roles для цього ресурсу. Тож коректна валідація audience відхиляє ID tokens — це одна з головних причин, чому валідацію audience ніколи не можна вимикати. Варіант 1 — хибне уявлення, що «підписаний нашим провайдером» означає «призначений мені»; саме від проблеми confused deputy й захищає audience. Варіант 3 хибний: відрізняються тип і audience, а не лише scopes, і ID tokens не містять `scp`. Варіант 4 хибний: ID tokens зазвичай підписані JWS, а не зашифровані."
             }
           }
         },
@@ -390,6 +607,17 @@
                 "Addresses revocation honestly: stateless JWTs stay valid until expiry, so mitigate with short lifetimes, refresh-token revocation, and introspection or a deny-list where needed.",
                 "Explains key rotation via discovery/JWKS caching with automatic refresh on unknown `kid`, and warns against hard-coding signing keys."
               ]
+            },
+            "uk": {
+              "prompt": "Спроєктуйте автентифікацію для Angular SPA, що викликає ASP.NET Core API через OpenID Connect provider. Який flow ви оберете і чому, що API валідує в кожному token, як оновлюються tokens і де вони зберігаються, як ви обробите logout/відкликання з огляду на те, що JWT stateless, і що відбувається, коли провайдер змінює ключі підпису?",
+              "explanation": "Еталонна відповідь: використати Authorization Code + PKCE (implicit і ROPC застаріли); в ідеалі за BFF, який виконує flow як confidential client і видає cookie з HttpOnly, Secure, SameSite, тож tokens ніколи не потрапляють у JavaScript; без BFF зберігати tokens у пам'яті, а не в `localStorage`. API валідує підпис ключем з JWKS, визначеним через `kid`, з дозволеним алгоритмом, `iss`, `aud` (відхиляє ID tokens і tokens для інших API) та `exp`/`nbf` з невеликим clock skew (за замовчуванням 5 хвилин). Access tokens короткоживучі; refresh tokens надсилаються лише на token endpoint, ротуються з reuse detection і відкликаються під час logout. Оскільки валідація JWT локальна, відкликання обмежене lifetime access token, якщо для ризикованих сценаріїв не додати introspection або deny-list. Ротація: discovery на основі `Authority` кешує JWKS, оновлює його періодично й на невідомий `kid`, тож нові ключі підхоплюються без перезапуску; ключ підпису ніколи не хардкодять.",
+              "rubric": [
+                "Обирає Authorization Code з PKCE і зазначає, що implicit flow (і ROPC) застарілі, пояснюючи, від чого захищає PKCE.",
+                "Перелічує валідацію в API: підпис через JWKS/`kid` і дозволені алгоритми, issuer, audience, lifetime з clock skew; зазначає, що payload читабельний, а не зашифрований.",
+                "Пояснює refresh tokens: короткоживучі access tokens, refresh token надсилається лише на token endpoint, ротація з reuse detection і безпечний вибір сховища (BFF з HttpOnly cookie або пам'ять замість `localStorage`).",
+                "Чесно розглядає відкликання: stateless JWT лишаються валідними до спливання терміну, тож ризик зменшують коротким lifetime, відкликанням refresh tokens та introspection або deny-list там, де це потрібно.",
+                "Пояснює ротацію ключів через discovery/кешування JWKS з автоматичним оновленням на невідомий `kid` і застерігає від хардкоду ключів підпису."
+              ]
             }
           }
         }
@@ -403,6 +631,10 @@
         "en": {
           "title": "CORS & CSRF: Preflight, Antiforgery in SPAs, Cookie vs Bearer",
           "note": "## What it is\n\n**CORS** (Cross-Origin Resource Sharing) is a *browser* mechanism that relaxes the Same-Origin Policy: it lets a server tell the browser which other origins (scheme + host + port) may **read** its responses. **CSRF** (Cross-Site Request Forgery) is an attack in which a malicious site makes the victim's browser send a state-changing request that carries the victim's **ambient credentials** (cookies). They are often confused; they solve different problems, and CORS is not a CSRF defence.\n\n## How it works underneath\n\n**Simple vs preflighted requests.** A cross-origin request is *simple* if the method is `GET`, `HEAD` or `POST`, only CORS-safelisted headers are set, and `Content-Type` is one of `application/x-www-form-urlencoded`, `multipart/form-data`, `text/plain`. Simple requests are **sent immediately**; the browser only checks `Access-Control-Allow-Origin` on the response and hides it from script if it does not match — the server has already executed the request. Anything else (`PUT`, `DELETE`, `application/json`, an `Authorization` header) triggers a **preflight**: `OPTIONS` with `Origin`, `Access-Control-Request-Method` and `Access-Control-Request-Headers`. Only if the response allows them does the browser send the real request. `Access-Control-Max-Age` caches the preflight (browsers cap it: Chromium at 2 hours).\n\n**Credentials.** For cookies to be sent cross-origin, the client opts in (`fetch(..., { credentials: 'include' })`, Angular `withCredentials: true`) and the server must reply with `Access-Control-Allow-Credentials: true` **and a concrete origin**, never `*`. ASP.NET Core enforces this: a policy with `AllowAnyOrigin()` and `AllowCredentials()` throws `InvalidOperationException` when built. `SetIsOriginAllowed(_ => true)` + credentials compiles but reflects any origin — effectively disabling the Same-Origin Policy for authenticated reads.\n\n**ASP.NET Core wiring.** `AddCors(o => o.AddPolicy(...))`, then `UseCors()` after `UseRouting()` and **before** `UseAuthentication`/`UseAuthorization`: preflights carry no credentials, so if authorization runs first they get `401` and the browser reports a CORS error. CORS middleware answers preflights itself (`204`). Non-browser clients (curl, Postman, other servers) ignore CORS entirely — it never protects an API from callers.\n\n**CSRF and cookies.** CSRF works because browsers attach cookies to requests to their site regardless of which page initiated them. Defences:\n\n- **`SameSite` cookies.** `Lax` (browser default for cookies without the attribute in Chromium) withholds cookies on cross-site subresource requests and `POST`s but sends them on top-level `GET` navigations; `Strict` withholds on all cross-site requests. \"Site\" is the registrable domain: `app.example.com` and `evil.example.com` are **same-site**, so SameSite does not protect against a compromised sibling subdomain.\n- **Antiforgery tokens.** ASP.NET Core's `IAntiforgery` issues a cookie token plus a request token (form field or header) cryptographically paired and bound to the user; both must arrive and match. An attacker's page can make the browser send the cookie but cannot read it to forge the header.\n\n**Bearer tokens** in the `Authorization` header are not ambient — the browser never attaches them automatically — so token-authenticated APIs are not CSRF-vulnerable. The trade-off is that the token must be readable by JavaScript, so XSS steals it. Cookies (`HttpOnly`) are invisible to XSS but need CSRF protection. That is the core **cookie vs bearer** trade-off, and why the BFF pattern pairs `HttpOnly` + `SameSite` cookies with antiforgery.\n\n**Angular integration.** `HttpClient`'s built-in XSRF interceptor reads a cookie (default `XSRF-TOKEN`) and copies it into a header (default `X-XSRF-TOKEN`) for **mutating requests to relative URLs only** — not for `GET`/`HEAD` and not for absolute URLs, so a cross-origin API needs a custom interceptor or, better, same-origin hosting via a reverse proxy. The server must issue that cookie **without `HttpOnly`** so script can read it, and configure `AddAntiforgery(o => o.HeaderName = \"X-XSRF-TOKEN\")`.\n\n## What an interviewer probes\n\n- Why does my `PUT` send an `OPTIONS` first, and why does it fail with 401?\n- Does CORS stop CSRF? (No: simple form posts are sent before any CORS check.)\n- Cookie vs bearer for an SPA, and what each one needs.\n- Does `SameSite=Lax` make antiforgery redundant? (Mostly for cross-site, not for same-site subdomains or GET-with-side-effects.)\n\n## Common misconceptions\n\n- \"CORS is server-side protection\" — it is a browser read-permission system.\n- \"Blocked by CORS means the request did not run\" — true only for preflighted requests.\n- \"JWT in `localStorage` needs antiforgery\" — it needs XSS hardening instead.\n\n## Code\n\n```csharp\nbuilder.Services.AddCors(o => o.AddPolicy(\"spa\", p => p\n    .WithOrigins(\"https://app.example.com\")\n    .WithMethods(\"GET\", \"POST\", \"PUT\", \"DELETE\")\n    .WithHeaders(\"Content-Type\", \"X-XSRF-TOKEN\")\n    .AllowCredentials()\n    .SetPreflightMaxAge(TimeSpan.FromMinutes(10))));\nbuilder.Services.AddAntiforgery(o => o.HeaderName = \"X-XSRF-TOKEN\");\n\napp.UseRouting();\napp.UseCors(\"spa\");\napp.UseAuthentication();\napp.UseAuthorization();\napp.UseAntiforgery();\n\napp.MapGet(\"/antiforgery\", (IAntiforgery af, HttpContext ctx) =>\n{\n    var tokens = af.GetAndStoreTokens(ctx);\n    ctx.Response.Cookies.Append(\"XSRF-TOKEN\", tokens.RequestToken!,\n        new CookieOptions { HttpOnly = false, Secure = true, SameSite = SameSiteMode.Strict });\n    return Results.NoContent();\n}).RequireAuthorization();\n```\n"
+        },
+        "uk": {
+          "title": "CORS і CSRF: preflight, antiforgery у SPA, cookie vs bearer",
+          "note": "## Що це\n\n**CORS** (Cross-Origin Resource Sharing) — це *браузерний* механізм, що послаблює Same-Origin Policy: він дає серверу змогу повідомити браузеру, яким іншим origins (scheme + host + port) дозволено **читати** його відповіді. **CSRF** (Cross-Site Request Forgery) — атака, під час якої зловмисний сайт змушує браузер жертви надіслати запит, що змінює стан і несе **ambient credentials** жертви (cookies). Їх часто плутають; вони розв'язують різні проблеми, і CORS не є захистом від CSRF.\n\n## Як це працює під капотом\n\n**Simple і preflighted запити.** Cross-origin запит є *simple*, якщо метод — `GET`, `HEAD` або `POST`, встановлено лише CORS-safelisted заголовки, а `Content-Type` — один із `application/x-www-form-urlencoded`, `multipart/form-data`, `text/plain`. Simple-запити **надсилаються одразу**; браузер лише перевіряє `Access-Control-Allow-Origin` у відповіді й приховує її від скрипта, якщо значення не збігається, — але сервер уже виконав запит. Усе інше (`PUT`, `DELETE`, `application/json`, заголовок `Authorization`) запускає **preflight**: `OPTIONS` з `Origin`, `Access-Control-Request-Method` і `Access-Control-Request-Headers`. Лише якщо відповідь їх дозволяє, браузер надсилає справжній запит. `Access-Control-Max-Age` кешує preflight (браузери обмежують це значення: Chromium — 2 години).\n\n**Credentials.** Щоб cookies надсилалися cross-origin, клієнт має явно цього захотіти (`fetch(..., { credentials: 'include' })`, Angular `withCredentials: true`), а сервер — відповісти `Access-Control-Allow-Credentials: true` **і конкретним origin**, ніколи не `*`. ASP.NET Core це забезпечує: policy з `AllowAnyOrigin()` і `AllowCredentials()` кидає `InvalidOperationException` під час побудови. `SetIsOriginAllowed(_ => true)` + credentials компілюється, але віддзеркалює будь-який origin — фактично вимикаючи Same-Origin Policy для автентифікованого читання.\n\n**Налаштування в ASP.NET Core.** `AddCors(o => o.AddPolicy(...))`, потім `UseCors()` після `UseRouting()` і **перед** `UseAuthentication`/`UseAuthorization`: preflight-запити не несуть credentials, тож якщо authorization виконується першою, вони отримують `401`, а браузер повідомляє про CORS-помилку. CORS middleware сам відповідає на preflight (`204`). Небраузерні клієнти (curl, Postman, інші сервери) повністю ігнорують CORS — він ніколи не захищає API від викликачів.\n\n**CSRF і cookies.** CSRF працює тому, що браузери додають cookies до запитів на свій сайт незалежно від того, яка сторінка ініціювала запит. Захист:\n\n- **`SameSite` cookies.** `Lax` (у Chromium — поведінка браузера за замовчуванням для cookies без цього атрибута) не надсилає cookies у cross-site subresource-запитах і `POST`, але надсилає їх під час top-level `GET`-навігації; `Strict` не надсилає їх у жодних cross-site запитах. «Site» — це registrable domain: `app.example.com` і `evil.example.com` є **same-site**, тож SameSite не захищає від скомпрометованого сусіднього субдомену.\n- **Antiforgery tokens.** `IAntiforgery` в ASP.NET Core видає cookie token плюс request token (поле форми або заголовок), криптографічно пов'язані між собою і прив'язані до користувача; обидва мають надійти й збігтися. Сторінка зловмисника може змусити браузер надіслати cookie, але не може прочитати його, щоб підробити заголовок.\n\n**Bearer tokens** у заголовку `Authorization` не є ambient — браузер ніколи не додає їх автоматично, — тож API з автентифікацією через token не вразливі до CSRF. Компроміс у тому, що token має бути доступним для JavaScript, тож XSS його викрадає. Cookies (`HttpOnly`) невидимі для XSS, але потребують захисту від CSRF. У цьому суть компромісу **cookie vs bearer** і причина, чому патерн BFF поєднує cookies з `HttpOnly` + `SameSite` з antiforgery.\n\n**Інтеграція з Angular.** Вбудований XSRF interceptor у `HttpClient` читає cookie (за замовчуванням `XSRF-TOKEN`) і копіює його в заголовок (за замовчуванням `X-XSRF-TOKEN`) **лише для мутуючих запитів на відносні URL** — не для `GET`/`HEAD` і не для абсолютних URL, тож cross-origin API потребує кастомного interceptor або, краще, same-origin хостингу через reverse proxy. Сервер має видавати цей cookie **без `HttpOnly`**, щоб скрипт міг його прочитати, і налаштувати `AddAntiforgery(o => o.HeaderName = \"X-XSRF-TOKEN\")`.\n\n## Що перевіряє інтерв'юер\n\n- Чому мій `PUT` спершу надсилає `OPTIONS` і чому той падає з 401?\n- Чи зупиняє CORS CSRF? (Ні: simple form posts надсилаються ще до будь-якої CORS-перевірки.)\n- Cookie чи bearer для SPA, і що потрібно кожному з них.\n- Чи робить `SameSite=Lax` antiforgery зайвим? (Здебільшого для cross-site, але не для same-site субдоменів чи GET із побічними ефектами.)\n\n## Поширені хибні уявлення\n\n- «CORS — це серверний захист» — це браузерна система дозволів на читання.\n- «Заблоковано CORS означає, що запит не виконався» — правда лише для preflighted-запитів.\n- «JWT у `localStorage` потребує antiforgery» — натомість він потребує захисту від XSS.\n\n## Код\n\n```csharp\nbuilder.Services.AddCors(o => o.AddPolicy(\"spa\", p => p\n    .WithOrigins(\"https://app.example.com\")\n    .WithMethods(\"GET\", \"POST\", \"PUT\", \"DELETE\")\n    .WithHeaders(\"Content-Type\", \"X-XSRF-TOKEN\")\n    .AllowCredentials()\n    .SetPreflightMaxAge(TimeSpan.FromMinutes(10))));\nbuilder.Services.AddAntiforgery(o => o.HeaderName = \"X-XSRF-TOKEN\");\n\napp.UseRouting();\napp.UseCors(\"spa\");\napp.UseAuthentication();\napp.UseAuthorization();\napp.UseAntiforgery();\n\napp.MapGet(\"/antiforgery\", (IAntiforgery af, HttpContext ctx) =>\n{\n    var tokens = af.GetAndStoreTokens(ctx);\n    ctx.Response.Cookies.Append(\"XSRF-TOKEN\", tokens.RequestToken!,\n        new CookieOptions { HttpOnly = false, Secure = true, SameSite = SameSiteMode.Strict });\n    return Results.NoContent();\n}).RequireAuthorization();\n```\n"
         }
       },
       "questions": [
@@ -438,6 +670,28 @@
                 }
               ],
               "explanation": "Origins differ by port, so this is cross-origin. `PUT` and `application/json` are not CORS-safelisted, so the browser first sends `OPTIONS` with `Access-Control-Request-Method`/`-Headers` and only sends the real request if the response contains matching `Access-Control-Allow-*` headers (in ASP.NET Core: a CORS policy, with `UseCors` placed before authentication/authorization so the credential-less preflight is not rejected). Option 1 attributes the preflight to Angular; it is the browser, and ASP.NET Core's CORS middleware answers it without per-route endpoints. Option 3 is backwards: CORS is enforced by the browser; the server only emits headers. Option 4 is wrong twice: simple `GET`s are not preflighted, and failed preflights are not cached for 24 hours (`Access-Control-Max-Age` caches successful ones, capped by browsers)."
+            },
+            "uk": {
+              "prompt": "Angular-застосунок на `http://localhost:4200` викликає `PUT http://localhost:8080/api/items/1` з JSON body. DevTools показує спершу запит `OPTIONS`, а потім `PUT` так і не надсилається. Яке пояснення правильне?",
+              "options": [
+                {
+                  "text": "Angular `HttpClient` надсилає `OPTIONS`, щоб дізнатися, які методи підтримує API; API має реалізувати `OPTIONS` endpoint для кожного route.",
+                  "correct": false
+                },
+                {
+                  "text": "Браузер надсилає CORS preflight, бо запит cross-origin (інший порт) і використовує не-simple метод та `Content-Type: application/json`; відповідь сервера не дозволила origin/метод/заголовки, тож браузер так і не надіслав `PUT`.",
+                  "correct": true
+                },
+                {
+                  "text": "Сервер сам відхилив `PUT` із CORS-помилкою; запис `OPTIONS` — це те, як DevTools показує відхилений запит.",
+                  "correct": false
+                },
+                {
+                  "text": "Кожному cross-origin запиту, включно зі звичайними `GET`, передує preflight; `PUT` заблоковано, бо результат preflight закешовано як невдалий на 24 години.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Origins відрізняються портом, тож це cross-origin. `PUT` і `application/json` не є CORS-safelisted, тому браузер спершу надсилає `OPTIONS` з `Access-Control-Request-Method`/`-Headers` і надсилає справжній запит, лише якщо відповідь містить відповідні заголовки `Access-Control-Allow-*` (в ASP.NET Core: CORS policy, а `UseCors` розміщено перед authentication/authorization, щоб preflight без credentials не відхилявся). Варіант 1 приписує preflight Angular; насправді це браузер, а CORS middleware в ASP.NET Core відповідає на нього без endpoints для кожного route. Варіант 3 перевертає все догори дриґом: CORS забезпечує браузер; сервер лише видає заголовки. Варіант 4 хибний двічі: simple `GET` не проходять preflight, а невдалі preflight не кешуються на 24 години (`Access-Control-Max-Age` кешує успішні, з обмеженням з боку браузерів)."
             }
           }
         },
@@ -473,6 +727,28 @@
                 }
               ],
               "explanation": "A form post with a safelisted content type is a *simple* request: the browser sends it without a preflight, attaching cookies that are eligible for cross-site use (`SameSite=None`). The server processes it; the CORS check only decides whether script on `evil.test` may read the response, which a CSRF attacker does not need. Hence CORS is not a CSRF defence. Option 1 assumes the server enforces CORS — it does not. Option 2 assumes every cross-origin request is preflighted; HTML forms predate CORS and are never preflighted. Option 4 is true only for `SameSite=Lax`/`Strict` cookies (and Lax still sends on top-level GET navigations); with `SameSite=None` the cookie is sent."
+            },
+            "uk": {
+              "prompt": "Ваш API використовує cookie authentication і сувору CORS policy, що дозволяє лише `https://app.example.com`. Сторінка зловмисника на `https://evil.test` автоматично надсилає HTML `<form method=\"post\" action=\"https://api.example.com/transfer\">` з полями `application/x-www-form-urlencoded`. Auth cookie має `SameSite=None; Secure`. Що станеться?",
+              "options": [
+                {
+                  "text": "Нічого: CORS policy відхиляє origin, тож запит ніколи не доходить до сервера.",
+                  "correct": false
+                },
+                {
+                  "text": "Браузер надсилає preflight, який завершується невдачею, тож form post блокується.",
+                  "correct": false
+                },
+                {
+                  "text": "Запит доходить до сервера з cookie жертви й виконується; CORS лише не дає зловмисникові прочитати відповідь. Щоб це зупинити, потрібні antiforgery tokens (або `SameSite=Lax/Strict`).",
+                  "correct": true
+                },
+                {
+                  "text": "Запит виконується, але без cookies, бо браузери ніколи не додають cookies до cross-origin form posts.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Form post із safelisted content type — це *simple*-запит: браузер надсилає його без preflight, додаючи cookies, дозволені для cross-site використання (`SameSite=None`). Сервер його обробляє; CORS-перевірка лише вирішує, чи може скрипт на `evil.test` прочитати відповідь, а CSRF-зловмисникові це не потрібно. Тому CORS не є захистом від CSRF. Варіант 1 припускає, що CORS забезпечує сервер, — це не так. Варіант 2 припускає, що кожен cross-origin запит проходить preflight; HTML-форми старші за CORS і ніколи не проходять preflight. Варіант 4 правильний лише для cookies з `SameSite=Lax`/`Strict` (і Lax усе одно надсилає їх під час top-level GET-навігації); з `SameSite=None` cookie надсилається."
             }
           }
         },
@@ -508,6 +784,28 @@
                 }
               ],
               "explanation": "The Fetch/CORS spec forbids `Access-Control-Allow-Origin: *` together with credentials, and ASP.NET Core's `CorsPolicyBuilder` refuses the combination with an `InvalidOperationException` ('insecure configuration') when the policy is built. Option 1 describes a response browsers would reject anyway. Option 2 invents behaviour; the closest real thing is `SetIsOriginAllowed(_ => true)`, which reflects *any* origin and with credentials effectively lets every site read authenticated responses — a common and dangerous workaround. Option 3 is wrong: nothing is silently downgraded."
+            },
+            "uk": {
+              "prompt": "Що станеться в ASP.NET Core 10 з такою policy?\n\n```csharp\nbuilder.Services.AddCors(o => o.AddPolicy(\"spa\", p => p\n    .AllowAnyOrigin()\n    .AllowAnyHeader()\n    .AllowAnyMethod()\n    .AllowCredentials()));\n```",
+              "options": [
+                {
+                  "text": "Це працює: middleware відповідає `Access-Control-Allow-Origin: *` і `Access-Control-Allow-Credentials: true`, і браузери надсилають cookies.",
+                  "correct": false
+                },
+                {
+                  "text": "Це працює безпечно: middleware автоматично віддзеркалює лише ті origins, що надіслали валідний cookie.",
+                  "correct": false
+                },
+                {
+                  "text": "Credentials мовчки відкидаються, і policy поводиться як сам лише `AllowAnyOrigin()`.",
+                  "correct": false
+                },
+                {
+                  "text": "Побудова policy кидає `InvalidOperationException`, бо протокол CORS забороняє wildcard origin разом із credentials; origins треба перелічити явно (`WithOrigins`).",
+                  "correct": true
+                }
+              ],
+              "explanation": "Специфікація Fetch/CORS забороняє `Access-Control-Allow-Origin: *` разом із credentials, і `CorsPolicyBuilder` в ASP.NET Core відмовляється від такої комбінації з `InvalidOperationException` («insecure configuration») під час побудови policy. Варіант 1 описує відповідь, яку браузери все одно відхилили б. Варіант 2 вигадує поведінку; найближче реальне — `SetIsOriginAllowed(_ => true)`, що віддзеркалює *будь-який* origin і разом із credentials фактично дозволяє кожному сайту читати автентифіковані відповіді — поширений і небезпечний обхідний шлях. Варіант 3 хибний: нічого мовчки не послаблюється."
             }
           }
         },
@@ -543,6 +841,28 @@
                 }
               ],
               "explanation": "Angular's `HttpClient` XSRF support is a cookie-to-header pattern: it reads the cookie (default `XSRF-TOKEN`) and sets a header (default `X-XSRF-TOKEN`) only for non-`GET`/`HEAD` requests to relative URLs. The server must therefore expose the request token in a script-readable cookie and validate the header via `IAntiforgery` with a matching `HeaderName`; the separate antiforgery cookie (HttpOnly) holds the paired cookie token. Option 2 is contradictory: `HttpOnly` cookies are invisible to `document.cookie`. Option 3 is wrong: a random client value proves nothing; the token must be server-issued and paired with the cookie token and the user. Option 4 misstates Angular's behaviour (it skips `GET`/`HEAD` and absolute URLs) and inverts the server side — state-changing methods are what you protect."
+            },
+            "uk": {
+              "prompt": "Angular SPA обслуговується з того самого origin, що й ASP.NET Core API (reverse proxy на `/api`), і автентифікується через cookie з `HttpOnly`. Яке налаштування змусить працювати вбудований XSRF-захист Angular?",
+              "options": [
+                {
+                  "text": "Сервер видає cookie `XSRF-TOKEN` з antiforgery request token **без** `HttpOnly` і налаштовує `AddAntiforgery(o => o.HeaderName = \"X-XSRF-TOKEN\")`; interceptor Angular копіює cookie в заголовок `X-XSRF-TOKEN` для мутуючих запитів на відносні URL.",
+                  "correct": true
+                },
+                {
+                  "text": "Сервер видає cookie `XSRF-TOKEN` з `HttpOnly = true`, щоб XSS не міг його прочитати; Angular читає його через `document.cookie` і надсилає в заголовку.",
+                  "correct": false
+                },
+                {
+                  "text": "На сервері нічого не потрібно: Angular генерує випадковий `X-XSRF-TOKEN` для кожного запиту, а antiforgery middleware перевіряє його формат.",
+                  "correct": false
+                },
+                {
+                  "text": "Angular додає `X-XSRF-TOKEN` до кожного запиту, включно з `GET` та абсолютними URL; сервер перевіряє його лише для `GET`, бо саме їх використовує CSRF.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Підтримка XSRF у `HttpClient` Angular — це патерн cookie-to-header: він читає cookie (за замовчуванням `XSRF-TOKEN`) і встановлює заголовок (за замовчуванням `X-XSRF-TOKEN`) лише для не-`GET`/`HEAD` запитів на відносні URL. Тому сервер має віддати request token у cookie, доступному для скрипта, і валідувати заголовок через `IAntiforgery` з відповідним `HeaderName`; окремий antiforgery cookie (HttpOnly) містить парний cookie token. Варіант 2 суперечливий: cookies з `HttpOnly` невидимі для `document.cookie`. Варіант 3 хибний: випадкове значення від клієнта нічого не доводить; token має видати сервер, і він має бути пов'язаний із cookie token і користувачем. Варіант 4 неправильно описує поведінку Angular (він пропускає `GET`/`HEAD` та абсолютні URL) і перевертає серверну частину — захищають саме методи, що змінюють стан."
             }
           }
         },
@@ -568,6 +888,17 @@
                 "For bearer: explains it is not CSRF-prone because the browser never attaches it automatically, but JavaScript-readable tokens are exfiltratable via XSS.",
                 "Makes a justified choice (e.g. BFF/same-origin with HttpOnly cookies + antiforgery) weighing XSS vs CSRF exposure."
               ]
+            },
+            "uk": {
+              "prompt": "Angular SPA працює на `https://app.example.com` і викликає ASP.NET Core API на `https://api.example.com`. Порівняйте автентифікацію через cookie та через bearer token у заголовку `Authorization`. Для кожного варіанта: яка CORS-конфігурація потрібна, чи вразливий API до CSRF і як його захистити, і що ставить під загрозу XSS? Що ви обрали б і чому?",
+              "explanation": "Еталонна відповідь: два хости — різні origins, тож кожен не-simple виклик проходить preflight, і API потрібна CORS policy з явним origin `https://app.example.com`, `UseCors` перед auth middleware. Bearer: заголовок `Authorization` запускає preflight і має бути дозволений; режим credentials не потрібен; tokens не є ambient, тож CSRF немає, але token доступний для JavaScript, і XSS може його викрасти (пом'якшення: зберігання в пам'яті, короткий lifetime, CSP). Cookie: потрібні `AllowCredentials()` з конкретним origin і `withCredentials: true` в Angular; cookies є ambient, тож CSRF актуальний — `SameSite` допомагає проти інших сайтів, але `app.example.com` і будь-який `*.example.com` є same-site, тож додайте antiforgery tokens; XSRF interceptor Angular пропускає абсолютні URL, тож потрібен кастомний interceptor або same-origin хостинг через reverse proxy. XSS не може прочитати cookies з `HttpOnly`, хоча й може скористатися сесією. Бажаний варіант: BFF/same-origin з HttpOnly SameSite cookies плюс antiforgery, що до того ж прибирає потребу в CORS.",
+              "rubric": [
+                "Визначає, що два субдомени — різні origins (потрібен CORS, явний origin, preflight для JSON/`Authorization`, `UseCors` перед authentication/authorization), але той самий site (SameSite їх не ізолює).",
+                "Для cookies: вимагає `AllowCredentials()` з явними origins (без wildcard) і `withCredentials` на клієнті та пояснює, що ambient cookies уможливлюють CSRF.",
+                "Називає коректний захист від CSRF для cookies — antiforgery token у заголовку, що валідується через `IAntiforgery`, з `SameSite` як defence in depth — і зазначає, що вбудований XSRF-заголовок Angular не надсилається на абсолютні/cross-origin URL.",
+                "Для bearer: пояснює, що він не схильний до CSRF, бо браузер ніколи не додає його автоматично, але tokens, доступні JavaScript, можна викрасти через XSS.",
+                "Робить обґрунтований вибір (наприклад, BFF/same-origin з HttpOnly cookies + antiforgery), зважуючи ризики XSS і CSRF."
+              ]
             }
           }
         }
@@ -581,6 +912,10 @@
         "en": {
           "title": "OWASP for .NET: Injection, Mass Assignment, Secrets, Rate Limiting, Security Headers",
           "note": "## What it is\n\nThe OWASP Top 10 is a ranking of the web-application risk categories seen most in practice; Broken Access Control has been number one since the 2021 edition. For a .NET API the interview questions cluster around five concrete areas: **injection**, **mass assignment (over-posting)**, **secrets management**, **rate limiting**, and **security headers** — plus the access-control mistake that underlies most breaches, IDOR (checking that the caller is logged in, not that the resource is theirs).\n\n## How it works underneath\n\n**Injection.** EF Core LINQ queries are always parameterized. Raw SQL is where it goes wrong, and the API names are a trap:\n\n- `FromSql($\"... {x}\")` / `FromSqlInterpolated` / `ExecuteSql` take a `FormattableString`; EF turns each hole into a `DbParameter`. Safe.\n- `FromSqlRaw(string sql, params object[] parameters)` takes a plain string. `FromSqlRaw(\"... {0}\", x)` is parameterized; `FromSqlRaw($\"... {x}\")` or `\"...\" + x` is **injection**, because the interpolation happens in C# before EF sees a string.\n- Identifiers (`ORDER BY {column}`, table names) cannot be parameters at all — allow-list them.\n\nThe same logic applies to Dapper (`@param` vs concatenation), LDAP, shell commands, and to the LLM era's prompt injection.\n\n**Mass assignment.** Binding a request body straight to an EF entity lets a client set any property the entity has: `IsAdmin`, `TenantId`, `Balance`. `System.Text.Json` populates every matching public settable property, and `DbContext.Update(entity)` marks **every** property modified, so even an omitted field is overwritten with its default. The fix is an input DTO containing only editable fields, mapped explicitly onto a loaded entity; `[JsonIgnore]` on the entity is a band-aid that couples persistence to the wire format and still lets `Update` reset the field.\n\n**Secrets management.** Never commit secrets in `appsettings.json`. Development: `dotnet user-secrets` stores **plain-text JSON** in the user profile, outside the repo; `WebApplication.CreateBuilder` loads it only in the `Development` environment. Production: environment variables or orchestrator secrets (mounted files via `AddKeyPerFile`), or a vault (`AddAzureKeyVault`, AWS Secrets Manager); best of all, **no secret** — managed identity / workload identity federation. Default configuration precedence: `appsettings.json` < `appsettings.{Env}.json` < user secrets < environment variables < command line. Rotate, scope per environment, and keep secrets out of logs and exception messages.\n\n**Rate limiting.** Since .NET 7, `Microsoft.AspNetCore.RateLimiting`: `AddRateLimiter` with fixed window, sliding window, token bucket or concurrency limiters, partitioned per user/IP/API key with `RateLimitPartition`, applied globally (`GlobalLimiter`) or per endpoint (`RequireRateLimiting`). Gotchas: `RejectionStatusCode` **defaults to 503**, so set it to `429` and add `Retry-After` in `OnRejected`; the limiter is **in-memory per instance**, so three replicas allow three times the limit — enforce global limits at a gateway or with a distributed store; partitioning by IP behind a proxy requires `UseForwardedHeaders` with known proxies, or every client shares the proxy's IP.\n\n**Security headers.** ASP.NET Core adds almost none by default. `UseHsts()` emits `Strict-Transport-Security` (default `max-age` 30 days, only on HTTPS responses, `localhost` excluded; templates enable it outside Development) and `UseHttpsRedirection()` is a separate concern. Add `Content-Security-Policy` (the real XSS mitigation for the SPA), `X-Content-Type-Options: nosniff`, `frame-ancestors`/`X-Frame-Options`, `Referrer-Policy`; drop `Server` via `KestrelServerOptions.AddServerHeader = false`. In production use `UseExceptionHandler` + ProblemDetails, never the developer exception page.\n\n## What an interviewer probes\n\n- Review this endpoint: spot concatenated SQL, entity binding, missing ownership check, leaked exception detail.\n- `FromSql` vs `FromSqlRaw` and why an interpolated string is safe in one and not the other.\n- How do you keep secrets out of the repo and the container image, and what is wrong with user-secrets in prod?\n- Rate limiting across replicas and behind a load balancer.\n\n## Common misconceptions\n\n- \"EF Core makes SQL injection impossible\" — only for LINQ and `FormattableString` APIs.\n- \"User secrets are encrypted\" — they are plain text, just outside the repo.\n- \"The rate limiter returns 429 out of the box\" — 503.\n- \"HSTS redirects HTTP to HTTPS\" — that is `UseHttpsRedirection`.\n\n## Code\n\n```csharp\n// Injection: same-looking calls, opposite safety\ndb.Users.FromSql($\"SELECT * FROM users WHERE email = {email}\");        // parameterized\ndb.Users.FromSqlRaw($\"SELECT * FROM users WHERE email = '{email}'\");   // INJECTION\n\n// Over-posting: bind a DTO, map onto a loaded entity\npublic sealed record UpdateProfile(string DisplayName, string? Bio);\n\napp.MapPut(\"/me\", async (UpdateProfile dto, ClaimsPrincipal user, AppDb db) =>\n{\n    var me = await db.Users.SingleAsync(u => u.Id == user.FindFirst(\"sub\")!.Value);\n    me.DisplayName = dto.DisplayName;\n    me.Bio = dto.Bio;\n    await db.SaveChangesAsync();          // only the two properties are modified\n    return Results.NoContent();\n}).RequireRateLimiting(\"per-user\");\n\nbuilder.Services.AddRateLimiter(o =>\n{\n    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;\n    o.AddPolicy(\"per-user\", ctx => RateLimitPartition.GetTokenBucketLimiter(\n        ctx.User.FindFirst(\"sub\")?.Value ?? ctx.Connection.RemoteIpAddress?.ToString() ?? \"anon\",\n        _ => new TokenBucketRateLimiterOptions\n        {\n            TokenLimit = 20, TokensPerPeriod = 10,\n            ReplenishmentPeriod = TimeSpan.FromSeconds(10), QueueLimit = 0\n        }));\n});\n```\n"
+        },
+        "uk": {
+          "title": "OWASP для .NET: injection, mass assignment, секрети, rate limiting, security headers",
+          "note": "## Що це\n\nOWASP Top 10 — це рейтинг категорій ризиків вебзастосунків, які найчастіше трапляються на практиці; Broken Access Control тримає перше місце з редакції 2021 року. Для .NET API питання на співбесіді зосереджуються довкола п'яти конкретних областей: **injection**, **mass assignment (over-posting)**, **керування секретами**, **rate limiting** і **security headers** — плюс помилка контролю доступу, що лежить в основі більшості зламів, IDOR (перевірка того, що викликач залогінений, а не того, що ресурс належить йому).\n\n## Як це працює під капотом\n\n**Injection.** LINQ-запити EF Core завжди параметризовані. Проблеми виникають із raw SQL, і назви API тут — пастка:\n\n- `FromSql($\"... {x}\")` / `FromSqlInterpolated` / `ExecuteSql` приймають `FormattableString`; EF перетворює кожен плейсхолдер на `DbParameter`. Безпечно.\n- `FromSqlRaw(string sql, params object[] parameters)` приймає звичайний рядок. `FromSqlRaw(\"... {0}\", x)` параметризований; `FromSqlRaw($\"... {x}\")` або `\"...\" + x` — це **injection**, бо інтерполяція відбувається в C# ще до того, як EF отримає рядок.\n- Ідентифікатори (`ORDER BY {column}`, імена таблиць) взагалі не можуть бути параметрами — для них потрібен allow-list.\n\nТа сама логіка стосується Dapper (`@param` проти конкатенації), LDAP, shell-команд і prompt injection епохи LLM.\n\n**Mass assignment.** Біндинг тіла запиту безпосередньо на EF-сутність дає клієнту змогу встановити будь-яку її властивість: `IsAdmin`, `TenantId`, `Balance`. `System.Text.Json` заповнює кожну відповідну публічну властивість із setter, а `DbContext.Update(entity)` позначає **кожну** властивість як змінену, тож навіть пропущене поле перезаписується значенням за замовчуванням. Виправлення — вхідний DTO лише з полями, які можна редагувати, явно змаплений на завантажену сутність; `[JsonIgnore]` на сутності — це пластир, який прив'язує persistence до wire-формату і все одно дозволяє `Update` скинути поле.\n\n**Керування секретами.** Ніколи не комітьте секрети в `appsettings.json`. Розробка: `dotnet user-secrets` зберігає **JSON у відкритому вигляді** в профілі користувача, поза репозиторієм; `WebApplication.CreateBuilder` завантажує його лише в середовищі `Development`. Продакшн: змінні середовища або секрети оркестратора (змонтовані файли через `AddKeyPerFile`), або vault (`AddAzureKeyVault`, AWS Secrets Manager); найкраще — **жодного секрету**: managed identity / workload identity federation. Пріоритет конфігурації за замовчуванням: `appsettings.json` < `appsettings.{Env}.json` < user secrets < змінні середовища < командний рядок. Ротуйте секрети, розділяйте їх за середовищами й не допускайте їх у логи та повідомлення винятків.\n\n**Rate limiting.** З .NET 7 — `Microsoft.AspNetCore.RateLimiting`: `AddRateLimiter` з лімітерами fixed window, sliding window, token bucket або concurrency, розбитими на партиції за користувачем/IP/API key через `RateLimitPartition` і застосованими глобально (`GlobalLimiter`) або до окремого endpoint (`RequireRateLimiting`). Підводні камені: `RejectionStatusCode` **за замовчуванням 503**, тож встановіть `429` і додайте `Retry-After` в `OnRejected`; лімітер **зберігає стан у пам'яті кожного екземпляра**, тож три репліки пропускають утричі більше за ліміт — глобальні ліміти забезпечуйте на gateway або через розподілене сховище; партиціювання за IP за proxy вимагає `UseForwardedHeaders` з відомими proxy, інакше всі клієнти ділитимуть IP proxy.\n\n**Security headers.** ASP.NET Core за замовчуванням майже нічого не додає. `UseHsts()` видає `Strict-Transport-Security` (за замовчуванням `max-age` 30 днів, лише у HTTPS-відповідях, `localhost` виключено; шаблони вмикають його поза Development), а `UseHttpsRedirection()` — окрема річ. Додайте `Content-Security-Policy` (справжнє пом'якшення XSS для SPA), `X-Content-Type-Options: nosniff`, `frame-ancestors`/`X-Frame-Options`, `Referrer-Policy`; приберіть `Server` через `KestrelServerOptions.AddServerHeader = false`. У продакшні використовуйте `UseExceptionHandler` + ProblemDetails, ніколи не developer exception page.\n\n## Що перевіряє інтерв'юер\n\n- Перегляньте цей endpoint: знайдіть конкатенований SQL, біндинг сутності, відсутню перевірку власника, витік деталей винятку.\n- `FromSql` проти `FromSqlRaw` і чому інтерпольований рядок безпечний в одному і небезпечний в іншому.\n- Як не допустити секретів у репозиторій і контейнерний образ і що не так із user-secrets у продакшні?\n- Rate limiting на кількох репліках і за load balancer.\n\n## Поширені хибні уявлення\n\n- «EF Core унеможливлює SQL injection» — лише для LINQ та API з `FormattableString`.\n- «User secrets зашифровані» — вони у відкритому вигляді, просто поза репозиторієм.\n- «Rate limiter з коробки повертає 429» — 503.\n- «HSTS перенаправляє HTTP на HTTPS» — це робить `UseHttpsRedirection`.\n\n## Код\n\n```csharp\n// Injection: same-looking calls, opposite safety\ndb.Users.FromSql($\"SELECT * FROM users WHERE email = {email}\");        // parameterized\ndb.Users.FromSqlRaw($\"SELECT * FROM users WHERE email = '{email}'\");   // INJECTION\n\n// Over-posting: bind a DTO, map onto a loaded entity\npublic sealed record UpdateProfile(string DisplayName, string? Bio);\n\napp.MapPut(\"/me\", async (UpdateProfile dto, ClaimsPrincipal user, AppDb db) =>\n{\n    var me = await db.Users.SingleAsync(u => u.Id == user.FindFirst(\"sub\")!.Value);\n    me.DisplayName = dto.DisplayName;\n    me.Bio = dto.Bio;\n    await db.SaveChangesAsync();          // only the two properties are modified\n    return Results.NoContent();\n}).RequireRateLimiting(\"per-user\");\n\nbuilder.Services.AddRateLimiter(o =>\n{\n    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;\n    o.AddPolicy(\"per-user\", ctx => RateLimitPartition.GetTokenBucketLimiter(\n        ctx.User.FindFirst(\"sub\")?.Value ?? ctx.Connection.RemoteIpAddress?.ToString() ?? \"anon\",\n        _ => new TokenBucketRateLimiterOptions\n        {\n            TokenLimit = 20, TokensPerPeriod = 10,\n            ReplenishmentPeriod = TimeSpan.FromSeconds(10), QueueLimit = 0\n        }));\n});\n```\n"
         }
       },
       "questions": [
@@ -616,6 +951,28 @@
                 }
               ],
               "explanation": "`FromSqlRaw` takes a plain `string`; with `$\"...\"` the C# compiler performs the interpolation *before* EF sees the SQL, so the value is spliced into the command text and `' OR 1=1 --` works. `FromSql` (and `FromSqlInterpolated`) take a `FormattableString`, so EF receives the format and the arguments separately and turns each hole into a `DbParameter` — the identical-looking syntax is safe there. `FromSqlRaw(\"... {0}\", name)` passes the value in the `params object[]` array, which EF also parameterizes. LINQ `Where` is always translated with parameters. The trap is assuming the two raw-SQL methods treat interpolated strings the same way."
+            },
+            "uk": {
+              "prompt": "Який виклик EF Core вразливий до SQL injection, якщо `name` надходить із запиту?",
+              "options": [
+                {
+                  "text": "`db.Users.FromSql($\"SELECT * FROM users WHERE name = {name}\")`",
+                  "correct": false
+                },
+                {
+                  "text": "`db.Users.FromSqlRaw(\"SELECT * FROM users WHERE name = {0}\", name)`",
+                  "correct": false
+                },
+                {
+                  "text": "`db.Users.FromSqlRaw($\"SELECT * FROM users WHERE name = '{name}'\")`",
+                  "correct": true
+                },
+                {
+                  "text": "`db.Users.Where(u => u.Name == name)`",
+                  "correct": false
+                }
+              ],
+              "explanation": "`FromSqlRaw` приймає звичайний `string`; з `$\"...\"` компілятор C# виконує інтерполяцію *до того*, як EF побачить SQL, тож значення вклеюється в текст команди, і `' OR 1=1 --` спрацьовує. `FromSql` (і `FromSqlInterpolated`) приймають `FormattableString`, тож EF отримує формат і аргументи окремо й перетворює кожен плейсхолдер на `DbParameter` — там ідентичний на вигляд синтаксис безпечний. `FromSqlRaw(\"... {0}\", name)` передає значення в масиві `params object[]`, який EF теж параметризує. LINQ `Where` завжди транслюється з параметрами. Пастка — вважати, що обидва методи для raw SQL однаково обробляють інтерпольовані рядки."
             }
           }
         },
@@ -651,6 +1008,28 @@
                 }
               ],
               "explanation": "Model binding fills every public settable property that matches the JSON, so the client controls `IsAdmin` and `TenantId`; `DbContext.Update` attaches the entity with all properties marked `Modified`, so anything the client omitted is written as its default. The robust fix is an input model with only the fields the client may change, applied to an entity loaded from the database, plus an ownership/authorization check (the route also has an IDOR). Option 1 is wrong: the serializer knows nothing about OpenAPI documentation. Option 3 is a band-aid: `[JsonIgnore]` stops binding `IsAdmin`, but `Update` then writes `IsAdmin = false` for every user, `TenantId` is still exposed, and it couples persistence to the wire format. Option 4 is wrong: neither MVC nor Minimal APIs reject unknown or unexpected properties by default; validation checks attributes like `[Required]`, not intent."
+            },
+            "uk": {
+              "prompt": "Endpoint біндить тіло запиту безпосередньо на EF-сутність і зберігає її:\n\n```csharp\napp.MapPut(\"/users/{id}\", async (int id, User user, AppDb db) =>\n{\n    user.Id = id;\n    db.Users.Update(user);\n    await db.SaveChangesAsync();\n});\n```\n\n`User` має `Email`, `DisplayName`, `IsAdmin` і `TenantId`. Яка оцінка найкраща?",
+              "options": [
+                {
+                  "text": "Безпечно: `System.Text.Json` біндить лише властивості, що є в OpenAPI-схемі, а `IsAdmin` для цього endpoint не задокументовано.",
+                  "correct": false
+                },
+                {
+                  "text": "Over-posting: клієнт може встановити `IsAdmin`/`TenantId`, а оскільки `Update` позначає кожну властивість як змінену, пропущені поля теж перезаписуються значеннями за замовчуванням; біндьте DTO лише з полями, які можна редагувати, і мапте його на завантажену сутність (а також перевіряйте, що викликач може редагувати цього користувача).",
+                  "correct": true
+                },
+                {
+                  "text": "Проблема лише в `IsAdmin`; додавання `[JsonIgnore]` до `User.IsAdmin` повністю виправляє endpoint.",
+                  "correct": false
+                },
+                {
+                  "text": "Безпечно, бо валідація в стилі `[ApiController]` у Minimal APIs відхиляє тіла з властивостями, які клієнт не повинен надсилати.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Model binding заповнює кожну публічну властивість із setter, що збігається з JSON, тож клієнт контролює `IsAdmin` і `TenantId`; `DbContext.Update` приєднує сутність з усіма властивостями в стані `Modified`, тож усе, що клієнт пропустив, записується як значення за замовчуванням. Надійне виправлення — вхідна модель лише з полями, які клієнт може змінювати, застосована до сутності, завантаженої з бази, плюс перевірка власника/авторизації (у цьому route ще й IDOR). Варіант 1 хибний: серіалізатор нічого не знає про OpenAPI-документацію. Варіант 3 — пластир: `[JsonIgnore]` припиняє біндинг `IsAdmin`, але тоді `Update` записує `IsAdmin = false` для кожного користувача, `TenantId` лишається відкритим, а persistence прив'язується до wire-формату. Варіант 4 хибний: ні MVC, ні Minimal APIs за замовчуванням не відхиляють невідомі чи неочікувані властивості; валідація перевіряє атрибути на кшталт `[Required]`, а не наміри."
             }
           }
         },
@@ -686,6 +1065,28 @@
                 }
               ],
               "explanation": "The built-in middleware's `RejectionStatusCode` default is 503, which many clients and proxies treat as a transient server failure and retry, amplifying load. Setting it to `StatusCodes.Status429TooManyRequests` and emitting `Retry-After` (available from the lease's `MetadataName.RetryAfter` for window/bucket limiters) tells clients to back off. Option 2 invents a Kestrel rewrite; `QueueLimit` controls how many requests wait for a permit, and exceeding it is just another rejection with the same configured status. Option 3 is wrong: the built-in limiter has no external store and the status code has nothing to do with storage (its in-memory, per-instance nature is a separate scaling concern). Option 4 is backwards: with endpoint-specific policies `UseRateLimiter` must come *after* `UseRouting` so it can read endpoint metadata."
+            },
+            "uk": {
+              "prompt": "Ви додаєте `builder.Services.AddRateLimiter(o => o.AddFixedWindowLimiter(\"api\", ...))`, `app.UseRateLimiter()` і `RequireRateLimiting(\"api\")`. Під навантаженням обмежені клієнти отримують `503 Service Unavailable`, і деякі з них агресивно повторюють запити. Чому і що це виправляє?",
+              "options": [
+                {
+                  "text": "`RateLimiterOptions.RejectionStatusCode` за замовчуванням `503`; встановіть `429` і через `OnRejected` додайте заголовок `Retry-After`.",
+                  "correct": true
+                },
+                {
+                  "text": "Лімітер fixed window повертає 429, але Kestrel перетворює його на 503, коли черга заповнюється; збільште `QueueLimit`.",
+                  "correct": false
+                },
+                {
+                  "text": "503 означає, що in-memory сховище лімітера дало збій; перейдіть на лімітер на основі Redis, щоб отримувати 429.",
+                  "correct": false
+                },
+                {
+                  "text": "`UseRateLimiter` треба розмістити перед `UseRouting`, інакше відмови повертаються як 503.",
+                  "correct": false
+                }
+              ],
+              "explanation": "`RejectionStatusCode` вбудованого middleware за замовчуванням 503, і багато клієнтів та proxy трактують його як тимчасовий збій сервера й повторюють запит, посилюючи навантаження. Встановлення `StatusCodes.Status429TooManyRequests` і видача `Retry-After` (доступного з `MetadataName.RetryAfter` у lease для window/bucket-лімітерів) повідомляє клієнтам, що треба відступити. Варіант 2 вигадує переписування з боку Kestrel; `QueueLimit` визначає, скільки запитів чекає на дозвіл, і перевищення — це просто ще одна відмова з тим самим налаштованим статусом. Варіант 3 хибний: вбудований лімітер не має зовнішнього сховища, і статус-код не стосується сховища (його in-memory природа на рівні екземпляра — окрема проблема масштабування). Варіант 4 перевертає все: з policies для конкретних endpoints `UseRateLimiter` має йти *після* `UseRouting`, щоб прочитати метадані endpoint."
             }
           }
         },
@@ -721,6 +1122,28 @@
                 }
               ],
               "explanation": "The Secret Manager writes `secrets.json` under `%APPDATA%\\Microsoft\\UserSecrets\\<id>` or `~/.microsoft/usersecrets/<id>` — unencrypted, just kept out of source control. The default host adds it only when the environment is `Development`, after the `appsettings` files and before environment variables and command-line arguments, so the latter override it. Option 1 is the most common misconception: there is no encryption, and it is a development tool only. Option 2 is wrong: nothing is copied to the output; that is exactly why it keeps secrets out of images. Option 4 inverts the precedence and the intended use; production secrets belong in a vault, orchestrator secrets or managed identity."
+            },
+            "uk": {
+              "prompt": "Яке твердження про `dotnet user-secrets` і конфігурацію в ASP.NET Core правильне?",
+              "options": [
+                {
+                  "text": "User secrets шифруються через DPAPI або macOS keychain, тож вони придатні для продакшн-серверів.",
+                  "correct": false
+                },
+                {
+                  "text": "User secrets копіюються у build output, щоб контейнерний образ міг читати їх під час виконання.",
+                  "correct": false
+                },
+                {
+                  "text": "User secrets зберігаються як JSON у відкритому вигляді в профілі розробника, поза проєктом; `WebApplication.CreateBuilder` завантажує їх лише в середовищі `Development`, і змінні середовища їх перекривають.",
+                  "correct": true
+                },
+                {
+                  "text": "User secrets мають пріоритет над змінними середовища й аргументами командного рядка, тому це найбезпечніше місце для продакшн connection strings.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Secret Manager записує `secrets.json` у `%APPDATA%\\Microsoft\\UserSecrets\\<id>` або `~/.microsoft/usersecrets/<id>` — без шифрування, просто поза source control. Хост за замовчуванням додає його лише тоді, коли середовище — `Development`, після файлів `appsettings` і перед змінними середовища та аргументами командного рядка, тож останні його перекривають. Варіант 1 — найпоширеніше хибне уявлення: шифрування немає, і це інструмент лише для розробки. Варіант 2 хибний: нічого не копіюється в output — саме тому він і тримає секрети поза образами. Варіант 4 перевертає пріоритет і призначення; продакшн-секрети мають зберігатися у vault, секретах оркестратора або замінюватися managed identity."
             }
           }
         },
@@ -756,6 +1179,28 @@
                 }
               ],
               "explanation": "HSTS tells a browser that has already seen the header over HTTPS to use HTTPS only for `max-age`; browsers ignore it on plain HTTP, so the middleware does not send it there, and `HstsOptions.ExcludedHosts` contains `localhost`, `127.0.0.1` and `[::1]` by default. Redirecting is a different middleware, and first-visit protection needs HSTS preload. Option 1 merges three separate concerns into one call. Option 3 is wrong: an HSTS header over HTTP is meaningless (an attacker could strip or inject it). Option 4 is wrong: ASP.NET Core does not emit CSP, `nosniff` or frame headers by default; you add them yourself or with a library."
+            },
+            "uk": {
+              "prompt": "Команда додає `app.UseHsts()` і вважає, що тепер API захищений від downgrade і clickjacking. Яке твердження правильне?",
+              "options": [
+                {
+                  "text": "`UseHsts` перенаправляє кожен HTTP-запит на HTTPS і додає `X-Frame-Options: DENY`.",
+                  "correct": false
+                },
+                {
+                  "text": "`UseHsts` додає `Strict-Transport-Security` лише до HTTPS-відповідей (за замовчуванням виключаючи `localhost`, з `max-age` 30 днів); перенаправлення HTTP — це `UseHttpsRedirection`, а захист від clickjacking потребує `frame-ancestors` у CSP або `X-Frame-Options`, яких ASP.NET Core за вас не додає.",
+                  "correct": true
+                },
+                {
+                  "text": "`UseHsts` додає заголовок і до HTTP-відповідей, тож браузер переходить на HTTPS під час першого незахищеного візиту.",
+                  "correct": false
+                },
+                {
+                  "text": "ASP.NET Core автоматично додає HSTS, CSP і `X-Content-Type-Options` у Production; `UseHsts` лише змінює `max-age`.",
+                  "correct": false
+                }
+              ],
+              "explanation": "HSTS повідомляє браузеру, який уже бачив цей заголовок через HTTPS, що протягом `max-age` слід використовувати лише HTTPS; браузери ігнорують його в звичайному HTTP, тож middleware його там не надсилає, а `HstsOptions.ExcludedHosts` за замовчуванням містить `localhost`, `127.0.0.1` і `[::1]`. Перенаправлення — це інше middleware, а захист під час першого візиту потребує HSTS preload. Варіант 1 зводить три окремі речі до одного виклику. Варіант 3 хибний: HSTS-заголовок через HTTP безглуздий (зловмисник може його вирізати або підставити). Варіант 4 хибний: ASP.NET Core за замовчуванням не видає CSP, `nosniff` чи frame-заголовки; ви додаєте їх самі або через бібліотеку."
             }
           }
         },
@@ -781,6 +1226,17 @@
                 "Identifies the hard-coded secret and moves it to configuration backed by a secret store or managed identity, with rotation.",
                 "Identifies information disclosure through `ex.ToString()` in the response and replaces it with server-side logging plus a generic ProblemDetails/exception handler."
               ]
+            },
+            "uk": {
+              "prompt": "Перегляньте цей endpoint так, як ви зробили б це на security-орієнтованому code review. Перелічіть кожну вразливість, категорію OWASP, до якої вона належить, і конкретне виправлення в .NET.\n\n```csharp\napp.MapPost(\"/orders/{id}/notes\", async (int id, Order order, AppDb db, HttpContext ctx) =>\n{\n    try\n    {\n        var existing = await db.Orders\n            .FromSqlRaw($\"SELECT * FROM orders WHERE id = {id} AND status = '{ctx.Request.Query[\"status\"]}'\")\n            .SingleAsync();\n        db.Orders.Update(order);\n        await db.SaveChangesAsync();\n        var apiKey = \"hard-coded-api-key-placeholder\";\n        await Notify(apiKey, order);\n        return Results.Ok(order);\n    }\n    catch (Exception ex)\n    {\n        return Results.Problem(ex.ToString());\n    }\n}).RequireAuthorization();\n```",
+              "explanation": "Еталонна відповідь: (1) Injection — `FromSqlRaw` з інтерпольованим рядком вклеює `status` з query string у SQL; використайте `FromSql($\"...\")` / LINQ, щоб значення стали параметрами. (2) Broken access control / IDOR — `RequireAuthorization` лише доводить, що викликач автентифікований; він ніколи не перевіряє, що замовлення належить викликачеві чи tenant; додайте resource-based перевірку або фільтр за власником. (3) Mass assignment — тіло біндиться безпосередньо на сутність `Order`, а `Update` позначає всі властивості як змінені, тож клієнт може змінити ціну, статус, власника, а пропущені поля скидаються; біндьте DTO лише з нотаткою і застосовуйте його до завантаженої сутності (код навіть ігнорує `existing`). (4) Секрети — захардкоджений API key у коді; перенесіть його в конфігурацію, що спирається на vault/секрети оркестратора або managed identity, і ротуйте. (5) Information disclosure / security misconfiguration — повернення `ex.ToString()` розкриває stack trace і SQL; логуйте на сервері й повертайте загальний ProblemDetails через `UseExceptionHandler`. Бонус: rate limiting для endpoint, а повернення сутності може розкривати зайві поля.",
+              "rubric": [
+                "Виявляє SQL injection через `FromSqlRaw` з інтерпольованим рядком (`status` контролює користувач) і виправляє через `FromSql`/`FromSqlInterpolated` або параметризацію LINQ.",
+                "Виявляє broken access control (IDOR): сама автентифікація не гарантує, що викликач володіє замовленням; пропонує resource-based перевірку авторизації або фільтр за власником/tenant.",
+                "Виявляє mass assignment/over-posting через біндинг сутності `Order` і `Update`, що перезаписує всі колонки; пропонує вхідний DTO, змаплений на завантажену сутність.",
+                "Виявляє захардкоджений секрет і переносить його в конфігурацію на основі secret store або managed identity, з ротацією.",
+                "Виявляє information disclosure через `ex.ToString()` у відповіді та замінює це на логування на сервері плюс загальний ProblemDetails/exception handler."
+              ]
             }
           }
         }
@@ -794,6 +1250,10 @@
         "en": {
           "title": "Data Protection API: Purposes, Key Ring, Containers and Scale-Out",
           "note": "## What it is\n\nThe **ASP.NET Core Data Protection API** is the framework's symmetric, authenticated-encryption service for **short-lived payloads the app itself will read back**. You rarely call it directly, but almost everything stateful in ASP.NET Core depends on it: authentication cookies, antiforgery tokens, TempData, session cookies, OIDC correlation/nonce cookies, and `Microsoft.Identity.Web`'s cookie-based flows. When it is misconfigured, symptoms show up far away — \"everyone got logged out after deploy\", \"antiforgery token could not be decrypted\", \"correlation failed\" on OIDC sign-in.\n\n## How it works underneath\n\n**API.** `IDataProtectionProvider.CreateProtector(\"purpose\")` returns an `IDataProtector` with `Protect`/`Unprotect`. The **purpose string** (and optional sub-purposes, chained) derives a different subkey, so a payload protected for `\"Orders.ShareLink\"` cannot be unprotected by a protector for `\"Auth.Cookie\"` — `Unprotect` throws `CryptographicException`. That isolation prevents one feature's tokens being replayed against another. `ToTimeLimitedDataProtector()` adds an embedded expiration for things like email-confirmation links.\n\n**Algorithms.** Default is AES-256-CBC for confidentiality plus HMACSHA256 for authenticity (encrypt-then-MAC), with per-payload subkeys derived from the master key via SP800-108 KDF. The payload header carries the **key id**, so the system knows which key to use when unprotecting.\n\n**Key ring.** Keys are XML documents with an activation date, expiry (default **90 days**) and an id. The system protects new payloads with the *default* (active) key and automatically generates a new key before the current one expires (about two days of overlap, so all instances see it before it becomes default). **Expired keys are still used to unprotect**; only *revoked* keys are not, and keys are never deleted automatically. That is why rotation is seamless — and also why Data Protection is not meant for indefinitely persisted data: its guarantees are designed around ephemeral payloads, and if someone deletes old key files, everything protected with them is gone for good.\n\n**Where keys live by default.** Azure App Service: a special synced folder. Windows/IIS: the user profile or registry, encrypted with DPAPI. **Linux, including containers**: `~/.aspnet/DataProtection-Keys` inside the container filesystem, **unencrypted at rest**, with warnings in the log (\"Storing keys in a directory that may not be persisted outside of the container\", \"No XML encryptor configured\"). If no writable location exists, keys are held **in memory only**.\n\n**Containers and scale-out.** Two failure modes follow directly:\n\n1. **Redeploy/restart** creates a fresh container, a fresh key ring, and every cookie or antiforgery token issued before is undecryptable: users are logged out, forms fail.\n2. **Multiple replicas** each generate their own key ring; a cookie issued by pod A fails on pod B, which looks like random logouts unless sticky sessions mask it.\n\nAlso, apps sharing a key ring are isolated by the **application discriminator**, which defaults to the content root path — two replicas with different paths, or a deliberate attempt to share cookies between apps, need `SetApplicationName(\"...\")` with the same value.\n\n**Fix.** Persist the key ring to shared, durable storage and protect it at rest:\n\n- `PersistKeysToFileSystem` on a mounted volume, `PersistKeysToDbContext<T>` (`Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`), `PersistKeysToStackExchangeRedis`, or `PersistKeysToAzureBlobStorage`;\n- `ProtectKeysWithCertificate`, `ProtectKeysWithAzureKeyVault`, or DPAPI on Windows;\n- `SetApplicationName` so every instance uses the same discriminator.\n\n## What an interviewer probes\n\n- Why do users get logged out after each deployment of a containerised app?\n- How does key rotation avoid breaking existing cookies?\n- Should you use `IDataProtector` to encrypt a column in the database for years? (Prefer dedicated envelope encryption with a KMS or database-level encryption; Data Protection is for ephemeral payloads.)\n- Is Data Protection a password hashing tool? (No — use `PasswordHasher<T>` or a dedicated KDF.)\n\n## Common misconceptions\n\n- \"The JWT signing key is what encrypts auth cookies\" — cookies use Data Protection.\n- \"Key rotation means old cookies stop working\" — expired keys still decrypt.\n- \"The default is fine in Kubernetes\" — it is per-pod and ephemeral.\n\n## Code\n\n```csharp\nbuilder.Services.AddDataProtection()\n    .SetApplicationName(\"spine\")                                  // same on every replica\n    .PersistKeysToDbContext<AppDb>()                              // shared, durable key ring\n    .ProtectKeysWithCertificate(\n        X509CertificateLoader.LoadPkcs12FromFile(\"/run/secrets/dp-cert.pfx\", builder.Configuration[\"DpCertPassword\"]));\n\npublic sealed class ShareLinks(IDataProtectionProvider provider)\n{\n    private readonly ITimeLimitedDataProtector _protector =\n        provider.CreateProtector(\"Spine.ShareLinks.v1\").ToTimeLimitedDataProtector();\n\n    public string Create(Guid docId) => _protector.Protect(docId.ToString(), TimeSpan.FromDays(7));\n    public Guid Read(string token) => Guid.Parse(_protector.Unprotect(token));   // throws if tampered/expired\n}\n```\n"
+        },
+        "uk": {
+          "title": "Data Protection API: purposes, key ring, контейнери та scale-out",
+          "note": "## Що це\n\n**ASP.NET Core Data Protection API** — це сервіс фреймворку для симетричного автентифікованого шифрування **короткоживучих payload, які застосунок сам же прочитає назад**. Ви рідко викликаєте його напряму, але від нього залежить майже все stateful в ASP.NET Core: authentication cookies, antiforgery tokens, TempData, session cookies, OIDC correlation/nonce cookies і cookie-based flows у `Microsoft.Identity.Web`. Коли його неправильно налаштовано, симптоми з'являються далеко від причини: «після деплою всіх розлогінило», «antiforgery token could not be decrypted», «correlation failed» під час OIDC-входу.\n\n## Як це працює під капотом\n\n**API.** `IDataProtectionProvider.CreateProtector(\"purpose\")` повертає `IDataProtector` з `Protect`/`Unprotect`. **Purpose string** (і необов'язкові sub-purposes, об'єднані в ланцюжок) виводить інший підключ, тож payload, захищений для `\"Orders.ShareLink\"`, не може розшифрувати protector для `\"Auth.Cookie\"` — `Unprotect` кидає `CryptographicException`. Така ізоляція не дає повторно використати tokens однієї функціональності проти іншої. `ToTimeLimitedDataProtector()` додає вбудований термін дії для речей на кшталт посилань підтвердження email.\n\n**Алгоритми.** За замовчуванням — AES-256-CBC для конфіденційності плюс HMACSHA256 для автентичності (encrypt-then-MAC), з підключами для кожного payload, виведеними з master key через SP800-108 KDF. Header payload містить **key id**, тож система знає, яким ключем розшифровувати.\n\n**Key ring.** Ключі — це XML-документи з датою активації, терміном дії (за замовчуванням **90 днів**) та id. Система захищає нові payload *default* (активним) ключем і автоматично генерує новий ключ до спливання поточного (приблизно два дні перекриття, щоб усі екземпляри побачили його до того, як він стане default). **Прострочені ключі все одно використовуються для розшифрування**; не використовуються лише *відкликані* ключі, і ключі ніколи не видаляються автоматично. Саме тому ротація непомітна — і саме тому Data Protection не призначений для даних, що зберігаються безстроково: його гарантії розраховані на ефемерні payload, і якщо хтось видалить старі файли ключів, усе, що ними захищено, втрачено назавжди.\n\n**Де ключі зберігаються за замовчуванням.** Azure App Service: спеціальна синхронізована тека. Windows/IIS: профіль користувача або реєстр, зашифровані DPAPI. **Linux, включно з контейнерами**: `~/.aspnet/DataProtection-Keys` у файловій системі контейнера, **без шифрування at rest**, з попередженнями в лозі («Storing keys in a directory that may not be persisted outside of the container», «No XML encryptor configured»). Якщо доступного для запису місця немає, ключі зберігаються **лише в пам'яті**.\n\n**Контейнери і scale-out.** Звідси прямо випливають два режими відмови:\n\n1. **Редеплой/перезапуск** створює новий контейнер і новий key ring, і кожен раніше виданий cookie чи antiforgery token неможливо розшифрувати: користувачів розлогінює, форми падають.\n2. **Кілька реплік** — кожна генерує власний key ring; cookie, виданий pod A, не проходить на pod B, що виглядає як випадкові розлогінення, якщо sticky sessions цього не маскують.\n\nКрім того, застосунки зі спільним key ring ізольовані **application discriminator**, який за замовчуванням дорівнює шляху content root — дві репліки з різними шляхами або свідома спроба ділити cookies між застосунками потребують `SetApplicationName(\"...\")` з однаковим значенням.\n\n**Виправлення.** Зберігайте key ring у спільному довговічному сховищі й захищайте його at rest:\n\n- `PersistKeysToFileSystem` на змонтованому volume, `PersistKeysToDbContext<T>` (`Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`), `PersistKeysToStackExchangeRedis` або `PersistKeysToAzureBlobStorage`;\n- `ProtectKeysWithCertificate`, `ProtectKeysWithAzureKeyVault` або DPAPI у Windows;\n- `SetApplicationName`, щоб кожен екземпляр використовував той самий discriminator.\n\n## Що перевіряє інтерв'юер\n\n- Чому користувачів розлогінює після кожного деплою контейнеризованого застосунку?\n- Як ротація ключів уникає поломки наявних cookies?\n- Чи варто використовувати `IDataProtector` для шифрування колонки в базі на роки? (Краще спеціалізоване envelope encryption з KMS або шифрування на рівні бази; Data Protection — для ефемерних payload.)\n- Чи є Data Protection інструментом для хешування паролів? (Ні — використовуйте `PasswordHasher<T>` або спеціалізовану KDF.)\n\n## Поширені хибні уявлення\n\n- «Auth cookies шифрує ключ підпису JWT» — cookies використовують Data Protection.\n- «Ротація ключів означає, що старі cookies перестають працювати» — прострочені ключі все одно розшифровують.\n- «Налаштування за замовчуванням годяться для Kubernetes» — вони per-pod і ефемерні.\n\n## Код\n\n```csharp\nbuilder.Services.AddDataProtection()\n    .SetApplicationName(\"spine\")                                  // same on every replica\n    .PersistKeysToDbContext<AppDb>()                              // shared, durable key ring\n    .ProtectKeysWithCertificate(\n        X509CertificateLoader.LoadPkcs12FromFile(\"/run/secrets/dp-cert.pfx\", builder.Configuration[\"DpCertPassword\"]));\n\npublic sealed class ShareLinks(IDataProtectionProvider provider)\n{\n    private readonly ITimeLimitedDataProtector _protector =\n        provider.CreateProtector(\"Spine.ShareLinks.v1\").ToTimeLimitedDataProtector();\n\n    public string Create(Guid docId) => _protector.Protect(docId.ToString(), TimeSpan.FromDays(7));\n    public Guid Read(string token) => Guid.Parse(_protector.Unprotect(token));   // throws if tampered/expired\n}\n```\n"
         }
       },
       "questions": [
@@ -829,6 +1289,28 @@
                 }
               ],
               "explanation": "Authentication cookies and antiforgery tokens are encrypted with Data Protection. On Linux the default key location is inside the container, so a new container starts with an empty ring, creates a new key, and `Unprotect` fails for every existing payload (logged as 'key {id} was not found in the key ring'). Persisting keys (volume, database, Redis, blob) and protecting them at rest fixes it. Option 1 conflates bearer-token signing with cookie encryption; cookie auth does not use a JWT signing key. Option 2 is wrong: expiry is stored inside the cookie ticket as an absolute time. Option 3 is wrong: neither cookie authentication nor antiforgery depends on session state."
+            },
+            "uk": {
+              "prompt": "ASP.NET Core-застосунок із cookie authentication працює в одному Docker-контейнері. Після кожного редеплою всіх користувачів розлогінює, а надсилання форм падає з «The antiforgery token could not be decrypted». Яка найімовірніша причина?",
+              "options": [
+                {
+                  "text": "Ключ підпису JWT генерується заново під час старту, що інвалідує всі cookies.",
+                  "correct": false
+                },
+                {
+                  "text": "`ExpireTimeSpan` cookie відраховується від старту застосунку, тож перезапуск робить усі cookies простроченими.",
+                  "correct": false
+                },
+                {
+                  "text": "Session state зберігається в пам'яті, а і authentication, і antiforgery читають його.",
+                  "correct": false
+                },
+                {
+                  "text": "Data Protection key ring зберігається у файловій системі контейнера (`~/.aspnet/DataProtection-Keys`), тож новий контейнер генерує нові ключі й не може розшифрувати cookies та antiforgery tokens, захищені старими; зберігайте ключі в довговічному спільному сховищі.",
+                  "correct": true
+                }
+              ],
+              "explanation": "Authentication cookies і antiforgery tokens шифруються через Data Protection. У Linux місце зберігання ключів за замовчуванням — усередині контейнера, тож новий контейнер стартує з порожнім ring, створює новий ключ, і `Unprotect` падає для кожного наявного payload (у лозі: «key {id} was not found in the key ring»). Це виправляє збереження ключів (volume, база даних, Redis, blob) і їхній захист at rest. Варіант 1 плутає підписування bearer tokens із шифруванням cookies; cookie auth не використовує ключ підпису JWT. Варіант 2 хибний: термін дії зберігається всередині cookie ticket як абсолютний час. Варіант 3 хибний: ні cookie authentication, ні antiforgery не залежать від session state."
             }
           }
         },
@@ -864,6 +1346,28 @@
                 }
               ],
               "explanation": "Purposes are cryptographic, not cosmetic: the purpose chain is part of the subkey derivation, so a payload produced for `Invites` cannot be authenticated under `PasswordReset`, and `Unprotect` throws. That is what stops a token from one feature being replayed against another. Option 1 is the misconception that purposes are labels. Option 3 is wrong because the scheme is authenticated encryption (HMAC over the ciphertext); tampering or a wrong key fails verification instead of producing garbage. Option 4 is wrong: provider instances are irrelevant; what matters is the key ring, the application discriminator and the purpose chain."
+            },
+            "uk": {
+              "prompt": "Що тут відбувається?\n\n```csharp\nvar a = provider.CreateProtector(\"Invites\");\nvar b = provider.CreateProtector(\"PasswordReset\");\nstring token = a.Protect(\"user-42\");\nstring value = b.Unprotect(token);\n```",
+              "options": [
+                {
+                  "text": "`Unprotect` повертає `\"user-42\"`, бо обидва protectors мають спільний key ring; purpose strings — лише діагностичні мітки.",
+                  "correct": false
+                },
+                {
+                  "text": "`Unprotect` кидає `CryptographicException`, бо purpose string бере участь у виведенні підключа, тож payload ізольовані за purpose.",
+                  "correct": true
+                },
+                {
+                  "text": "`Unprotect` повертає сміттєві байти, декодовані як рядок, бо неправильний підключ розшифровує без автентифікації.",
+                  "correct": false
+                },
+                {
+                  "text": "`Unprotect` спрацьовує, лише якщо обидва protectors створено з того самого екземпляра `IDataProtectionProvider`; інакше кидає виняток.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Purposes криптографічні, а не косметичні: ланцюжок purposes входить у виведення підключа, тож payload, створений для `Invites`, неможливо автентифікувати під `PasswordReset`, і `Unprotect` кидає виняток. Саме це не дає повторно використати token однієї функціональності проти іншої. Варіант 1 — хибне уявлення, що purposes — це мітки. Варіант 3 хибний, бо схема — це автентифіковане шифрування (HMAC над шифротекстом); підробка чи неправильний ключ провалюють перевірку, а не дають сміття. Варіант 4 хибний: екземпляри провайдера не мають значення; важливі key ring, application discriminator і ланцюжок purposes."
             }
           }
         },
@@ -899,6 +1403,28 @@
                 }
               ],
               "explanation": "Rotation changes only which key is the default for `Protect`. The payload header carries the key id, and `Unprotect` uses that key as long as it is present and not revoked, so rotation never breaks existing cookies (their own ticket expiry is a separate, application-level check). Option 2 is wrong: keys are never deleted automatically; removing them manually is exactly how you lose data. Option 3 is impossible — the server does not have the client's cookies to re-encrypt. Option 4 confuses key expiry with payload expiry; only `ITimeLimitedDataProtector` embeds an expiration in the payload itself."
+            },
+            "uk": {
+              "prompt": "Cookie був захищений 100 днів тому ключем Data Protection, чий стандартний 90-денний термін дії відтоді минув; ключ досі в key ring і не відкликаний. Що станеться, коли цей cookie буде пред'явлено?",
+              "options": [
+                {
+                  "text": "Його успішно розшифрують: прострочені ключі більше не використовуються для захисту нових payload, але все ще використовуються для розшифрування наявних; відхиляються лише відкликані ключі.",
+                  "correct": true
+                },
+                {
+                  "text": "Невдача: щойно ключ прострочується, його видаляють із ring, тож payload, захищені ним, більше неможливо прочитати.",
+                  "correct": false
+                },
+                {
+                  "text": "Успіх лише тому, що фреймворк під час ротації перешифрував усі наявні cookies новим ключем.",
+                  "correct": false
+                },
+                {
+                  "text": "Невдача, бо payload містить термін дії ключа, і `Unprotect` відхиляє payload, захищені простроченими ключами.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Ротація змінює лише те, який ключ є default для `Protect`. Header payload містить key id, і `Unprotect` використовує цей ключ, доки він присутній і не відкликаний, тож ротація ніколи не ламає наявні cookies (їхній власний термін дії ticket — окрема перевірка на рівні застосунку). Варіант 2 хибний: ключі ніколи не видаляються автоматично; видалення їх вручну — саме той спосіб, яким втрачають дані. Варіант 3 неможливий — сервер не має cookies клієнта, щоб їх перешифрувати. Варіант 4 плутає термін дії ключа з терміном дії payload; лише `ITimeLimitedDataProtector` вбудовує термін дії в сам payload."
             }
           }
         },
@@ -934,6 +1460,28 @@
                 }
               ],
               "explanation": "The docs position Data Protection for short-lived payloads; nothing stops you from persisting its output, but the data then lives or dies with the key ring (keys rotate every 90 days, old ones must be kept forever, and an accidental clean-up or misconfigured application name makes data unrecoverable), and you get no key-management features such as auditing, separation of duties or controlled re-encryption. Option 1 is wrong: keys do expire for protection purposes; readability depends on retaining them, which is an operational burden, not a guarantee. Option 2 misuses time-limited protectors, which add an expiry check, not durability. Option 4 is invented; there is no such length limit."
+            },
+            "uk": {
+              "prompt": "Розробник хоче шифрувати національні ідентифікаційні номери клієнтів у колонці PostgreSQL на 10 років за допомогою `IDataProtector`. Який коментар на review найкращий?",
+              "options": [
+                {
+                  "text": "Гарний вибір: ключі Data Protection ніколи не спливають, тож дані лишатимуться читабельними безстроково без жодного керування ключами.",
+                  "correct": false
+                },
+                {
+                  "text": "Гарний вибір, якщо викликати `ToTimeLimitedDataProtector()` з терміном 10 років.",
+                  "correct": false
+                },
+                {
+                  "text": "Data Protection розрахований на ефемерні payload, які застосунок передає туди й назад (cookies, tokens); для довгострокових даних at rest краще підходить спеціалізоване шифрування з керованими ключами (наприклад, envelope encryption через KMS/Key Vault або шифрування на рівні бази/колонки). Якщо все ж використовувати його, старі ключі ніколи не можна видаляти чи втрачати, а key ring треба захищати at rest.",
+                  "correct": true
+                },
+                {
+                  "text": "Data Protection не може шифрувати рядки, довші за 16 символів, тож для цього його використати не можна.",
+                  "correct": false
+                }
+              ],
+              "explanation": "Документація позиціонує Data Protection для короткоживучих payload; ніщо не заважає зберегти його результат, але тоді дані живуть чи гинуть разом із key ring (ключі ротуються кожні 90 днів, старі треба зберігати вічно, а випадкове прибирання чи неправильно налаштоване application name робить дані невідновними), і ви не отримуєте можливостей керування ключами, як-от аудиту, розподілу обов'язків чи контрольованого перешифрування. Варіант 1 хибний: ключі спливають для цілей захисту; читабельність залежить від їхнього збереження, а це операційний тягар, а не гарантія. Варіант 2 неправильно використовує time-limited protectors, які додають перевірку терміну дії, а не довговічність. Варіант 4 вигаданий; такого обмеження довжини немає."
             }
           }
         },
@@ -958,6 +1506,17 @@
                 "Proposes shared durable key persistence (database, Redis, blob storage or shared volume) and protection of keys at rest (certificate, Key Vault).",
                 "Mentions `SetApplicationName` (application discriminator) so all instances share the same isolation boundary.",
                 "Explains that key rotation keeps old keys for unprotecting so existing cookies survive, and/or that sticky sessions merely mask the issue."
+              ]
+            },
+            "uk": {
+              "prompt": "Ви запускаєте три репліки ASP.NET Core-застосунку з cookie authentication та antiforgery за load balancer у Kubernetes, з rolling deployments. Користувачі скаржаться на випадкові розлогінення та періодичні збої antiforgery. Поясніть причину в термінах Data Protection API і опишіть, як ви налаштували б його правильно.",
+              "explanation": "Еталонна відповідь: cookies і antiforgery tokens шифруються через Data Protection. За замовчуванням у Linux кожен pod зберігає свій key ring у власній файловій системі контейнера (без шифрування), тож кожна репліка має інший ring; cookie, виданий pod A, не може розшифрувати pod B (випадкові розлогінення, antiforgery «could not be decrypted»), а кожен rollout повністю замінює rings. Виправлення: зберігати key ring в одному спільному довговічному сховищі (база даних через `PersistKeysToDbContext`, Redis, blob storage або спільний volume), захищати ключі at rest (`ProtectKeysWithCertificate`/`ProtectKeysWithAzureKeyVault`) і задати однаковий `SetApplicationName` на всіх екземплярах, бо discriminator за замовчуванням виводиться з content root. Тоді ротація (стандартний термін дії 90 днів, новий ключ створюється до спливання) працює на всіх репліках, а старі ключі продовжують розшифровувати наявні cookies. Sticky sessions лише маскують проблему.",
+              "rubric": [
+                "Пояснює, що authentication cookies і antiforgery tokens захищаються Data Protection key ring.",
+                "Визначає стандартне зберігання ключів у кожному контейнері (без шифрування, ефемерне) як причину окремих key rings на кожній репліці та втрати ключів під час редеплою.",
+                "Пропонує спільне довговічне зберігання ключів (база даних, Redis, blob storage або спільний volume) і захист ключів at rest (сертифікат, Key Vault).",
+                "Згадує `SetApplicationName` (application discriminator), щоб усі екземпляри мали спільну межу ізоляції.",
+                "Пояснює, що ротація ключів зберігає старі ключі для розшифрування, тож наявні cookies переживають її, та/або що sticky sessions лише маскують проблему."
               ]
             }
           }
