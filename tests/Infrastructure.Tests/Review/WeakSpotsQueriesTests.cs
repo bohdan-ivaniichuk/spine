@@ -4,6 +4,7 @@ using Spine.Application.Review;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Content;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Spine.Infrastructure.Review;
 using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;

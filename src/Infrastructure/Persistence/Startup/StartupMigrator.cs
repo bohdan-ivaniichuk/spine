@@ -1,7 +1,8 @@
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace Spine.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence.Startup;
 
 /// <summary>
 /// Waits for the database (bounded), then applies pending migrations once. Throws on failure so the host

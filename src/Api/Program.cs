@@ -5,6 +5,7 @@ using Spine.Api.Errors;
 using Spine.Api.Health;
 using Spine.Infrastructure;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Serilog;
 using Serilog.Formatting.Compact;
 

@@ -4,6 +4,7 @@ using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Content;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;

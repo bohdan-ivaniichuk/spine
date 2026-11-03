@@ -5,6 +5,7 @@ using Spine.Domain.Content;
 using Spine.Domain.Scheduling;
 using Spine.Infrastructure.Content;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Spine.Infrastructure.Review;
 using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;

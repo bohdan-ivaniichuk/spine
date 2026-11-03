@@ -1,7 +1,8 @@
 using Spine.Domain.Progress;
+using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
-namespace Spine.Infrastructure.Persistence;
+namespace Spine.Infrastructure.Persistence.Startup;
 
 /// <summary>Seeds the single local learner idempotently (INSERT … ON CONFLICT DO NOTHING).</summary>
 public sealed class LearnerSeeder(AppDbContext db)

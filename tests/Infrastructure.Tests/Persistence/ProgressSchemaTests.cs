@@ -2,6 +2,7 @@ using Spine.Application.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Content;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;

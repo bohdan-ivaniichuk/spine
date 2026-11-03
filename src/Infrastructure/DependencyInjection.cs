@@ -5,6 +5,7 @@ using Spine.Domain.Scheduling;
 using Spine.Infrastructure.Content;
 using Spine.Infrastructure.Knowledge;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 using Spine.Infrastructure.Review;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -25,6 +26,9 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(options => ConfigureDbContext(options, connectionString));
         services.AddScoped<StartupMigrator>();
         services.AddScoped<LearnerSeeder>();
+        services.AddScoped<IDatabaseInitializer, DatabaseInitializer>();
+        services.AddOptions<DatabaseStartupOptions>().Configure(o => o.Timeout = TimeSpan.FromSeconds(
+            configuration.GetValue(DatabaseStartupOptions.TimeoutKey, DatabaseStartupOptions.DefaultTimeoutSeconds)));
         services.AddScoped<IContentImporter, ContentImporter>();
         services.AddScoped<IKnowledgeQueries, KnowledgeQueries>();
 
