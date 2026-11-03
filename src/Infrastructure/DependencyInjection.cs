@@ -29,7 +29,7 @@ public static class DependencyInjection
         services.AddScoped<IKnowledgeQueries, KnowledgeQueries>();
 
         // Tests replace the clock with FakeTimeProvider; TryAdd keeps a registration made before this call.
-        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<TimeProvider>(PostgresTimeProvider.SystemTruncated);
         services.AddSingleton<ISchedulingAlgorithm, Sm2Algorithm>();
         services.AddScoped<IReviewSessions, ReviewSessions>();
         services.AddScoped<IReadinessQueries, ReadinessQueries>();

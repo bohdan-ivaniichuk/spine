@@ -11,7 +11,7 @@ Add items as they are discovered; remove them when fixed (with the commit).
 | Critical | 0 | — |
 | High | 0 | — |
 | Medium | 2 | Start/Answer race; retried commit can 409 |
-| Low | 11 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
+| Low | 12 | Radio-group keyboard pattern; limits hard-coded in web; grading rules in Infrastructure |
 
 ## 1. Content pipeline
 
@@ -89,6 +89,14 @@ _2.1 (light-theme contrast) closed by the 003 Atlas palette: every light token p
 - Shortcut hint omits A–D and is `aria-hidden`.
 - ESLint is not configured (`ng lint` prompts to add angular-eslint), so `web-format.sh` lint is a no-op.
 - **Effort:** XS each
+
+### 2.12 [LOW] Importer and seeder stamp times without the injected clock
+- **Files:** `src/Infrastructure/Content/ContentImporter.cs` (~50), `src/Infrastructure/Persistence/LearnerSeeder.cs` (~13)
+- **Problem:** both use `DateTimeOffset.UtcNow` (100 ns on Linux) instead of the µs-truncated `TimeProvider`. Harmless
+  today (stored, never returned and re-read), but the first API that returns `created_at`/`updated_at` would bring back
+  the first-response-vs-re-read mismatch fixed by `PostgresTimeProvider`.
+- **Fix:** inject `TimeProvider` into both and use `clock.GetUtcNow()`.
+- **Effort:** XS
 
 ## 3. Tooling
 
