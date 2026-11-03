@@ -1,9 +1,10 @@
 using System.Text.Json;
-using Spine.Application.Content;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Spine.Application.Content.Import;
 using Testcontainers.PostgreSql;
 
 namespace Spine.Api.Tests;
@@ -47,8 +48,14 @@ public class ApiFixture : IAsyncLifetime
             b.UseEnvironment("Development");
             b.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
             b.UseSetting("DB_STARTUP_TIMEOUT_SECONDS", "30");
+            b.ConfigureTestServices(ConfigureTestServices);
         });
         Client = _factory.CreateClient();
+    }
+
+    /// <summary>Hook for derived fixtures to replace services after the app's own registrations.</summary>
+    protected virtual void ConfigureTestServices(IServiceCollection services)
+    {
     }
 
     public async Task DisposeAsync()

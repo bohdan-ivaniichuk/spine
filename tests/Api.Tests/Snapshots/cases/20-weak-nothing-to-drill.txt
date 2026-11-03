@@ -1,0 +1,5 @@
+status: 409
+location: -
+sql: 3
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Nothing to drill","status":409,"detail":"No question in this scope has a wrong last answer.","instance":"/api/review/sessions","traceId":"<trace>"}

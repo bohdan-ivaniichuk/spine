@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Review;
 using Npgsql;
+using Spine.Application.Review.Sessions;
 
 namespace Spine.Api.Tests.Review;
 

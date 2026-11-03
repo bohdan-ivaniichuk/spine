@@ -1,13 +1,13 @@
-using Spine.Application.Review;
+using Spine.Application.Review.Shared;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Spine.Api.Errors;
 
 /// <summary>
-/// The one place where <see cref="ReviewError"/> becomes an HTTP status. Writes RFC 7807 <c>application/problem+json</c>
-/// with <c>instance</c> = request path; anything that is not a <see cref="ReviewException"/> falls through to the
-/// default 500 problem.
+/// The one place where <see cref="ReviewError"/> becomes an HTTP status. Writes RFC 7807
+/// <c>application/problem+json</c> with <c>instance</c> = request path; anything that is not a <see
+/// cref="ReviewException"/> falls through to the default 500 problem.
 /// </summary>
 public sealed class ReviewExceptionHandler : IExceptionHandler
 {
@@ -30,7 +30,8 @@ public sealed class ReviewExceptionHandler : IExceptionHandler
         return TypedResults.Problem(title: title, detail: detail, statusCode: status, instance: instance);
     }
 
-    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
         if (exception is not ReviewException review)
         {

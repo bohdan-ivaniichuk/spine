@@ -1,7 +1,7 @@
-using Spine.Application.Content;
+using Spine.Application.Content.Import;
 using Spine.Infrastructure;
-using Serilog;
 using Serilog.Events;
+using Serilog;
 
 namespace Spine.Api.Cli;
 
@@ -35,7 +35,9 @@ public static class ImportContentCommand
                     Console.WriteLine("usage: import-content [--content-dir <path>] [--validate-only] [--dry-run]");
                     return 0;
                 default:
-                    Console.Error.WriteLine($"unknown argument '{args[i]}' (usage: import-content [--content-dir <path>] [--validate-only] [--dry-run])");
+                    Console.Error.WriteLine(
+                        $"unknown argument '{args[i]}' "
+                        + "(usage: import-content [--content-dir <path>] [--validate-only] [--dry-run])");
                     return (int)ImportExitCode.ValidationFailed;
             }
         }
@@ -80,7 +82,9 @@ public static class ImportContentCommand
         }
     }
 
-    /// <summary>`./content` from the working directory, else the nearest ancestor holding content/schema (dev inner loop).</summary>
+    /// <summary>
+    /// `./content` from the working directory, else the nearest ancestor holding content/schema (dev inner loop).
+    /// </summary>
     private static string FindContentDir()
     {
         var dir = new DirectoryInfo(Directory.GetCurrentDirectory());

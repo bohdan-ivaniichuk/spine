@@ -1,15 +1,16 @@
-using Spine.Application.Content;
-using Spine.Application.Review;
-using Spine.Domain.Progress;
-using Spine.Domain.Scheduling;
-using Spine.Infrastructure.Content;
-using Spine.Infrastructure.Persistence;
-using Spine.Infrastructure.Review;
-using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Spine.Application.Content.Import;
+using Spine.Application.Review.AnswerQuestion;
+using Spine.Application.Review.Shared;
+using Spine.Domain.Progress;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
+using Spine.Infrastructure.Tests.Content;
 
 namespace Spine.Infrastructure.Tests.Review;
 
@@ -29,7 +30,7 @@ public sealed class WeakSessionsTests(PostgresFixture fixture) : IAsyncLifetime
     private ContentDirBuilder _content = null!;
     private FakeTimeProvider _clock = null!;
     private AppDbContext _db = null!;
-    private ReviewSessions _sut = null!;
+    private ReviewSessionsHarness _sut = null!;
 
     public async Task InitializeAsync()
     {
@@ -44,7 +45,7 @@ public sealed class WeakSessionsTests(PostgresFixture fixture) : IAsyncLifetime
 
         _clock = new FakeTimeProvider(Start);
         _db = fixture.CreateContext();
-        _sut = new ReviewSessions(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        _sut = new ReviewSessionsHarness(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
     }
 
     public async Task DisposeAsync()

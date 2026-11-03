@@ -1,16 +1,19 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Review;
+using Spine.Api.Endpoints;
+using Spine.Application.Review.AnswerQuestion;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.Sessions;
 
 namespace Spine.Api.Tests.Review;
 
 /// <summary>Thin helpers over the review endpoints shared by the four endpoint test classes.</summary>
 internal static class ReviewApi
 {
-    public const string Overview = "/api/review/overview";
-    public const string Sessions = "/api/review/sessions";
-    public const string Current = "/api/review/sessions/current";
+    public const string Overview = ApiUrl.Prefix + ApiRoutes.Review.Overview;
+    public const string Sessions = ApiUrl.Prefix + ApiRoutes.Review.Sessions;
+    public const string Current = ApiUrl.Prefix + ApiRoutes.Review.CurrentSession;
 
     /// <summary>
     /// The topic every session in these tests draws from: <c>tests/Fixtures/api-content/dotnet/clr-memory.json</c>, three

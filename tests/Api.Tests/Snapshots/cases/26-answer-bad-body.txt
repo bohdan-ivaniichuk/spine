@@ -1,0 +1,5 @@
+status: 400
+location: -
+sql: 0
+
+{"type":"https://www.rfc-editor.org/rfc/rfc7231#section-6.5.1","title":"Bad Request","status":400,"instance":"/api/review/sessions/<guid-1>/answers","traceId":"<trace>","errors":[{"name":"questionId","reason":"'question Id' must not be empty."},{"name":"selectedIndex","reason":"'selected Index' must be between 0 and 3. You entered -1."}]}

@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 1
+
+{"domain":{"slug":"dotnet","title":"C# & .NET Runtime"},"topic":{"slug":"clr-memory","title":"Memory & GC"},"slug":"gc-modes","level":"S","reviewed":false,"sortOrder":1,"requestedLanguage":"en","language":"en","fallback":false,"title":"GC modes","note":"# GC modes\n\nThis fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times. This fixture note is frozen test data for the API integration tests; it only needs to satisfy the schema's minimum length of two hundred characters, so this sentence is repeated a few times.\n\n```csharp\nvar x = 42;\n```\n","questionCount":5,"kataCount":0,"deprecatedAt":"2026-11-03T09:00:00+00:00"}

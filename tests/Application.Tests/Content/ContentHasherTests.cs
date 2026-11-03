@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Spine.Application.Content;
+using Spine.Application.Content.Plan;
 using Spine.Domain.Content;
 
 namespace Spine.Application.Tests.Content;

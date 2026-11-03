@@ -1,6 +1,6 @@
-using Spine.Domain.Progress;
-using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Spine.Domain.Progress;
+using Spine.Infrastructure.Persistence.Startup;
 
 namespace Spine.Infrastructure.Tests.Persistence;
 

@@ -1,10 +1,14 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Api.Tests.Review;
-using Spine.Application.Knowledge;
-using Spine.Application.Review;
 using Npgsql;
+using Spine.Api.Endpoints;
+using Spine.Api.Tests.Review;
+using Spine.Application.Knowledge.Concept;
+using Spine.Application.Knowledge.Tree;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.GetReviewOverview;
+using Spine.Application.Review.Sessions;
 
 namespace Spine.Api.Tests.Knowledge;
 
@@ -49,7 +53,7 @@ public sealed class UkTitlesEndpointTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Tree_in_uk_serves_uk_titles_and_flags_english_fallback_per_item()
     {
-        var tree = await GetAsync<KnowledgeTreeDto>("/api/knowledge/tree?lang=uk");
+        var tree = await GetAsync<KnowledgeTreeDto>(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=uk");
 
         var dotnet = tree.Domains.Single(d => d.Slug == "dotnet");
         (dotnet.Title, dotnet.TitleFallback).ShouldBe((DomainUk, false));
@@ -62,7 +66,7 @@ public sealed class UkTitlesEndpointTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Tree_in_en_ignores_uk_titles_and_never_reports_fallback()
     {
-        var tree = await GetAsync<KnowledgeTreeDto>("/api/knowledge/tree?lang=en");
+        var tree = await GetAsync<KnowledgeTreeDto>(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=en");
 
         var dotnet = tree.Domains.Single(d => d.Slug == "dotnet");
         (dotnet.Title, dotnet.TitleFallback).ShouldBe((DomainEn, false));
@@ -73,8 +77,8 @@ public sealed class UkTitlesEndpointTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Concept_page_ancestors_follow_the_requested_language()
     {
-        var uk = await GetAsync<ConceptPageDto>("/api/knowledge/concepts/dotnet/clr-memory/span-memory?lang=uk");
-        var en = await GetAsync<ConceptPageDto>("/api/knowledge/concepts/dotnet/clr-memory/span-memory?lang=en");
+        var uk = await GetAsync<ConceptPageDto>(ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "span-memory")) + "?lang=uk");
+        var en = await GetAsync<ConceptPageDto>(ApiUrl.For(ApiRoutes.Knowledge.Concept, ("domain", "dotnet"), ("topic", "clr-memory"), ("concept", "span-memory")) + "?lang=en");
 
         uk.Domain.ShouldBe(new ConceptRefDto("dotnet", DomainUk));
         uk.Topic.ShouldBe(new ConceptRefDto("clr-memory", ClrMemoryUk));
@@ -118,7 +122,7 @@ public sealed class UkTitlesEndpointTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Uk_titles_from_the_manifest_are_imported_and_served()
     {
-        var tree = await GetAsync<KnowledgeTreeDto>("/api/knowledge/tree?lang=uk");
+        var tree = await GetAsync<KnowledgeTreeDto>(ApiUrl.Prefix + ApiRoutes.Knowledge.Tree + "?lang=uk");
 
         // tests/Fixtures/api-content/manifest.json: titles.uk on aspnet-data and aspnet-data/pipeline, not on efcore.
         var aspnet = tree.Domains.Single(d => d.Slug == "aspnet-data");

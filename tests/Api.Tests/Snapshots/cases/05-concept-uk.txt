@@ -1,0 +1,5 @@
+status: 200
+location: -
+sql: 1
+
+{"domain":{"slug":"dotnet","title":"C# & .NET Runtime"},"topic":{"slug":"async","title":"Async & Threading"},"slug":"async-await","level":"M","reviewed":true,"sortOrder":0,"requestedLanguage":"uk","language":"uk","fallback":false,"title":"Скінченний автомат async/await","note":"# Скінченний автомат async/await\n\nЦе замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів. Це замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів. Це замороджена нотатка для інтеграційних тестів API; вона лише має задовольнити мінімальну довжину схеми у двісті символів, тому речення повторюється кілька разів.\n\n```csharp\nvar x = 42;\n```\n","questionCount":3,"kataCount":0,"deprecatedAt":null}

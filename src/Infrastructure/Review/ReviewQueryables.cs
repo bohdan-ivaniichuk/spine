@@ -1,7 +1,9 @@
-using Spine.Application.Review;
+using Spine.Application.Review.Shared;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Review.Readiness;
+using Spine.Infrastructure.Review.WeakSpots;
 using Microsoft.EntityFrameworkCore;
 
 namespace Spine.Infrastructure.Review;
@@ -68,21 +70,38 @@ internal static class ReviewQueryables
             .Select(g => new WeakQuestionRow { QuestionId = g.Key.Id, ConceptId = g.Key.ConceptId, MissedAt = g.Max(x => x.AnsweredAt) });
     }
 
+    /// <summary>Due dates of every eligible question in scope that has a review state.</summary>
+    public static IQueryable<DateTimeOffset> DueAtOf(this AppDbContext db, ReviewScope scope) =>
+        from q in db.Eligible(scope)
+        join r in db.QuestionStates() on q.Id equals r.QuestionId
+        select r.DueAt;
+
+    /// <summary>Due now, most overdue first, id as a deterministic tie-break.</summary>
+    public static IQueryable<string> DueIds(this AppDbContext db, ReviewScope scope, DateTimeOffset now) =>
+        from q in db.Eligible(scope)
+        join r in db.QuestionStates() on q.Id equals r.QuestionId
+        where r.DueAt <= now
+        orderby r.DueAt, q.Id
+        select q.Id;
+
+    /// <summary>Never answered, in taxonomy order.</summary>
+    public static IQueryable<string> NewIds(this AppDbContext db, ReviewScope scope)
+    {
+        var userId = LocalLearner.Id;
+        return db.Eligible(scope)
+            .Where(q => !db.ReviewStates.Any(r => r.UserId == userId && r.QuestionId == q.Id))
+            .OrderBy(q => q.Concept!.Topic!.Domain!.SortOrder)
+            .ThenBy(q => q.Concept!.Topic!.SortOrder)
+            .ThenBy(q => q.Concept!.SortOrder)
+            .ThenBy(q => q.SortOrder)
+            .ThenBy(q => q.Id)
+            .Select(q => q.Id);
+    }
+
     /// <summary>The local learner's review states of questions.</summary>
     public static IQueryable<ReviewState> QuestionStates(this AppDbContext db)
     {
         var userId = LocalLearner.Id;
         return db.ReviewStates.AsNoTracking().Where(r => r.UserId == userId && r.ItemType == ItemType.Question);
     }
-}
-
-/// <summary>Readiness counts of one concept's schedulable questions.</summary>
-internal sealed record ConceptReadinessRow(int ConceptId, int Questions, int Stated, int Ready);
-
-/// <summary>A question whose latest answer was wrong, and when that answer was given.</summary>
-internal sealed class WeakQuestionRow
-{
-    public required string QuestionId { get; init; }
-    public int ConceptId { get; init; }
-    public DateTimeOffset MissedAt { get; init; }
 }

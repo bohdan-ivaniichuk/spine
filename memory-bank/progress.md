@@ -23,6 +23,9 @@
 - [x] 007 Activity and streak — streak card, `GET /api/review/activity`; 381 .NET + 202 web tests, gate `pr` PASS,
       Lockflight review approve (2026-11-03).
 
+- [x] 008 Backend structure (in review) — endpoint folders + `ApiRoutes`, `DatabaseInitializer`, use case per class,
+      Mapperly read mappers, one type per file, architecture tests, response snapshots; ADR 0009 (2026-11-03).
+
 - [x] `uk` pass for every content file (11 files, 490 translation maps; unreviewed items included by user decision)
       (2026-11-03).
 

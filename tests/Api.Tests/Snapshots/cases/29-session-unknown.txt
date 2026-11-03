@@ -1,0 +1,5 @@
+status: 404
+location: -
+sql: 1
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Session not found","status":404,"detail":"No session '<guid-2>'.","instance":"/api/review/sessions/<guid-2>","traceId":"<trace>"}

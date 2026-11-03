@@ -1,0 +1,13 @@
+{
+  "schema": "lockflight.approval/v2",
+  "feature": "008-backend-structure",
+  "phase": "spec",
+  "artifacts": {
+    "spec.md": "a6b041da3043b5d7697d89fdf04e31a4ac16d4f313333ceccd950fdcadd7ff1b"
+  },
+  "state": "person",
+  "approvedBy": "108990247+bohdan-ivaniichuk@users.noreply.github.com",
+  "at": "2026-11-03T17:04:48Z",
+  "engineVersion": "0.3.0",
+  "rule": null
+}

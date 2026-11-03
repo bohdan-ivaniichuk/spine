@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
-using Spine.Application.Review;
+using Spine.Api.Endpoints;
+using Spine.Application.Review.WeakSpots;
 
 namespace Spine.Api.Tests.Review;
 
@@ -8,7 +9,7 @@ namespace Spine.Api.Tests.Review;
 [Trait("Category", "Integration")]
 public sealed class WeakSpotsEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private const string WeakSpots = "/api/review/weak-spots";
+    private const string WeakSpots = ApiUrl.Prefix + ApiRoutes.Review.WeakSpots;
 
     public async Task InitializeAsync()
     {

@@ -1,0 +1,5 @@
+status: 422
+location: -
+sql: 2
+
+{"type":"https://tools.ietf.org/html/rfc4918#section-11.2","title":"Question not in session","status":422,"detail":"Question 'dotnet.async.async-await.mcq.1' is not part of session '<guid-1>'.","instance":"/api/review/sessions/<guid-1>/answers","traceId":"<trace>"}

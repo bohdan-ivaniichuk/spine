@@ -1,0 +1,5 @@
+status: 409
+location: -
+sql: 3
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Question already answered","status":409,"detail":"Question 'dotnet.clr-memory.stack-vs-heap.mcq.2' was already answered in session '<guid-1>'.","instance":"/api/review/sessions/<guid-1>/answers","traceId":"<trace>"}

@@ -1,3 +1,5 @@
+using Spine.Application.Knowledge.Concept;
+using Spine.Application.Knowledge.Tree;
 using Spine.Domain.Content;
 
 namespace Spine.Application.Knowledge;

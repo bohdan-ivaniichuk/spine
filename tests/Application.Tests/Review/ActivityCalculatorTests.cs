@@ -1,4 +1,4 @@
-using Spine.Application.Review;
+using Spine.Application.Review.Activity;
 
 namespace Spine.Application.Tests.Review;
 

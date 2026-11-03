@@ -1,18 +1,22 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Spine.Application.Content;
-using Spine.Application.Review;
-using Spine.Domain.Progress;
-using Spine.Domain.Scheduling;
-using Spine.Infrastructure.Content;
-using Spine.Infrastructure.Persistence;
-using Spine.Infrastructure.Review;
-using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
+using Spine.Application.Content.Import;
+using Spine.Application.Review.AnswerQuestion;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.GetReviewOverview;
+using Spine.Application.Review.Sessions;
+using Spine.Application.Review.Shared;
+using Spine.Domain.Progress;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
+using Spine.Infrastructure.Tests.Content;
 
 namespace Spine.Infrastructure.Tests.Review;
 
@@ -32,7 +36,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     private ContentDirBuilder _content = null!;
     private FakeTimeProvider _clock = null!;
     private AppDbContext _db = null!;
-    private ReviewSessions _sut = null!;
+    private ReviewSessionsHarness _sut = null!;
 
     public async Task InitializeAsync()
     {
@@ -41,7 +45,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         await ImportAsync();
         _clock = new FakeTimeProvider(Start);
         _db = fixture.CreateContext();
-        _sut = new ReviewSessions(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        _sut = new ReviewSessionsHarness(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
     }
 
     public async Task DisposeAsync()
@@ -325,8 +329,8 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         // Two independent contexts, as two concurrent HTTP requests would have.
         await using var db1 = fixture.CreateContext();
         await using var db2 = fixture.CreateContext();
-        var sut1 = new ReviewSessions(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
-        var sut2 = new ReviewSessions(db2, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        var sut1 = new ReviewSessionsHarness(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        var sut2 = new ReviewSessionsHarness(db2, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
 
         var results = await Task.WhenAll(
             Capture(() => sut1.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct)),
@@ -394,8 +398,8 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
         await using var db1 = fixture.CreateContext();
         await using var db2 = fixture.CreateContext();
         var clock2 = new FakeTimeProvider(Start.AddMinutes(1));
-        var sut1 = new ReviewSessions(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
-        var sut2 = new ReviewSessions(db2, new Sm2Algorithm(), clock2, Options.Create(new ReviewOptions()));
+        var sut1 = new ReviewSessionsHarness(db1, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        var sut2 = new ReviewSessionsHarness(db2, new Sm2Algorithm(), clock2, Options.Create(new ReviewOptions()));
 
         var summaries = await Task.WhenAll(sut1.FinishAsync(session.Id), sut2.FinishAsync(session.Id));
 
@@ -434,7 +438,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
 
         var ex = await Should.ThrowAsync<PostgresException>(() => InsertAttemptAsync(TopicTemplate.Mcq1, session.Id));
         ex.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
-        ex.ConstraintName.ShouldBe(ReviewSessions.SessionItemIndex);
+        ex.ConstraintName.ShouldBe(IndexNames.SessionItem);
 
         await InsertAttemptAsync(TopicTemplate.Mcq1, sessionId: null);
         await InsertAttemptAsync(TopicTemplate.Mcq1, sessionId: null);
@@ -591,7 +595,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     [Fact]
     public async Task Overview_defaults_come_from_options()
     {
-        var sut = new ReviewSessions(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions { DefaultTotalLimit = 7, DefaultNewLimit = 3 }));
+        var sut = new ReviewSessionsHarness(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions { DefaultTotalLimit = 7, DefaultNewLimit = 3 }));
 
         (await sut.GetOverviewAsync(ReviewScope.All)).Defaults.ShouldBe(new SessionDefaultsDto(7, 3));
     }
@@ -637,7 +641,7 @@ public sealed class ReviewSessionsTests(PostgresFixture fixture) : IAsyncLifetim
     {
         // A Linux system clock ticks every 100 ns; PostgreSQL keeps 1 µs. The production clock must hide the difference.
         var raw = new FakeTimeProvider(Start.AddTicks(7));
-        var sut = new ReviewSessions(_db, new Sm2Algorithm(), new PostgresTimeProvider(raw), Options.Create(new ReviewOptions()));
+        var sut = new ReviewSessionsHarness(_db, new Sm2Algorithm(), new PostgresTimeProvider(raw), Options.Create(new ReviewOptions()));
 
         var session = await sut.StartAsync(ReviewScope.All, 4, 4);
         var feedback = await sut.AnswerAsync(session.Id, TopicTemplate.Mcq1, Correct);

@@ -10,5 +10,6 @@
     <Project Path="tests/Application.Tests/Spine.Application.Tests.csproj" />
     <Project Path="tests/Domain.Tests/Spine.Domain.Tests.csproj" />
     <Project Path="tests/Infrastructure.Tests/Spine.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Spine.ArchitectureTests/Spine.ArchitectureTests.csproj" />
   </Folder>
 </Solution>

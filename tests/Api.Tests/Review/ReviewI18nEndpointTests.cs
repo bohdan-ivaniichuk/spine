@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Review;
 using Npgsql;
+using Spine.Api.Endpoints;
+using Spine.Application.Review.AnswerQuestion;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.Sessions;
 
 namespace Spine.Api.Tests.Review;
 
@@ -154,14 +157,14 @@ public sealed class ReviewI18nEndpointTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("GET", "/api/review/overview?lang=fr")]
-    [InlineData("GET", "/api/review/coverage?lang=fr")]
-    [InlineData("GET", "/api/review/sessions/current?lang=fr")]
-    [InlineData("GET", "/api/review/sessions/{id}?lang=fr")]
-    [InlineData("POST", "/api/review/sessions?lang=fr")]
-    [InlineData("POST", "/api/review/sessions/{id}/answers?lang=fr")]
-    [InlineData("POST", "/api/review/sessions/{id}/finish?lang=fr")]
-    [InlineData("GET", "/api/review/sessions/{id}?lang=")]
+    [InlineData("GET", ApiUrl.Prefix + ApiRoutes.Review.Overview + "?lang=fr")]
+    [InlineData("GET", ApiUrl.Prefix + ApiRoutes.Review.Coverage + "?lang=fr")]
+    [InlineData("GET", ApiUrl.Prefix + ApiRoutes.Review.CurrentSession + "?lang=fr")]
+    [InlineData("GET", ApiUrl.Prefix + ApiRoutes.Review.Session + "?lang=fr")]
+    [InlineData("POST", ApiUrl.Prefix + ApiRoutes.Review.Sessions + "?lang=fr")]
+    [InlineData("POST", ApiUrl.Prefix + ApiRoutes.Review.Answers + "?lang=fr")]
+    [InlineData("POST", ApiUrl.Prefix + ApiRoutes.Review.Finish + "?lang=fr")]
+    [InlineData("GET", ApiUrl.Prefix + ApiRoutes.Review.Session + "?lang=")]
     public async Task Unsupported_lang_is_400(string method, string url)
     {
         var session = await ReviewApi.StartAsync(fixture.Client);

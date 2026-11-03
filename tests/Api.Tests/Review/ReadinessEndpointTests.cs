@@ -1,7 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Review;
+using Spine.Api.Endpoints;
+using Spine.Application.Review.Readiness;
 
 namespace Spine.Api.Tests.Review;
 
@@ -9,7 +10,7 @@ namespace Spine.Api.Tests.Review;
 [Trait("Category", "Integration")]
 public sealed class ReadinessEndpointTests(ApiFixture fixture) : IAsyncLifetime
 {
-    private const string Readiness = "/api/review/readiness";
+    private const string Readiness = ApiUrl.Prefix + ApiRoutes.Review.Readiness;
 
     public async Task InitializeAsync()
     {

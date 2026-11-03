@@ -1,7 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Review;
+using Spine.Application.Review.Sessions;
+using Spine.Application.Review.Shared;
 
 namespace Spine.Api.Tests.Review;
 

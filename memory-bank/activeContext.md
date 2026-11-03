@@ -1,5 +1,16 @@
 # Active Context — Spine
 
+## Now (2026-11-03, branch `008-backend-structure`)
+
+- **008 Backend structure** (user code-review remarks, ADR 0009): code done in five stories, 456 .NET tests green,
+  response snapshots unchanged. Left: code review, trace/gate/CI/Lockflight review, PR into `main`.
+- Lockflight lessons from 008: test-touching namespace moves must happen before `redgreen red` (tests lock);
+  structural/architecture tests cannot go red through production code (GREEN_BEFORE or RED_IN_TEST), so they
+  join after the last cycle and trace shows those FRs as "not covered"; ticking `tasks.md` checkboxes makes the
+  tasks approval stale (keep tasks.md as approved); an amend's re-red is judged on the red-time snapshot.
+- Next: spec 009 — design v2 (Graphite dark theme, "S as a road" logo, UI kit on the canvas) + gamification
+  (ranks Junior→Architect by readiness, XP, Expert badges).
+
 ## Where things stand (2026-10-15, branch `dev`)
 
 Features **001 Foundation**, **002 Review session** and **003 Atlas redesign + EN/UK UI + rename**
@@ -41,7 +52,7 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 
 - **006 Weak spots done** (ADR 0008, 2026-10-28): `sessions.mode` (`regular`/`weak`, migration `AddSessionMode`);
   weak = latest attempt `is_correct = false` (from attempts, not SM-2), `ReviewQueryables.WeakQuestions` anti-join on
-  `item_id`; `StartWeakAsync` shares `StartCoreAsync` (same locks), 409 "Nothing to drill"; overview `weakCount`;
+  `item_id`; the weak start shares `SessionStarter.StartAsync` (same locks), 409 "Nothing to drill"; overview `weakCount`;
   `GET /api/review/weak-spots` (30-day window rounded up to the minute, ≥ 3 answers, top 20 concepts / 10 topics,
   pure `WeaknessRanker`, readiness reused). Web: `/weak`, rail item, overview mode toggle (`?mode=weak`), weak chip,
   summary note links + "Drill these". 356 .NET + 188 web tests; trace 11/15 (web-only FRs untraced); Lockflight

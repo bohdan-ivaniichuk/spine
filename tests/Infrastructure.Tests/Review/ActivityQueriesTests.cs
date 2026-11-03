@@ -1,16 +1,17 @@
 using System.Text.Json;
-using Spine.Application.Content;
-using Spine.Application.Review;
-using Spine.Domain.Progress;
-using Spine.Domain.Scheduling;
-using Spine.Infrastructure.Content;
-using Spine.Infrastructure.Persistence;
-using Spine.Infrastructure.Review;
-using Spine.Infrastructure.Tests.Content;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Spine.Application.Content.Import;
+using Spine.Application.Review.Activity;
+using Spine.Application.Review.Shared;
+using Spine.Domain.Progress;
+using Spine.Domain.Scheduling;
+using Spine.Infrastructure.Content;
+using Spine.Infrastructure.Persistence.Startup;
+using Spine.Infrastructure.Review.Activity;
+using Spine.Infrastructure.Tests.Content;
 
 namespace Spine.Infrastructure.Tests.Review;
 
@@ -138,7 +139,7 @@ public sealed class ActivityQueriesTests(PostgresFixture fixture) : IAsyncLifeti
         var clock = new FakeTimeProvider(Now.AddDays(-1));
         await using (var db = fixture.CreateContext())
         {
-            var sessions = new ReviewSessions(db, new Sm2Algorithm(), clock, Options.Create(new ReviewOptions()));
+            var sessions = new ReviewSessionsHarness(db, new Sm2Algorithm(), clock, Options.Create(new ReviewOptions()));
             var regular = await sessions.StartAsync(ReviewScope.All, 1, 1);
             await sessions.AnswerAsync(regular.Id, regular.Questions[0].Id, 0);
             await sessions.FinishAsync(regular.Id);
