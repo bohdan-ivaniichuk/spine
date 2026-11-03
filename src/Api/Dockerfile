@@ -13,7 +13,8 @@ RUN dotnet publish src/Api/Spine.Api.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache krb5-libs
+# tzdata: IANA time zones for the activity endpoint (?tz=Europe/Kyiv); Alpine ships without them.
+RUN apk add --no-cache krb5-libs tzdata
 ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true \
     ASPNETCORE_ENVIRONMENT=Production
