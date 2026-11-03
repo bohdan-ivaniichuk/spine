@@ -1,11 +1,12 @@
 using FastEndpoints;
 using Spine.Api.Errors;
 using Spine.Application.Review;
+using Spine.Application.Review.GetSession;
 
 namespace Spine.Api.Endpoints.Review.GetSession;
 
 /// <summary>GET /api/review/sessions/{id} — one session, open or finished.</summary>
-public sealed class GetSessionEndpoint(IReviewSessions sessions) : Endpoint<GetSessionRequest, SessionDto>
+public sealed class GetSessionEndpoint(IGetSessionUseCase getSession) : Endpoint<GetSessionRequest, SessionDto>
 {
     public override void Configure()
     {
@@ -26,7 +27,7 @@ public sealed class GetSessionEndpoint(IReviewSessions sessions) : Endpoint<GetS
 
     public override async Task HandleAsync(GetSessionRequest req, CancellationToken ct)
     {
-        var session = await sessions.GetAsync(req.Id, req.ParsedLanguage, ct);
+        var session = await getSession.ExecuteAsync(req.Id, req.ParsedLanguage, ct);
         if (session is null)
         {
             await Send.ResultAsync(ReviewExceptionHandler.Problem(

@@ -139,7 +139,7 @@ public sealed class ActivityQueriesTests(PostgresFixture fixture) : IAsyncLifeti
         var clock = new FakeTimeProvider(Now.AddDays(-1));
         await using (var db = fixture.CreateContext())
         {
-            var sessions = new ReviewSessions(db, new Sm2Algorithm(), clock, Options.Create(new ReviewOptions()));
+            var sessions = new ReviewSessionsHarness(db, new Sm2Algorithm(), clock, Options.Create(new ReviewOptions()));
             var regular = await sessions.StartAsync(ReviewScope.All, 1, 1);
             await sessions.AnswerAsync(regular.Id, regular.Questions[0].Id, 0);
             await sessions.FinishAsync(regular.Id);

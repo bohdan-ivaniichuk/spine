@@ -1,10 +1,11 @@
 using FastEndpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.GetCurrentSession;
 
 namespace Spine.Api.Endpoints.Review.GetCurrentSession;
 
 /// <summary>GET /api/review/sessions/current — the open session for resume, or 204 when there is none.</summary>
-public sealed class GetCurrentSessionEndpoint(IReviewSessions sessions) : Endpoint<GetCurrentSessionRequest, SessionDto>
+public sealed class GetCurrentSessionEndpoint(IGetCurrentSessionUseCase current) : Endpoint<GetCurrentSessionRequest, SessionDto>
 {
     public override void Configure()
     {
@@ -24,7 +25,7 @@ public sealed class GetCurrentSessionEndpoint(IReviewSessions sessions) : Endpoi
 
     public override async Task HandleAsync(GetCurrentSessionRequest req, CancellationToken ct)
     {
-        var session = await sessions.GetCurrentAsync(req.ParsedLanguage, ct);
+        var session = await current.ExecuteAsync(req.ParsedLanguage, ct);
         if (session is null)
         {
             await Send.NoContentAsync(ct);

@@ -14,6 +14,7 @@ using Spine.Infrastructure.Review.GetCurrentSession;
 using Spine.Infrastructure.Review.GetReviewCoverage;
 using Spine.Infrastructure.Review.GetReviewOverview;
 using Spine.Infrastructure.Review.GetSession;
+using Spine.Infrastructure.Review.Sessions;
 using Spine.Infrastructure.Review.StartSession;
 using Spine.Infrastructure.Review.StartWeakSession;
 using Microsoft.Extensions.Configuration;
@@ -30,7 +31,11 @@ public static class ReviewServiceCollectionExtensions
     public static IServiceCollection AddReview(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<ISchedulingAlgorithm, Sm2Algorithm>();
-        services.AddScoped<IReviewSessions, ReviewSessions>();
+
+        services.AddScoped<ReviewScopeResolver>();
+        services.AddScoped<SessionScopeDescriber>();
+        services.AddScoped<SessionProjector>();
+        services.AddScoped<SessionStarter>();
 
         services.AddScoped<IGetReviewOverviewUseCase, GetReviewOverviewUseCase>();
         services.AddScoped<IGetReviewCoverageUseCase, GetReviewCoverageUseCase>();

@@ -1,10 +1,11 @@
 using FastEndpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.FinishSession;
 
 namespace Spine.Api.Endpoints.Review.FinishSession;
 
 /// <summary>POST /api/review/sessions/{id}/finish — closes the session (idempotent) and returns its summary.</summary>
-public sealed class FinishSessionEndpoint(IReviewSessions sessions) : Endpoint<FinishSessionRequest, SessionSummaryDto>
+public sealed class FinishSessionEndpoint(IFinishSessionUseCase finish) : Endpoint<FinishSessionRequest, SessionSummaryDto>
 {
     public override void Configure()
     {
@@ -25,6 +26,6 @@ public sealed class FinishSessionEndpoint(IReviewSessions sessions) : Endpoint<F
 
     public override async Task HandleAsync(FinishSessionRequest req, CancellationToken ct)
     {
-        await Send.OkAsync(await sessions.FinishAsync(req.Id, req.ParsedLanguage, ct), ct);
+        await Send.OkAsync(await finish.ExecuteAsync(req.Id, req.ParsedLanguage, ct), ct);
     }
 }

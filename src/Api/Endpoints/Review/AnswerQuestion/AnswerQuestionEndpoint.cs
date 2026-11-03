@@ -1,12 +1,13 @@
 using FastEndpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.AnswerQuestion;
 
 namespace Spine.Api.Endpoints.Review.AnswerQuestion;
 
 /// <summary>
 /// POST /api/review/sessions/{id}/answers — records exactly one answer per question and schedules the next review.
 /// </summary>
-public sealed class AnswerQuestionEndpoint(IReviewSessions sessions)
+public sealed class AnswerQuestionEndpoint(IAnswerQuestionUseCase answer)
     : Endpoint<AnswerQuestionRequest, AnswerFeedbackDto>
 {
     public override void Configure()
@@ -31,7 +32,7 @@ public sealed class AnswerQuestionEndpoint(IReviewSessions sessions)
 
     public override async Task HandleAsync(AnswerQuestionRequest req, CancellationToken ct)
     {
-        var feedback = await sessions.AnswerAsync(req.Id, req.QuestionId, req.SelectedIndex, req.ParsedLanguage, ct);
+        var feedback = await answer.ExecuteAsync(req.Id, req.QuestionId, req.SelectedIndex, req.ParsedLanguage, ct);
         await Send.OkAsync(feedback, ct);
     }
 }

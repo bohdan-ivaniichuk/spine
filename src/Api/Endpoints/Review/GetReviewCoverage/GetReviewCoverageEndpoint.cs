@@ -1,10 +1,11 @@
 using FastEndpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.GetReviewCoverage;
 
 namespace Spine.Api.Endpoints.Review.GetReviewCoverage;
 
 /// <summary>GET /api/review/coverage — eligible / seen / due counts per topic for the knowledge map.</summary>
-public sealed class GetReviewCoverageEndpoint(IReviewSessions sessions)
+public sealed class GetReviewCoverageEndpoint(IGetReviewCoverageUseCase coverage)
     : Endpoint<GetReviewCoverageRequest, ReviewCoverageDto>
 {
     public override void Configure()
@@ -24,6 +25,6 @@ public sealed class GetReviewCoverageEndpoint(IReviewSessions sessions)
 
     public override async Task HandleAsync(GetReviewCoverageRequest req, CancellationToken ct)
     {
-        await Send.OkAsync(await sessions.GetCoverageAsync(ct), ct);
+        await Send.OkAsync(await coverage.ExecuteAsync(ct), ct);
     }
 }

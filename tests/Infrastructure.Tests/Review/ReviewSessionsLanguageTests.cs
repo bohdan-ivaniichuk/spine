@@ -31,7 +31,7 @@ public sealed class ReviewSessionsLanguageTests(PostgresFixture fixture) : IAsyn
     private ContentDirBuilder _content = null!;
     private FakeTimeProvider _clock = null!;
     private AppDbContext _db = null!;
-    private ReviewSessions _sut = null!;
+    private ReviewSessionsHarness _sut = null!;
 
     public async Task InitializeAsync()
     {
@@ -40,7 +40,7 @@ public sealed class ReviewSessionsLanguageTests(PostgresFixture fixture) : IAsyn
         await ImportAsync();
         _clock = new FakeTimeProvider(Start);
         _db = fixture.CreateContext();
-        _sut = new ReviewSessions(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
+        _sut = new ReviewSessionsHarness(_db, new Sm2Algorithm(), _clock, Options.Create(new ReviewOptions()));
     }
 
     public async Task DisposeAsync()

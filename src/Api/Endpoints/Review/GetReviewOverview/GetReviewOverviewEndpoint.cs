@@ -1,10 +1,11 @@
 using FastEndpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.GetReviewOverview;
 
 namespace Spine.Api.Endpoints.Review.GetReviewOverview;
 
 /// <summary>GET /api/review/overview — due/new counts for a scope plus the session-size defaults.</summary>
-public sealed class GetReviewOverviewEndpoint(IReviewSessions sessions)
+public sealed class GetReviewOverviewEndpoint(IGetReviewOverviewUseCase overview)
     : Endpoint<GetReviewOverviewRequest, ReviewOverviewDto>
 {
     public override void Configure()
@@ -26,7 +27,7 @@ public sealed class GetReviewOverviewEndpoint(IReviewSessions sessions)
 
     public override async Task HandleAsync(GetReviewOverviewRequest req, CancellationToken ct)
     {
-        var overview = await sessions.GetOverviewAsync(req.ToReviewScope(), req.ParsedLanguage, ct);
-        await Send.OkAsync(overview, ct);
+        var result = await overview.ExecuteAsync(req.ToReviewScope(), req.ParsedLanguage, ct);
+        await Send.OkAsync(result, ct);
     }
 }

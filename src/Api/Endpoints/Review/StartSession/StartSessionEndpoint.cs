@@ -2,13 +2,18 @@ using FastEndpoints;
 using Microsoft.Extensions.Options;
 using Spine.Api.Endpoints.Review.GetSession;
 using Spine.Application.Review;
+using Spine.Application.Review.StartSession;
+using Spine.Application.Review.StartWeakSession;
 
 namespace Spine.Api.Endpoints.Review.StartSession;
 
 /// <summary>
 /// POST /api/review/sessions — finishes any open session, builds a new one and returns it (201 + Location).
 /// </summary>
-public sealed class StartSessionEndpoint(IReviewSessions sessions, IOptions<ReviewOptions> options)
+public sealed class StartSessionEndpoint(
+    IStartSessionUseCase start,
+    IStartWeakSessionUseCase startWeak,
+    IOptions<ReviewOptions> options)
     : Endpoint<StartSessionRequest, SessionDto>
 {
     public override void Configure()
@@ -36,8 +41,8 @@ public sealed class StartSessionEndpoint(IReviewSessions sessions, IOptions<Revi
     {
         var total = req.TotalLimit ?? options.Value.DefaultTotalLimit;
         var session = req.Mode == "weak"
-            ? await sessions.StartWeakAsync(req.ToReviewScope(), total, req.ParsedLanguage, ct)
-            : await sessions.StartAsync(
+            ? await startWeak.ExecuteAsync(req.ToReviewScope(), total, req.ParsedLanguage, ct)
+            : await start.ExecuteAsync(
                 req.ToReviewScope(),
                 total,
                 req.NewLimit ?? options.Value.DefaultNewLimit,
