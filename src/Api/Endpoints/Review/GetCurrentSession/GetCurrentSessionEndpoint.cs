@@ -1,6 +1,5 @@
 using Spine.Application.Review.GetCurrentSession;
 using Spine.Application.Review.Sessions;
-using Spine.Application.Review;
 using FastEndpoints;
 
 namespace Spine.Api.Endpoints.Review.GetCurrentSession;

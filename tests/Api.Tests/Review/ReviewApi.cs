@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Spine.Api.Endpoints;
-using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 using Spine.Application.Review.FinishSession;
 using Spine.Application.Review.Sessions;

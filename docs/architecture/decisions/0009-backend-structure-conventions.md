@@ -56,4 +56,8 @@ so a refactor that changes the contract fails.
 - Structural rules cannot fail through production code, so in a Lockflight red/green cycle they count as
   already green; they were added after the last cycle, and FR-001, FR-003, FR-008 and FR-009 are verified by
   the architecture tests rather than by a red → green trace. FR-007 is verified by the snapshots.
+- Two intentional start-up differences: an invalid `DB_STARTUP_TIMEOUT_SECONDS` is now logged as critical and
+  exits 1 instead of crashing unhandled, and the critical log's category is `DatabaseInitializer`, not the app.
+- A session plan runs on the `SessionStarter`'s context (passed into the plan delegate), so its reads stay inside
+  the start transaction and behind its locks whatever lifetime the context gets.
 - Mapperly is a source generator (compile time only, no runtime dependency).

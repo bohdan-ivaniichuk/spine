@@ -1,5 +1,3 @@
-using Spine.Application.Review;
-using Microsoft.EntityFrameworkCore;
 
 namespace Spine.Infrastructure.Review.WeakSpots;
 

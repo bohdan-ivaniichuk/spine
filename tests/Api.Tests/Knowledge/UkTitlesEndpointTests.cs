@@ -6,7 +6,6 @@ using Spine.Api.Endpoints;
 using Spine.Api.Tests.Review;
 using Spine.Application.Knowledge.Concept;
 using Spine.Application.Knowledge.Tree;
-using Spine.Application.Review;
 using Spine.Application.Review.FinishSession;
 using Spine.Application.Review.GetReviewOverview;
 using Spine.Application.Review.Sessions;

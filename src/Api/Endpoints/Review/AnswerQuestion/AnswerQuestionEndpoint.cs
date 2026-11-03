@@ -1,5 +1,4 @@
 using FastEndpoints;
-using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 
 namespace Spine.Api.Endpoints.Review.AnswerQuestion;

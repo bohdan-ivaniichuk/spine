@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Spine.Application.Content.Import;
-using Spine.Application.Review;
 using Spine.Application.Review.WeakSpots;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Content;

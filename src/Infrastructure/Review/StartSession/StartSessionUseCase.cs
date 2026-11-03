@@ -1,7 +1,6 @@
 using Spine.Application.Review.Sessions;
 using Spine.Application.Review.Shared;
 using Spine.Application.Review.StartSession;
-using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
@@ -11,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Spine.Infrastructure.Review.StartSession;
 
 /// <summary>EF implementation of <see cref="IStartSessionUseCase"/>: due first, then new, through <see cref="SessionStarter"/>.</summary>
-public sealed class StartSessionUseCase(AppDbContext db, SessionStarter starter) : IStartSessionUseCase
+public sealed class StartSessionUseCase(SessionStarter starter) : IStartSessionUseCase
 {
     public async Task<SessionDto> ExecuteAsync(
         ReviewScope scope, int totalLimit, int newLimit, Language language, CancellationToken ct)
@@ -22,7 +21,7 @@ public sealed class StartSessionUseCase(AppDbContext db, SessionStarter starter)
                 nameof(newLimit), newLimit, $"Must be {ReviewOptions.MinLimit}..{ReviewOptions.MaxLimit}.");
         }
 
-        return await starter.StartAsync(scope, SessionMode.Regular, totalLimit, newLimit, language, async now =>
+        return await starter.StartAsync(scope, SessionMode.Regular, totalLimit, newLimit, language, async (db, now) =>
         {
             var dueIds = await db.DueIds(scope, now).Take(totalLimit).ToListAsync(ct);
             var newIds = await db.NewIds(scope).Take(Math.Min(newLimit, totalLimit)).ToListAsync(ct);

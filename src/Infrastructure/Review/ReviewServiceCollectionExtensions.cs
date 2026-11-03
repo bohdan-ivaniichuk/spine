@@ -10,7 +10,6 @@ using Spine.Application.Review.Shared;
 using Spine.Application.Review.StartSession;
 using Spine.Application.Review.StartWeakSession;
 using Spine.Application.Review.WeakSpots;
-using Spine.Application.Review;
 using Spine.Domain.Scheduling;
 using Spine.Infrastructure.Review.Activity;
 using Spine.Infrastructure.Review.AnswerQuestion;

@@ -52,7 +52,7 @@ reviewers clean after fixes; walked in Chrome in EN/UK and light/dark.
 
 - **006 Weak spots done** (ADR 0008, 2026-10-28): `sessions.mode` (`regular`/`weak`, migration `AddSessionMode`);
   weak = latest attempt `is_correct = false` (from attempts, not SM-2), `ReviewQueryables.WeakQuestions` anti-join on
-  `item_id`; `StartWeakAsync` shares `StartCoreAsync` (same locks), 409 "Nothing to drill"; overview `weakCount`;
+  `item_id`; the weak start shares `SessionStarter.StartAsync` (same locks), 409 "Nothing to drill"; overview `weakCount`;
   `GET /api/review/weak-spots` (30-day window rounded up to the minute, ≥ 3 answers, top 20 concepts / 10 topics,
   pure `WeaknessRanker`, readiness reused). Web: `/weak`, rail item, overview mode toggle (`?mode=weak`), weak chip,
   summary note links + "Drill these". 356 .NET + 188 web tests; trace 11/15 (web-only FRs untraced); Lockflight

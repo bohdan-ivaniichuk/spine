@@ -1,7 +1,6 @@
 using Spine.Application.Review.Readiness;
 using Spine.Application.Review.Shared;
 using Spine.Application.Review.WeakSpots;
-using Spine.Application.Review;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
 using Spine.Infrastructure.Review.Readiness;

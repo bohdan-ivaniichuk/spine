@@ -2,7 +2,6 @@ using System.Net;
 using System.Text.Json;
 using Spine.Api.Endpoints;
 using Spine.Api.Endpoints.Review.GetActivity;
-using Spine.Application.Review;
 using Spine.Application.Review.Activity;
 
 namespace Spine.Api.Tests.Review;

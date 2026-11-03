@@ -2,7 +2,6 @@ using Spine.Api.Errors;
 using Spine.Application.Review.GetSession;
 using Spine.Application.Review.Sessions;
 using Spine.Application.Review.Shared;
-using Spine.Application.Review;
 using FastEndpoints;
 
 namespace Spine.Api.Endpoints.Review.GetSession;

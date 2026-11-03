@@ -1,4 +1,3 @@
-using Spine.Application.Review;
 using Spine.Application.Review.GetReviewCoverage;
 
 namespace Spine.Application.Tests.Review;

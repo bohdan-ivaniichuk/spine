@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Spine.Application.Content.Import;
-using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 using Spine.Application.Review.FinishSession;
 using Spine.Application.Review.GetCurrentSession;

@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using Spine.Application.Content.Import;
-using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 using Spine.Application.Review.FinishSession;
 using Spine.Application.Review.GetReviewOverview;

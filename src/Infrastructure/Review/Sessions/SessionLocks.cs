@@ -25,8 +25,9 @@ public static class SessionLocks
         db.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE user_id = {userId} AND finished_at IS NULL FOR UPDATE", ct);
 
     /// <summary>
-    /// <c>SELECT ... FOR UPDATE</c> on one session row, held until the surrounding transaction ends. Answer, Finish and
-    /// the auto-close in Start all take it, so an answer can never land in a session that is being finished.
+    /// <c>SELECT ... FOR UPDATE</c> on one session row, held until the surrounding transaction ends. Answer and Finish
+    /// take it (Start locks the same rows through <see cref="LockOpenSessionsAsync"/>), so an answer can never land in a
+    /// session that is being finished.
     /// </summary>
     public static Task LockSessionAsync(this AppDbContext db, Guid sessionId, CancellationToken ct) =>
         db.Database.ExecuteSqlAsync($"SELECT id FROM sessions WHERE id = {sessionId} FOR UPDATE", ct);

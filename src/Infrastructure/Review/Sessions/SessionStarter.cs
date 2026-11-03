@@ -1,6 +1,5 @@
 using Spine.Application.Review.Sessions;
 using Spine.Application.Review.Shared;
-using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
@@ -11,6 +10,7 @@ namespace Spine.Infrastructure.Review.Sessions;
 /// <summary>
 /// The transactional part of every start: lock, plan (which throws to refuse), close the open session, insert. A refusal
 /// rolls back, so nothing is closed and an open session stays resumable. Shared by the regular and weak starts.
+/// The plan receives this starter's context, so its reads run inside the transaction and behind the locks.
 /// </summary>
 public sealed class SessionStarter(AppDbContext db, TimeProvider clock, ReviewScopeResolver resolver, SessionProjector projector)
 {
@@ -20,7 +20,7 @@ public sealed class SessionStarter(AppDbContext db, TimeProvider clock, ReviewSc
         int totalLimit,
         int newLimit,
         Language language,
-        Func<DateTimeOffset, Task<string[]>> plan,
+        Func<AppDbContext, DateTimeOffset, Task<string[]>> plan,
         CancellationToken ct)
     {
         if (!ReviewOptions.IsWithinBounds(totalLimit))
@@ -42,7 +42,7 @@ public sealed class SessionStarter(AppDbContext db, TimeProvider clock, ReviewSc
             await db.LockStartAsync(ct);
             await db.LockOpenSessionsAsync(userId, ct);
 
-            var questionIds = await plan(now);
+            var questionIds = await plan(db, now);
 
             var open = await db.Sessions.Where(s => s.UserId == userId && s.FinishedAt == null).ToListAsync(ct);
             foreach (var session in open)

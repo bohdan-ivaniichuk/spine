@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 using Spine.Application.Review.FinishSession;
 using Spine.Application.Review.GetReviewCoverage;
@@ -44,8 +43,8 @@ public sealed class ReviewSessionsHarness
         var starter = new SessionStarter(db, clock, resolver, projector);
         _overview = new GetReviewOverviewUseCase(db, resolver, clock, options);
         _coverage = new GetReviewCoverageUseCase(db, clock);
-        _start = new StartSessionUseCase(db, starter);
-        _startWeak = new StartWeakSessionUseCase(db, starter, options);
+        _start = new StartSessionUseCase(starter);
+        _startWeak = new StartWeakSessionUseCase(starter, options);
         _current = new GetCurrentSessionUseCase(db, projector);
         _get = new GetSessionUseCase(projector);
         _answer = new AnswerQuestionUseCase(db, algorithm, clock);

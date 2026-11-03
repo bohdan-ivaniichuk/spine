@@ -1,6 +1,5 @@
 using Spine.Application.Review.GetCurrentSession;
 using Spine.Application.Review.Sessions;
-using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
