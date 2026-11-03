@@ -1,7 +1,10 @@
+using Spine.Application.Review.Shared;
 using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;
 using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Review.Readiness;
+using Spine.Infrastructure.Review.WeakSpots;
 using Microsoft.EntityFrameworkCore;
 
 namespace Spine.Infrastructure.Review;
@@ -102,15 +105,4 @@ internal static class ReviewQueryables
         var userId = LocalLearner.Id;
         return db.ReviewStates.AsNoTracking().Where(r => r.UserId == userId && r.ItemType == ItemType.Question);
     }
-}
-
-/// <summary>Readiness counts of one concept's schedulable questions.</summary>
-internal sealed record ConceptReadinessRow(int ConceptId, int Questions, int Stated, int Ready);
-
-/// <summary>A question whose latest answer was wrong, and when that answer was given.</summary>
-internal sealed class WeakQuestionRow
-{
-    public required string QuestionId { get; init; }
-    public int ConceptId { get; init; }
-    public DateTimeOffset MissedAt { get; init; }
 }

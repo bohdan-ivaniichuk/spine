@@ -1,10 +1,10 @@
-using Spine.Domain.Progress;
-using Spine.Infrastructure.Persistence;
-using Spine.Infrastructure.Persistence.Startup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Spine.Domain.Progress;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 
 namespace Spine.Infrastructure.Tests.Persistence;
 

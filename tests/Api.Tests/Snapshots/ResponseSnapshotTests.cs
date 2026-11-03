@@ -1,6 +1,6 @@
-using Spine.Api.Endpoints;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Spine.Api.Endpoints;
 
 namespace Spine.Api.Tests.Snapshots;
 

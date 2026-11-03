@@ -1,4 +1,11 @@
+using Microsoft.Extensions.Options;
 using Spine.Application.Review;
+using Spine.Application.Review.AnswerQuestion;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.GetReviewCoverage;
+using Spine.Application.Review.GetReviewOverview;
+using Spine.Application.Review.Sessions;
+using Spine.Application.Review.Shared;
 using Spine.Domain.Content;
 using Spine.Domain.Scheduling;
 using Spine.Infrastructure.Persistence;
@@ -11,7 +18,6 @@ using Spine.Infrastructure.Review.GetSession;
 using Spine.Infrastructure.Review.Sessions;
 using Spine.Infrastructure.Review.StartSession;
 using Spine.Infrastructure.Review.StartWeakSession;
-using Microsoft.Extensions.Options;
 
 namespace Spine.Infrastructure.Tests.Review;
 

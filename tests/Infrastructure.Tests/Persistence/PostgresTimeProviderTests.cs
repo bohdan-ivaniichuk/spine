@@ -1,5 +1,5 @@
-using Spine.Infrastructure.Persistence;
 using Microsoft.Extensions.Time.Testing;
+using Spine.Infrastructure.Persistence;
 
 namespace Spine.Infrastructure.Tests.Persistence;
 

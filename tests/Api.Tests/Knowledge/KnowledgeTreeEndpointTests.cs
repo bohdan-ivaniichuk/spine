@@ -1,8 +1,8 @@
-using Spine.Api.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Spine.Application.Knowledge;
+using Spine.Api.Endpoints;
+using Spine.Application.Knowledge.Tree;
 
 namespace Spine.Api.Tests.Knowledge;
 

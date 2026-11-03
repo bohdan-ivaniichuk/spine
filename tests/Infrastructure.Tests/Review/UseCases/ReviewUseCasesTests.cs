@@ -1,4 +1,8 @@
-using Spine.Application.Content;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
+using Spine.Application.Content.Import;
 using Spine.Application.Review;
 using Spine.Application.Review.AnswerQuestion;
 using Spine.Application.Review.FinishSession;
@@ -6,6 +10,8 @@ using Spine.Application.Review.GetCurrentSession;
 using Spine.Application.Review.GetReviewCoverage;
 using Spine.Application.Review.GetReviewOverview;
 using Spine.Application.Review.GetSession;
+using Spine.Application.Review.Sessions;
+using Spine.Application.Review.Shared;
 using Spine.Application.Review.StartSession;
 using Spine.Application.Review.StartWeakSession;
 using Spine.Domain.Content;
@@ -14,10 +20,6 @@ using Spine.Infrastructure.Persistence;
 using Spine.Infrastructure.Persistence.Startup;
 using Spine.Infrastructure.Review;
 using Spine.Infrastructure.Tests.Content;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Spine.Infrastructure.Tests.Review.UseCases;
 

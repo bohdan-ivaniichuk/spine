@@ -1,5 +1,6 @@
-using FastEndpoints;
+using Spine.Application.Knowledge.Tree;
 using Spine.Application.Knowledge;
+using FastEndpoints;
 
 namespace Spine.Api.Endpoints.Knowledge.GetKnowledgeTree;
 

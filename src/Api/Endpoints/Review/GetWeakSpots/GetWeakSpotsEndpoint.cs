@@ -1,5 +1,6 @@
-using FastEndpoints;
+using Spine.Application.Review.WeakSpots;
 using Spine.Application.Review;
+using FastEndpoints;
 
 namespace Spine.Api.Endpoints.Review.GetWeakSpots;
 

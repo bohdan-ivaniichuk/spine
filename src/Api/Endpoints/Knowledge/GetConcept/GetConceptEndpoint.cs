@@ -1,5 +1,6 @@
-using FastEndpoints;
+using Spine.Application.Knowledge.Concept;
 using Spine.Application.Knowledge;
+using FastEndpoints;
 
 namespace Spine.Api.Endpoints.Knowledge.GetConcept;
 

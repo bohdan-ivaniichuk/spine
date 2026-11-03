@@ -1,5 +1,6 @@
-using Spine.Application.Review;
 using Spine.Application.Review.GetReviewCoverage;
+using Spine.Application.Review.Shared;
+using Spine.Application.Review;
 using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 

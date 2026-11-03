@@ -1,5 +1,5 @@
-using Spine.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Spine.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
 namespace Spine.Infrastructure.Tests;

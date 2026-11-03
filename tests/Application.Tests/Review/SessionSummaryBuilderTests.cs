@@ -1,4 +1,6 @@
 using Spine.Application.Review;
+using Spine.Application.Review.FinishSession;
+using Spine.Application.Review.Shared;
 using Spine.Domain.Progress;
 
 namespace Spine.Application.Tests.Review;

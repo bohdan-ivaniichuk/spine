@@ -1,4 +1,5 @@
 using Spine.Application.Knowledge;
+using Spine.Application.Review.Shared;
 using Spine.Application.Review;
 using Spine.Domain.Content;
 using Spine.Domain.Progress;

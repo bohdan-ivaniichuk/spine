@@ -1,7 +1,7 @@
-using Spine.Infrastructure.Persistence;
-using Spine.Infrastructure.Persistence.Startup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Spine.Infrastructure.Persistence;
+using Spine.Infrastructure.Persistence.Startup;
 
 namespace Spine.Infrastructure.Tests.Persistence;
 

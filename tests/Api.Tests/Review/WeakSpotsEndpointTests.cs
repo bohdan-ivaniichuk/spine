@@ -1,7 +1,8 @@
-using Spine.Api.Endpoints;
 using System.Net;
 using System.Text.Json;
+using Spine.Api.Endpoints;
 using Spine.Application.Review;
+using Spine.Application.Review.WeakSpots;
 
 namespace Spine.Api.Tests.Review;
 

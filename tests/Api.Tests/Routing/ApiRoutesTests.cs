@@ -1,6 +1,6 @@
-using Spine.Api.Endpoints;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Spine.Api.Endpoints;
 
 namespace Spine.Api.Tests.Routing;
 
